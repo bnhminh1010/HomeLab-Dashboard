@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,10 +24,11 @@ const (
 )
 
 var (
-	ErrMissingIdentity = errors.New("missing Tailscale identity")
-	ErrInvalidSession  = errors.New("invalid session")
-	ErrInvalidCSRF     = errors.New("invalid CSRF token")
-	ErrInvalidOrigin   = errors.New("invalid request origin")
+	ErrMissingIdentity   = errors.New("missing Tailscale identity")
+	ErrUntrustedIdentity = errors.New("Tailscale identity headers are not trusted for this request")
+	ErrInvalidSession    = errors.New("invalid session")
+	ErrInvalidCSRF       = errors.New("invalid CSRF token")
+	ErrInvalidOrigin     = errors.New("invalid request origin")
 )
 
 type Principal struct {
@@ -45,14 +47,15 @@ type Session struct {
 }
 
 type Manager struct {
-	mu       sync.Mutex
-	admins   map[string]struct{}
-	sessions map[string]Session
-	now      func() time.Time
-	secure   bool
+	mu           sync.Mutex
+	admins       map[string]struct{}
+	sessions     map[string]Session
+	now          func() time.Time
+	secure       bool
+	trustHeaders bool
 }
 
-func NewManager(adminLogins []string, secureCookies bool) *Manager {
+func NewManager(adminLogins []string, trustTailscaleHeaders, secureCookies bool) *Manager {
 	admins := make(map[string]struct{}, len(adminLogins))
 	for _, login := range adminLogins {
 		if normalized := normalizeLogin(login); normalized != "" {
@@ -60,14 +63,18 @@ func NewManager(adminLogins []string, secureCookies bool) *Manager {
 		}
 	}
 	return &Manager{
-		admins:   admins,
-		sessions: make(map[string]Session),
-		now:      time.Now,
-		secure:   secureCookies,
+		admins:       admins,
+		sessions:     make(map[string]Session),
+		now:          time.Now,
+		secure:       secureCookies,
+		trustHeaders: trustTailscaleHeaders,
 	}
 }
 
 func (m *Manager) PrincipalFromRequest(r *http.Request) (Principal, error) {
+	if !m.trustHeaders || !remoteIsLoopback(r.RemoteAddr) {
+		return Principal{}, ErrUntrustedIdentity
+	}
 	login := normalizeLogin(r.Header.Get("Tailscale-User-Login"))
 	if login == "" {
 		return Principal{}, ErrMissingIdentity
@@ -77,6 +84,15 @@ func (m *Manager) PrincipalFromRequest(r *http.Request) (Principal, error) {
 		role = RoleAdmin
 	}
 	return Principal{Login: login, Name: strings.TrimSpace(r.Header.Get("Tailscale-User-Name")), Role: role}, nil
+}
+
+func remoteIsLoopback(remoteAddress string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(remoteAddress))
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (m *Manager) Start(w http.ResponseWriter, principal Principal) (Session, error) {

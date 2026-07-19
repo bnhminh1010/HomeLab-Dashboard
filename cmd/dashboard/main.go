@@ -18,6 +18,7 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/auth"
 	"github.com/binhminh/HomeLab-Minh/internal/config"
 	"github.com/binhminh/HomeLab-Minh/internal/containers"
+	"github.com/binhminh/HomeLab-Minh/internal/hostagent"
 	"github.com/binhminh/HomeLab-Minh/internal/httpapi"
 	"github.com/binhminh/HomeLab-Minh/internal/metrics"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
@@ -91,7 +92,15 @@ func run() error {
 		Alerts:     metrics.AlertSourceFunc(runtimeSource.alertsSnapshot),
 	}, cfg.MetricsInterval)
 
-	terminalManager, err := terminal.NewManager(podmanClient, terminal.ManagerOptions{})
+	var hostBackend terminal.HostBackend
+	if cfg.HostShellEnabled {
+		hostClient, err := hostagent.NewClient(cfg.HostAgentSocket)
+		if err != nil {
+			return fmt.Errorf("configure host shell agent: %w", err)
+		}
+		hostBackend = hostAgentAdapter{client: hostClient}
+	}
+	terminalManager, err := terminal.NewManagerWithHost(podmanClient, hostBackend, terminal.ManagerOptions{})
 	if err != nil {
 		return err
 	}
@@ -103,10 +112,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	authManager := auth.NewManager(cfg.AdminUsers, cfg.TrustTailscaleHeaders)
+	authManager := auth.NewManager(cfg.AdminUsers, cfg.TrustTailscaleHeaders, cfg.TrustTailscaleHeaders)
 	api, err := httpapi.New(httpapi.Options{
 		Auth: authManager, Metrics: hub, Services: serviceManager, Audit: database,
 		Terminal: terminalManager, Static: staticHandler, SecureOrigin: cfg.TrustTailscaleHeaders,
+		HostShellEnabled: cfg.HostShellEnabled, HostShellUsers: cfg.HostShellUsers,
 		Ready: database.Ping,
 	})
 	if err != nil {
@@ -146,6 +156,47 @@ func run() error {
 		runErr = fmt.Errorf("shutdown HTTP server: %w", err)
 	}
 	return runErr
+}
+
+type hostAgentAdapter struct {
+	client *hostagent.Client
+}
+
+func (adapter hostAgentAdapter) Probe(ctx context.Context) error {
+	return adapter.client.Probe(ctx)
+}
+
+func (adapter hostAgentAdapter) Open(ctx context.Context, size terminal.HostSize) (terminal.HostStream, error) {
+	session, err := adapter.client.Open(ctx, hostagent.Size{Cols: size.Cols, Rows: size.Rows})
+	if err != nil {
+		return nil, err
+	}
+	return hostSessionAdapter{Session: session}, nil
+}
+
+type hostSessionAdapter struct {
+	hostagent.Session
+}
+
+func (adapter hostSessionAdapter) Read(target []byte) (int, error) {
+	read, err := adapter.Session.Read(target)
+	switch {
+	case errors.Is(err, hostagent.ErrIdleTimeout):
+		return read, terminal.ErrIdleTimeout
+	case errors.Is(err, hostagent.ErrHardTimeout):
+		return read, terminal.ErrHardTimeout
+	default:
+		return read, err
+	}
+}
+
+func (adapter hostSessionAdapter) Resize(ctx context.Context, size terminal.HostSize) error {
+	return adapter.Session.Resize(ctx, hostagent.Size{Cols: size.Cols, Rows: size.Rows})
+}
+
+func (adapter hostSessionAdapter) Info() terminal.HostInfo {
+	info := adapter.Session.Info()
+	return terminal.HostInfo{Hostname: info.Hostname, User: info.User, Shell: info.Shell}
 }
 
 func runWorker(ctx context.Context, errorsOut chan<- error, name string, worker func(context.Context) error) {

@@ -19,6 +19,9 @@ type Config struct {
 	HostRootPath           string
 	PodmanSocket           string
 	AdminUsers             []string
+	HostShellEnabled       bool
+	HostShellUsers         []string
+	HostAgentSocket        string
 	ProbeAllowCIDRs        []netip.Prefix
 	MetricsInterval        time.Duration
 	ProbeInterval          time.Duration
@@ -42,6 +45,8 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		HostRootPath:           valueOr(getenv("HOST_ROOT_PATH"), "/host/root"),
 		PodmanSocket:           valueOr(getenv("PODMAN_SOCKET"), "/run/podman/podman.sock"),
 		AdminUsers:             splitList(getenv("ADMIN_USERS")),
+		HostShellUsers:         splitList(getenv("HOST_SHELL_USERS")),
+		HostAgentSocket:        valueOr(getenv("HOST_AGENT_SOCKET"), "/run/host-agent/agent.sock"),
 		MetricsInterval:        2 * time.Second,
 		ProbeInterval:          15 * time.Second,
 		ProbeTimeout:           3 * time.Second,
@@ -73,6 +78,12 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("TRUST_TAILSCALE_HEADERS: %w", err)
 		}
 	}
+	if value := strings.TrimSpace(getenv("HOST_SHELL_ENABLED")); value != "" {
+		cfg.HostShellEnabled, err = strconv.ParseBool(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("HOST_SHELL_ENABLED: %w", err)
+		}
+	}
 
 	defaultCIDRs := "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7"
 	if cfg.ProbeAllowCIDRs, err = parsePrefixes(valueOr(getenv("PROBE_ALLOW_CIDRS"), defaultCIDRs)); err != nil {
@@ -91,11 +102,26 @@ func (c Config) Validate() error {
 	for name, path := range map[string]string{
 		"DATA_PATH": c.DataPath, "HOST_PROC_PATH": c.HostProcPath,
 		"HOST_SYS_PATH": c.HostSysPath, "HOST_ROOT_PATH": c.HostRootPath,
-		"PODMAN_SOCKET": c.PodmanSocket,
+		"PODMAN_SOCKET": c.PodmanSocket, "HOST_AGENT_SOCKET": c.HostAgentSocket,
 	} {
 		if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) {
 			return fmt.Errorf("%s must be an absolute path", name)
 		}
+	}
+	if c.TrustTailscaleHeaders && !listenAddressIsLoopback(c.ListenAddress) {
+		return fmt.Errorf("TRUST_TAILSCALE_HEADERS requires DASHBOARD_ADDR to use a loopback address")
+	}
+	adminUsers := make(map[string]struct{}, len(c.AdminUsers))
+	for _, login := range c.AdminUsers {
+		adminUsers[strings.ToLower(strings.TrimSpace(login))] = struct{}{}
+	}
+	for _, login := range c.HostShellUsers {
+		if _, ok := adminUsers[strings.ToLower(strings.TrimSpace(login))]; !ok {
+			return fmt.Errorf("HOST_SHELL_USERS must be a subset of ADMIN_USERS")
+		}
+	}
+	if c.HostShellEnabled && len(c.HostShellUsers) == 0 {
+		return fmt.Errorf("HOST_SHELL_USERS must contain at least one login when HOST_SHELL_ENABLED is true")
 	}
 	if c.MetricsInterval <= 0 || c.ProbeInterval <= 0 || c.ProbeTimeout <= 0 {
 		return fmt.Errorf("intervals and timeouts must be positive")
@@ -115,6 +141,18 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func listenAddressIsLoopback(address string) bool {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || port == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
 }
 
 func valueOr(value, fallback string) string {

@@ -33,6 +33,9 @@ services:
       DASHBOARD_ADDR: 127.0.0.1:8082
       DATA_PATH: /data/dashboard.db
       ADMIN_USERS: ${ADMIN_USERS:?Set ADMIN_USERS in .env}
+      HOST_SHELL_ENABLED: ${HOST_SHELL_ENABLED:-false}
+      HOST_SHELL_USERS: ${HOST_SHELL_USERS:-}
+      HOST_AGENT_SOCKET: /run/host-agent/agent.sock
       PODMAN_SOCKET: /run/podman/podman.sock
       HOST_PROC_PATH: /host/proc
       HOST_SYS_PATH: /host/sys
@@ -43,6 +46,7 @@ services:
     volumes:
       - dashboard-data:/data
       - ${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/podman/podman.sock:/run/podman/podman.sock
+      - ${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/homelab-dashboard:/run/host-agent:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave

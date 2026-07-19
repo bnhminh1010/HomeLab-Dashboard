@@ -8,8 +8,9 @@ import (
 )
 
 func TestPrincipalRolesAreNormalized(t *testing.T) {
-	m := NewManager([]string{"Admin@Example.com"}, false)
+	m := NewManager([]string{"Admin@Example.com"}, true, false)
 	r := httptest.NewRequest(http.MethodGet, "http://dashboard.test/", nil)
+	r.RemoteAddr = "127.0.0.1:12345"
 	r.Header.Set("Tailscale-User-Login", " ADMIN@example.COM ")
 	principal, err := m.PrincipalFromRequest(r)
 	if err != nil {
@@ -21,7 +22,7 @@ func TestPrincipalRolesAreNormalized(t *testing.T) {
 }
 
 func TestSessionMutationRequiresOriginAndCSRF(t *testing.T) {
-	m := NewManager([]string{"admin@example.com"}, false)
+	m := NewManager([]string{"admin@example.com"}, false, false)
 	principal := Principal{Login: "admin@example.com", Role: RoleAdmin}
 	w := httptest.NewRecorder()
 	session, err := m.Start(w, principal)
@@ -45,15 +46,36 @@ func TestSessionMutationRequiresOriginAndCSRF(t *testing.T) {
 }
 
 func TestMissingIdentityIsRejected(t *testing.T) {
-	m := NewManager(nil, false)
-	_, err := m.PrincipalFromRequest(httptest.NewRequest(http.MethodGet, "http://dashboard.test/", nil))
+	m := NewManager(nil, true, false)
+	r := httptest.NewRequest(http.MethodGet, "http://dashboard.test/", nil)
+	r.RemoteAddr = "[::1]:12345"
+	_, err := m.PrincipalFromRequest(r)
 	if err != ErrMissingIdentity {
 		t.Fatalf("error = %v", err)
 	}
 }
 
+func TestIdentityHeadersRequireTrustedLoopbackProxy(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		manager *Manager
+		remote  string
+	}{
+		"trust disabled": {NewManager([]string{"admin@example.com"}, false, false), "127.0.0.1:12345"},
+		"remote peer":    {NewManager([]string{"admin@example.com"}, true, false), "100.64.0.2:12345"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "http://dashboard.test/", nil)
+			r.RemoteAddr = testCase.remote
+			r.Header.Set("Tailscale-User-Login", "admin@example.com")
+			if _, err := testCase.manager.PrincipalFromRequest(r); err != ErrUntrustedIdentity {
+				t.Fatalf("PrincipalFromRequest() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestStartingSessionsCapsEachLogin(t *testing.T) {
-	m := NewManager([]string{"admin@example.com"}, false)
+	m := NewManager([]string{"admin@example.com"}, false, false)
 	principal := Principal{Login: "admin@example.com", Role: RoleAdmin}
 	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	m.now = func() time.Time { return now }

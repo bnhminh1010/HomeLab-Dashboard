@@ -45,7 +45,7 @@ export class DashboardApi {
   }
 
   async session(signal) {
-    const payload = await this.request("/api/v1/session", { signal });
+    const payload = await this.request("/api/v1/session", { method: "POST", signal });
     this.csrfToken = payload?.csrfToken || payload?.csrf_token || "";
     return payload;
   }
@@ -68,6 +68,10 @@ export class DashboardApi {
 
   createTerminalSession(options) {
     return this.request("/api/v1/terminal/sessions", { method: "POST", mutation: true, body: options });
+  }
+
+  createHostTerminalSession(options) {
+    return this.request("/api/v1/terminal/host-sessions", { method: "POST", mutation: true, body: options });
   }
 
   cancelTerminalSession(id) {

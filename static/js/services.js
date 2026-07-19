@@ -1,11 +1,19 @@
 import { displayEndpoint, safeHttpUrl, timeAgo } from "./format.js";
 
-function normalizedService(service = {}) {
+const UP_STATES = new Set(["up", "running", "healthy"]);
+const DOWN_STATES = new Set(["down", "error", "unhealthy", "crashed"]);
+
+function normalizedService(service = {}, index = 0) {
+  const id = String(service.id || service.ID || "");
+  const displayUrl = String(service.displayUrl || service.displayURL || service.url || "");
+  const name = String(service.name || "Unnamed service");
   return {
-    id: String(service.id || service.ID || ""),
-    name: String(service.name || "Unnamed service"),
+    id,
+    key: id || displayUrl || `${name}-${index}`,
+    originalIndex: index,
+    name,
     icon: String(service.icon || "◇"),
-    displayUrl: String(service.displayUrl || service.displayURL || service.url || ""),
+    displayUrl,
     probeUrl: String(service.probeUrl || service.probeURL || ""),
     status: String(service.status || service.health?.status || "unknown").toLowerCase(),
     lastCheckedAt: service.lastCheckedAt || service.lastCheck || null,
@@ -20,33 +28,51 @@ function serviceFromResponse(payload, fallback) {
     : null;
 }
 
-function button(label, className = "") {
+function menuButton(label, className = "") {
   const element = document.createElement("button");
   element.type = "button";
   element.textContent = label;
   element.className = className;
   element.setAttribute("role", "menuitem");
+  element.tabIndex = -1;
   return element;
+}
+
+function stateLabel(status) {
+  if (UP_STATES.has(status)) return "UP";
+  if (DOWN_STATES.has(status)) return "DOWN";
+  if (status === "degraded" || status === "warning") return "DEGRADED";
+  return "NO PROBE";
+}
+
+function statePriority(status) {
+  if (DOWN_STATES.has(status)) return 0;
+  if (status === "degraded" || status === "warning") return 1;
+  if (!UP_STATES.has(status)) return 2;
+  return 3;
 }
 
 export function createServicesController({ api, toast }) {
   const grid = document.getElementById("services-grid");
   const empty = document.getElementById("services-empty");
   const count = document.getElementById("services-count");
-  const quickForm = document.getElementById("quick-add-form");
   const focusAdd = document.getElementById("focus-add-service");
   const menu = document.getElementById("context-menu");
   const serviceDialog = document.getElementById("service-dialog");
   const serviceForm = document.getElementById("service-form");
+  const serviceTitle = document.getElementById("service-dialog-title");
+  const serviceSubmit = document.getElementById("service-form-submit");
   const serviceError = document.getElementById("service-form-error");
   const deleteDialog = document.getElementById("delete-dialog");
   const deleteForm = document.getElementById("delete-form");
   const deleteError = document.getElementById("delete-form-error");
   const deleteName = document.getElementById("delete-service-name");
+  const cards = new Map();
   let services = [];
   let admin = false;
   let initialized = false;
   let menuTrigger = null;
+  let dialogInvoker = null;
 
   function validate(payload) {
     let displayValue = payload.displayUrl.trim();
@@ -78,151 +104,209 @@ export function createServicesController({ api, toast }) {
     });
   }
 
-  function render(nextServices) {
-    initialized = true;
-    services = Array.isArray(nextServices) ? nextServices.map(normalizedService) : [];
-    count.textContent = String(services.length);
-    grid.setAttribute("aria-busy", "false");
-    grid.replaceChildren(...services.map(serviceCard));
-    grid.hidden = services.length === 0;
-    empty.hidden = services.length !== 0;
-  }
-
-  function serviceCard(service) {
+  function createCard() {
     const article = document.createElement("article");
     article.className = "service-card";
-    article.dataset.serviceId = service.id;
-    article.tabIndex = 0;
-    article.setAttribute("aria-label", `Open ${service.name} in a new tab`);
 
-    const main = document.createElement("div");
-    main.className = "service-main";
-    const status = document.createElement("span");
-    status.className = "service-status status-dot";
-    status.dataset.status = service.status;
-    status.title = `Status: ${service.status}`;
-    status.setAttribute("aria-label", `Status ${service.status}`);
+    const heading = document.createElement("div");
+    heading.className = "service-main";
     const icon = document.createElement("span");
     icon.className = "service-icon";
-    icon.textContent = service.icon;
     icon.setAttribute("aria-hidden", "true");
-    const name = document.createElement("span");
-    name.className = "service-name";
-    name.textContent = service.name;
-    name.title = service.name;
-    main.append(status, icon, name);
-    article.append(main);
-
-    if (admin) {
-      const trigger = document.createElement("button");
-      trigger.type = "button";
-      trigger.className = "service-menu-button";
-      trigger.textContent = "⋮";
-      trigger.setAttribute("aria-label", `Actions for ${service.name}`);
-      trigger.setAttribute("aria-haspopup", "menu");
-      trigger.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const rect = trigger.getBoundingClientRect();
-        openMenu(service, rect.right, rect.bottom, trigger);
-      });
-      article.append(trigger);
-    }
-
-    const url = safeHttpUrl(service.displayUrl);
     const link = document.createElement("a");
     link.className = "service-link";
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    if (url) link.href = url.toString();
-    else link.removeAttribute("href");
-    link.setAttribute("aria-label", `Open ${service.name}`);
-    const linkMark = document.createElement("span");
-    linkMark.textContent = "↗";
-    linkMark.setAttribute("aria-hidden", "true");
+    const name = document.createElement("span");
+    name.className = "service-name";
     const endpoint = document.createElement("span");
-    endpoint.textContent = displayEndpoint(service.displayUrl);
-    endpoint.title = service.displayUrl;
-    link.append(linkMark, endpoint);
-    article.append(link);
+    endpoint.className = "service-endpoint mono";
+    link.append(name, endpoint);
+    heading.append(icon, link);
 
-    const meta = document.createElement("div");
-    meta.className = "service-meta";
-    const check = document.createElement("span");
-    check.textContent = service.lastCheckedAt ? `Checked ${timeAgo(service.lastCheckedAt)}` : "Probe not configured";
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "service-menu-button admin-only";
+    trigger.textContent = "⋮";
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const rect = trigger.getBoundingClientRect();
+      openMenu(article.service, rect.right, rect.bottom, trigger);
+    });
+
+    const statusRow = document.createElement("div");
+    statusRow.className = "service-status-row mono";
+    const status = document.createElement("span");
+    status.className = "service-status";
+    const dot = document.createElement("span");
+    dot.className = "status-dot";
+    dot.setAttribute("aria-hidden", "true");
+    const statusText = document.createElement("span");
+    status.append(dot, statusText);
     const latency = document.createElement("span");
-    latency.textContent = Number.isFinite(service.latencyMs) ? `${Math.round(service.latencyMs)} ms` : service.status.toUpperCase();
-    meta.append(check, latency);
-    article.append(meta);
+    latency.className = "service-latency";
+    statusRow.append(status, latency);
 
-    if (admin) {
-      article.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        openMenu(service, event.clientX, event.clientY, article);
-      });
-    }
+    const checked = document.createElement("div");
+    checked.className = "service-meta mono";
 
-    const openService = (event) => {
-      if (event.target.closest("a, button") || !url) return;
-      window.open(url.toString(), "_blank", "noopener,noreferrer");
-    };
-    article.addEventListener("click", openService);
-    article.addEventListener("keydown", (event) => {
-      if ((event.key === "Enter" || event.key === " ") && !event.target.closest("a, button")) {
-        event.preventDefault();
-        openService(event);
-      }
+    article.append(heading, trigger, statusRow, checked);
+    article.refs = { icon, link, name, endpoint, trigger, status, statusText, latency, checked };
+    article.addEventListener("contextmenu", (event) => {
+      if (!admin) return;
+      event.preventDefault();
+      openMenu(article.service, event.clientX, event.clientY, trigger);
     });
     return article;
   }
 
+  function updateCard(article, service) {
+    article.service = service;
+    article.dataset.serviceId = service.id;
+    const { icon, link, name, endpoint, trigger, status, statusText, latency, checked } = article.refs;
+    icon.textContent = service.icon;
+    name.textContent = service.name;
+    name.title = service.name;
+    endpoint.textContent = `↗ ${displayEndpoint(service.displayUrl)}`;
+    endpoint.title = service.displayUrl;
+    const url = safeHttpUrl(service.displayUrl);
+    if (url) {
+      link.href = url.toString();
+      link.removeAttribute("aria-disabled");
+    } else {
+      link.removeAttribute("href");
+      link.setAttribute("aria-disabled", "true");
+    }
+    link.setAttribute("aria-label", `Open ${service.name} in a new tab`);
+    trigger.hidden = !admin;
+    trigger.setAttribute("aria-label", `Actions for ${service.name}`);
+    status.dataset.status = service.status;
+    statusText.textContent = stateLabel(service.status);
+    status.setAttribute("aria-label", `Status ${stateLabel(service.status)}`);
+    latency.textContent = Number.isFinite(service.latencyMs) ? `${Math.round(service.latencyMs)} ms` : "—";
+    checked.hidden = !service.lastCheckedAt;
+    checked.textContent = service.lastCheckedAt ? `Checked ${timeAgo(service.lastCheckedAt)}` : "";
+  }
+
+  function summary() {
+    const up = services.filter((service) => UP_STATES.has(service.status)).length;
+    const down = services.filter((service) => DOWN_STATES.has(service.status) || ["degraded", "warning"].includes(service.status)).length;
+    return { total: services.length, up, down, unknown: Math.max(0, services.length - up - down) };
+  }
+
+  function render(nextServices) {
+    initialized = true;
+    const focused = grid.contains(document.activeElement) ? document.activeElement : null;
+    grid.querySelectorAll(".skeleton-card").forEach((node) => node.remove());
+    services = Array.isArray(nextServices) ? nextServices.map(normalizedService) : [];
+    services.sort((a, b) => statePriority(a.status) - statePriority(b.status) || a.originalIndex - b.originalIndex);
+    count.textContent = String(services.length);
+    grid.setAttribute("aria-busy", "false");
+
+    const nextKeys = new Set(services.map((service) => service.key));
+    for (const [key, card] of cards) {
+      if (nextKeys.has(key)) continue;
+      if (card.contains(menuTrigger)) closeMenu(false);
+      card.remove();
+      cards.delete(key);
+    }
+    for (const service of services) {
+      let card = cards.get(service.key);
+      if (!card) {
+        card = createCard();
+        cards.set(service.key, card);
+      }
+      updateCard(card, service);
+      grid.append(card);
+    }
+    grid.hidden = services.length === 0;
+    empty.hidden = services.length !== 0;
+    if (focused?.isConnected && document.activeElement !== focused) focused.focus({ preventScroll: true });
+    return summary();
+  }
+
   function openMenu(service, x, y, trigger) {
+    if (!admin || !service) return;
     closeMenu(false);
     menuTrigger = trigger;
-    const edit = button("Edit service");
-    edit.addEventListener("click", () => { closeMenu(false); openEdit(service); });
-    const copy = button("Copy URL");
+    trigger.setAttribute("aria-expanded", "true");
+    const edit = menuButton("Edit service");
+    edit.addEventListener("click", () => {
+      const invoker = menuTrigger;
+      closeMenu(false);
+      openEdit(service, invoker);
+    });
+    const copy = menuButton("Copy URL");
     copy.addEventListener("click", async () => {
+      const invoker = menuTrigger;
       closeMenu(false);
       try {
         await navigator.clipboard.writeText(service.displayUrl);
         toast("Service URL copied.");
+        invoker?.focus();
       } catch {
         toast("Clipboard access is unavailable in this browser.", "error");
+        invoker?.focus();
       }
     });
-    const remove = button("Delete service", "danger");
-    remove.addEventListener("click", () => { closeMenu(false); openDelete(service); });
+    const remove = menuButton("Delete service", "danger");
+    remove.addEventListener("click", () => {
+      const invoker = menuTrigger;
+      closeMenu(false);
+      openDelete(service, invoker);
+    });
     menu.replaceChildren(edit, copy, remove);
     menu.hidden = false;
-    menu.style.left = `${Math.min(x, window.innerWidth - 174)}px`;
-    menu.style.top = `${Math.min(y, window.innerHeight - 125)}px`;
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - 174))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - 132))}px`;
     requestAnimationFrame(() => edit.focus());
   }
 
   function closeMenu(restoreFocus = true) {
     if (menu.hidden) return;
+    const trigger = menuTrigger;
+    trigger?.setAttribute("aria-expanded", "false");
     menu.hidden = true;
     menu.replaceChildren();
-    if (restoreFocus) menuTrigger?.focus?.();
     menuTrigger = null;
+    if (restoreFocus) trigger?.focus?.();
   }
 
-  function openEdit(service) {
-    serviceForm.elements.id.value = service.id;
-    serviceForm.elements.name.value = service.name;
-    serviceForm.elements.icon.value = service.icon;
-    serviceForm.elements.displayUrl.value = service.displayUrl;
-    serviceForm.elements.probeUrl.value = service.probeUrl;
+  function showServiceDialog(invoker) {
+    dialogInvoker = invoker || document.activeElement;
     serviceError.hidden = true;
     serviceDialog.showModal();
     serviceForm.elements.name.focus();
   }
 
-  function openDelete(service) {
+  function openCreate(invoker) {
+    serviceForm.reset();
+    serviceForm.elements.id.value = "";
+    serviceTitle.textContent = "Add service";
+    serviceSubmit.textContent = "ADD SERVICE";
+    showServiceDialog(invoker);
+  }
+
+  function openEdit(service, invoker) {
+    serviceForm.elements.id.value = service.id;
+    serviceForm.elements.name.value = service.name;
+    serviceForm.elements.icon.value = service.icon;
+    serviceForm.elements.displayUrl.value = service.displayUrl;
+    serviceForm.elements.probeUrl.value = service.probeUrl;
+    serviceTitle.textContent = "Edit service";
+    serviceSubmit.textContent = "SAVE CHANGES";
+    showServiceDialog(invoker);
+  }
+
+  function openDelete(service, invoker) {
+    dialogInvoker = invoker || document.activeElement;
     deleteForm.elements.id.value = service.id;
     deleteName.textContent = service.name;
     deleteError.hidden = true;
     deleteDialog.showModal();
+    requestAnimationFrame(() => deleteDialog.querySelector("[data-dialog-close]")?.focus());
   }
 
   async function mutate(buttonElement, action, onSuccess, errorElement = null) {
@@ -242,31 +326,28 @@ export function createServicesController({ api, toast }) {
     }
   }
 
-  quickForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (!admin) return;
-    const submit = quickForm.querySelector("button[type=submit]");
-    let payload;
-    try { payload = payloadFrom(quickForm); } catch (error) { toast(error.message, "error"); return; }
-    mutate(submit, () => api.createService(payload), async (result) => {
-      const created = serviceFromResponse(result, payload);
-      if (created?.id) render([...services, created]);
-      quickForm.reset();
-      toast(`${payload.name} added.`);
-    });
-  });
-
   serviceForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    const submit = serviceForm.querySelector("button[type=submit]");
+    if (!admin) return;
     let payload;
-    try { payload = payloadFrom(serviceForm); } catch (error) {
+    try {
+      payload = payloadFrom(serviceForm);
+    } catch (error) {
       serviceError.textContent = error.message;
       serviceError.hidden = false;
       return;
     }
     const id = serviceForm.elements.id.value;
-    mutate(submit, () => api.updateService(id, payload), async (result) => {
+    if (!id) {
+      mutate(serviceSubmit, () => api.createService(payload), async (result) => {
+        const created = serviceFromResponse(result, payload);
+        if (created?.id) render([...services, created]);
+        serviceDialog.close();
+        toast(`${payload.name} added.`);
+      }, serviceError);
+      return;
+    }
+    mutate(serviceSubmit, () => api.updateService(id, payload), async (result) => {
       const updated = serviceFromResponse(result, { id, ...payload }) || normalizedService({ id, ...payload });
       render(services.map((service) => service.id === id ? { ...service, ...updated } : service));
       serviceDialog.close();
@@ -286,22 +367,34 @@ export function createServicesController({ api, toast }) {
     }, deleteError);
   });
 
-  focusAdd.addEventListener("click", () => {
-    document.getElementById("quick-add-card").scrollIntoView({ behavior: "smooth", block: "center" });
-    document.getElementById("quick-name").focus({ preventScroll: true });
-  });
-
+  focusAdd.addEventListener("click", () => openCreate(focusAdd));
   document.addEventListener("pointerdown", (event) => {
     if (!menu.hidden && !menu.contains(event.target) && event.target !== menuTrigger) closeMenu(false);
   });
   document.addEventListener("keydown", (event) => {
     if (menu.hidden) return;
-    if (event.key === "Escape") { event.preventDefault(); closeMenu(); return; }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMenu();
+      return;
+    }
     const items = [...menu.querySelectorAll("button")];
     const current = items.indexOf(document.activeElement);
-    if (event.key === "ArrowDown") { event.preventDefault(); items[(current + 1) % items.length]?.focus(); }
-    if (event.key === "ArrowUp") { event.preventDefault(); items[(current - 1 + items.length) % items.length]?.focus(); }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      items[(current + 1) % items.length]?.focus();
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      items[(current - 1 + items.length) % items.length]?.focus();
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      items[0]?.focus();
+    } else if (event.key === "End") {
+      event.preventDefault();
+      items.at(-1)?.focus();
+    }
   });
+
   for (const closeButton of document.querySelectorAll("[data-dialog-close]")) {
     closeButton.addEventListener("click", () => closeButton.closest("dialog")?.close());
   }
@@ -309,13 +402,19 @@ export function createServicesController({ api, toast }) {
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) dialog.close();
     });
+    dialog.addEventListener("close", () => {
+      const invoker = dialogInvoker;
+      dialogInvoker = null;
+      requestAnimationFrame(() => invoker?.isConnected && invoker.focus());
+    });
   }
 
   return {
     render,
     setAdmin(value) {
       admin = Boolean(value);
-      if (initialized) render(services);
+      if (initialized) return render(services);
+      return summary();
     },
   };
 }

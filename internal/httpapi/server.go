@@ -27,19 +27,24 @@ type AuditWriter interface {
 }
 
 type Options struct {
-	Auth         *auth.Manager
-	Metrics      *metrics.Hub
-	Services     *services.Manager
-	Audit        AuditWriter
-	Terminal     *terminal.Manager
-	Static       http.Handler
-	Ready        func(context.Context) error
-	SecureOrigin bool
+	Auth             *auth.Manager
+	Metrics          *metrics.Hub
+	Services         *services.Manager
+	Audit            AuditWriter
+	Terminal         *terminal.Manager
+	Static           http.Handler
+	Ready            func(context.Context) error
+	SecureOrigin     bool
+	HostShellEnabled bool
+	HostShellUsers   []string
 }
 
 type Server struct {
-	options Options
-	router  *gin.Engine
+	options            Options
+	router             *gin.Engine
+	hostShellUsers     map[string]struct{}
+	terminalPingPeriod time.Duration
+	terminalPongWait   time.Duration
 }
 
 func New(options Options) (*Server, error) {
@@ -50,7 +55,17 @@ func New(options Options) (*Server, error) {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	_ = router.SetTrustedProxies(nil)
-	server := &Server{options: options, router: router}
+	hostShellUsers := make(map[string]struct{}, len(options.HostShellUsers))
+	for _, login := range options.HostShellUsers {
+		if normalized := strings.ToLower(strings.TrimSpace(login)); normalized != "" {
+			hostShellUsers[normalized] = struct{}{}
+		}
+	}
+	server := &Server{
+		options: options, router: router, hostShellUsers: hostShellUsers,
+		terminalPingPeriod: defaultTerminalPingPeriod,
+		terminalPongWait:   defaultTerminalPongWait,
+	}
 	server.routes()
 	return server, nil
 }
@@ -79,7 +94,7 @@ func (s *Server) routes() {
 	})
 
 	api := s.router.Group("/api/v1")
-	api.GET("/session", s.createSession)
+	api.POST("/session", s.createSession)
 	authenticatedAPI := api.Group("")
 	authenticatedAPI.Use(s.requireSession())
 	authenticatedAPI.GET("/snapshot", s.getSnapshot)
@@ -88,6 +103,7 @@ func (s *Server) routes() {
 	authenticatedAPI.PATCH("/services/:id", s.updateService)
 	authenticatedAPI.DELETE("/services/:id", s.deleteService)
 	authenticatedAPI.POST("/terminal/sessions", s.createTerminalSession)
+	authenticatedAPI.POST("/terminal/host-sessions", s.createHostTerminalSession)
 	authenticatedAPI.DELETE("/terminal/sessions/:id", s.cancelTerminalSession)
 	compatibilityAPI := s.router.Group("/api")
 	compatibilityAPI.Use(s.requireSession())
@@ -150,6 +166,10 @@ func (s *Server) requireSession() gin.HandlerFunc {
 }
 
 func (s *Server) createSession(c *gin.Context) {
+	if err := auth.ValidateSameOrigin(c.Request, s.options.SecureOrigin); err != nil {
+		writeError(c, http.StatusForbidden, "invalid_origin", "Session origin is not allowed.", nil)
+		return
+	}
 	principal := principalFromContext(c)
 	session, err := s.options.Auth.Start(c.Writer, principal)
 	if err != nil {
@@ -160,6 +180,11 @@ func (s *Server) createSession(c *gin.Context) {
 		"identity":  principal,
 		"role":      principal.Role,
 		"csrfToken": session.CSRF,
+		"capabilities": gin.H{
+			"manageServices": principal.Role == auth.RoleAdmin,
+			"containerExec":  principal.Role == auth.RoleAdmin,
+			"hostShell":      s.hostShellAllowed(principal),
+		},
 	})
 }
 
@@ -261,12 +286,52 @@ func (s *Server) createTerminalSession(c *gin.Context) {
 	})
 }
 
+func (s *Server) createHostTerminalSession(c *gin.Context) {
+	principal, ok := s.authorizeMutation(c, false)
+	if !ok {
+		return
+	}
+	if !s.hostShellAllowed(principal) {
+		writeError(c, http.StatusForbidden, "host_shell_forbidden", "Host shell access is not allowed for this account.", nil)
+		return
+	}
+	var request terminal.HostCreateRequest
+	if !decodeJSON(c, &request) {
+		return
+	}
+	created, err := s.options.Terminal.CreateHost(c.Request.Context(), principal.Login, true, request)
+	if err != nil {
+		status, code := hostTerminalErrorStatus(err)
+		writeError(c, status, code, "Unable to reserve a host shell session.", nil)
+		return
+	}
+	if err := s.appendAudit(c.Request.Context(), model.AuditEvent{
+		Actor: principal.Login, Action: "terminal.host.reserve", TargetType: "host_shell",
+		Outcome: "success",
+	}); err != nil {
+		_ = s.options.Terminal.Cancel(created.ID, principal.Login)
+		writeError(c, http.StatusServiceUnavailable, "audit_unavailable", "Host shell access is unavailable because the security audit could not be recorded.", nil)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{
+		"id":           created.ID,
+		"websocketUrl": "/ws/v1/terminal/" + created.ID,
+		"expiresAt":    created.ExpiresAt,
+		"readOnly":     false,
+	})
+}
+
 func (s *Server) cancelTerminalSession(c *gin.Context) {
 	principal, ok := s.authorizeMutation(c, false)
 	if !ok {
 		return
 	}
 	id := c.Param("id")
+	session, lookupErr := s.options.Terminal.Get(id, principal.Login)
+	var auditSession *terminal.Session
+	if lookupErr == nil {
+		auditSession = &session
+	}
 	if err := s.options.Terminal.Cancel(id, principal.Login); err != nil {
 		switch {
 		case errors.Is(err, terminal.ErrNotFound):
@@ -276,10 +341,10 @@ func (s *Server) cancelTerminalSession(c *gin.Context) {
 		default:
 			writeError(c, http.StatusInternalServerError, "terminal_cancel_failed", "Unable to cancel the terminal session.", nil)
 		}
-		s.audit(c, principal, "terminal.cancel", id, "denied")
+		s.auditTerminalCancel(c, principal, auditSession, "denied")
 		return
 	}
-	s.audit(c, principal, "terminal.cancel", id, "success")
+	s.auditTerminalCancel(c, principal, auditSession, "success")
 	c.Status(http.StatusNoContent)
 }
 
@@ -294,6 +359,14 @@ func (s *Server) authorizeMutation(c *gin.Context, adminOnly bool) (auth.Princip
 		return auth.Principal{}, false
 	}
 	return principal, true
+}
+
+func (s *Server) hostShellAllowed(principal auth.Principal) bool {
+	if !s.options.HostShellEnabled || principal.Role != auth.RoleAdmin {
+		return false
+	}
+	_, ok := s.hostShellUsers[strings.ToLower(strings.TrimSpace(principal.Login))]
+	return ok
 }
 
 func (s *Server) writeServiceError(c *gin.Context, err error) {
@@ -316,6 +389,33 @@ func (s *Server) audit(c *gin.Context, principal auth.Principal, action, targetI
 		Actor: principal.Login, Action: action, TargetType: strings.SplitN(action, ".", 2)[0],
 		TargetID: targetID, Outcome: outcome,
 	})
+}
+
+func (s *Server) auditTerminalCancel(c *gin.Context, principal auth.Principal, session *terminal.Session, outcome string) {
+	if s.options.Audit == nil {
+		return
+	}
+	event := model.AuditEvent{
+		Actor: principal.Login, Action: "terminal.cancel", TargetType: "terminal",
+		Outcome: outcome,
+	}
+	if session != nil {
+		if session.Mode == terminal.ModeHost {
+			event.Action = "terminal.host.cancel"
+			event.TargetType = "host_shell"
+		} else {
+			event.TargetType = "container"
+			event.TargetID = session.ContainerID
+		}
+	}
+	_ = s.options.Audit.AppendAudit(c.Request.Context(), event)
+}
+
+func (s *Server) appendAudit(ctx context.Context, event model.AuditEvent) error {
+	if s.options.Audit == nil {
+		return errors.New("audit writer is unavailable")
+	}
+	return s.options.Audit.AppendAudit(ctx, event)
 }
 
 func decodeJSON(c *gin.Context, target any) bool {
@@ -374,6 +474,21 @@ func terminalErrorStatus(err error) (int, string) {
 		return http.StatusUnprocessableEntity, "invalid_terminal_request"
 	default:
 		return http.StatusBadGateway, "terminal_unavailable"
+	}
+}
+
+func hostTerminalErrorStatus(err error) (int, string) {
+	switch {
+	case errors.Is(err, terminal.ErrUnauthorized):
+		return http.StatusForbidden, "host_shell_forbidden"
+	case errors.Is(err, terminal.ErrHostLimit), errors.Is(err, terminal.ErrSessionLimit):
+		return http.StatusTooManyRequests, "host_shell_limit"
+	case errors.Is(err, terminal.ErrInvalidRequest):
+		return http.StatusUnprocessableEntity, "invalid_terminal_request"
+	case errors.Is(err, terminal.ErrHostUnavailable):
+		return http.StatusServiceUnavailable, "host_agent_unavailable"
+	default:
+		return http.StatusServiceUnavailable, "host_shell_unavailable"
 	}
 }
 

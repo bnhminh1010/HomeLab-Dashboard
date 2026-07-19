@@ -1,0 +1,21 @@
+[Unit]
+Description=HomeLab dashboard host shell agent
+Documentation=https://github.com/bnhminh1010/HomeLab-Minh
+After=basic.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+RuntimeDirectory=homelab-dashboard
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0077
+Environment=HOST_AGENT_SOCKET=%t/homelab-dashboard/agent.sock
+ExecStart=%h/.local/libexec/homelab-host-agent
+Restart=on-failure
+RestartSec=2s
+KillMode=control-group
+TimeoutStopSec=10s
+
+[Install]
+WantedBy=default.target

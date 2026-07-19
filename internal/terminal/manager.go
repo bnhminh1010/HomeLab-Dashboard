@@ -24,14 +24,19 @@ const (
 )
 
 type Manager struct {
-	backend Backend
-	options ManagerOptions
+	backend     Backend
+	hostBackend HostBackend
+	options     ManagerOptions
 
 	mu       sync.Mutex
 	sessions map[string]*Session
 }
 
 func NewManager(backend Backend, options ManagerOptions) (*Manager, error) {
+	return NewManagerWithHost(backend, nil, options)
+}
+
+func NewManagerWithHost(backend Backend, hostBackend HostBackend, options ManagerOptions) (*Manager, error) {
 	if backend == nil {
 		return nil, errors.New("terminal: backend is required")
 	}
@@ -39,8 +44,14 @@ func NewManager(backend Backend, options ManagerOptions) (*Manager, error) {
 	if options.MaxExecPerUser < 1 || options.MaxExecGlobal < 1 || options.MaxExecPerUser > options.MaxExecGlobal {
 		return nil, errors.New("terminal: invalid exec limits")
 	}
+	if options.MaxHostPerUser < 1 || options.MaxHostGlobal < 1 || options.MaxHostPerUser > options.MaxHostGlobal {
+		return nil, errors.New("terminal: invalid host shell limits")
+	}
 	if options.MaxSessionsPerUser < options.MaxExecPerUser || options.MaxSessionsGlobal < options.MaxExecGlobal || options.MaxSessionsPerUser > options.MaxSessionsGlobal {
 		return nil, errors.New("terminal: invalid session limits")
+	}
+	if options.MaxSessionsPerUser < options.MaxHostPerUser || options.MaxSessionsGlobal < options.MaxHostGlobal {
+		return nil, errors.New("terminal: host shell limits exceed session limits")
 	}
 	if options.PendingTTL < 0 || options.IdleTimeout < 0 || options.HardTimeout < 0 {
 		return nil, errors.New("terminal: invalid session timeouts")
@@ -48,7 +59,7 @@ func NewManager(backend Backend, options ManagerOptions) (*Manager, error) {
 	if options.MaxInputFrame < 1 || options.OutputChunkSize < 1 || options.OutputQueueSize < options.OutputChunkSize {
 		return nil, errors.New("terminal: invalid stream limits")
 	}
-	return &Manager{backend: backend, options: options, sessions: make(map[string]*Session)}, nil
+	return &Manager{backend: backend, hostBackend: hostBackend, options: options, sessions: make(map[string]*Session)}, nil
 }
 
 func withManagerDefaults(options *ManagerOptions) {
@@ -66,6 +77,12 @@ func withManagerDefaults(options *ManagerOptions) {
 	}
 	if options.MaxExecGlobal == 0 {
 		options.MaxExecGlobal = 4
+	}
+	if options.MaxHostPerUser == 0 {
+		options.MaxHostPerUser = 1
+	}
+	if options.MaxHostGlobal == 0 {
+		options.MaxHostGlobal = 2
 	}
 	if options.MaxSessionsPerUser == 0 {
 		options.MaxSessionsPerUser = 4
@@ -149,6 +166,58 @@ func (m *Manager) Create(user string, isAdmin bool, request CreateRequest) (Sess
 	return *session, nil
 }
 
+func (m *Manager) CreateHost(ctx context.Context, user string, authorized bool, request HostCreateRequest) (Session, error) {
+	user = strings.TrimSpace(user)
+	if user == "" {
+		return Session{}, ErrInvalidRequest
+	}
+	if !authorized {
+		return Session{}, ErrUnauthorized
+	}
+	if request.Cols == 0 {
+		request.Cols = defaultCols
+	}
+	if request.Rows == 0 {
+		request.Rows = defaultRows
+	}
+	if !validSize(request.Cols, request.Rows) {
+		return Session{}, ErrInvalidRequest
+	}
+	if m.hostBackend == nil {
+		return Session{}, ErrHostUnavailable
+	}
+	if err := m.hostBackend.Probe(ctx); err != nil {
+		return Session{}, fmt.Errorf("%w: %v", ErrHostUnavailable, err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.options.Now()
+	m.pruneExpiredLocked(now)
+	if !m.canReserveSessionLocked(user) {
+		return Session{}, ErrSessionLimit
+	}
+	if !m.canReserveHostLocked(user) {
+		return Session{}, ErrHostLimit
+	}
+	id, err := m.newIDLocked()
+	if err != nil {
+		return Session{}, fmt.Errorf("terminal: generate session ID: %w", err)
+	}
+	session := &Session{
+		ID:        id,
+		Mode:      ModeHost,
+		User:      user,
+		CreatedAt: now,
+		ExpiresAt: now.Add(m.options.PendingTTL),
+		cols:      request.Cols,
+		rows:      request.Rows,
+		state:     sessionPending,
+	}
+	m.sessions[id] = session
+	return *session, nil
+}
+
 func (m *Manager) Get(id, user string) (Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -177,37 +246,64 @@ func (m *Manager) Cancel(id, user string) error {
 }
 
 func (m *Manager) Serve(ctx context.Context, id, user string, peer Peer) error {
+	_, err := m.ServeDetailed(ctx, id, user, peer)
+	return err
+}
+
+func (m *Manager) ServeDetailed(ctx context.Context, id, user string, peer Peer) (result ServeResult, returnErr error) {
 	if peer == nil {
-		return ErrInvalidRequest
+		return result, ErrInvalidRequest
 	}
 	session, err := m.claim(id, user)
 	if err != nil {
-		return err
+		return result, err
 	}
+	result.Mode = session.Mode
+	result.StartedAt = m.options.Now()
+	defer func() {
+		result.ClosedAt = m.options.Now()
+		if result.CloseReason == "" {
+			result.CloseReason = closeReason(returnErr)
+		}
+	}()
 
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer peer.Close()
 	defer m.release(session.ID)
 
-	stream, execID, err := m.openStream(serveCtx, session)
+	opened, err := m.openStream(serveCtx, session)
 	if err != nil {
 		cancel()
-		_ = peer.WriteControl(ctx, Control{Type: ControlError, Code: "open_failed", Message: "Unable to open container session."})
-		return err
+		message := "Unable to open container session."
+		if session.Mode == ModeHost {
+			message = "Unable to open host shell."
+		}
+		_ = peer.WriteControl(ctx, Control{Type: ControlError, Code: "open_failed", Message: message})
+		return result, err
 	}
-	if execID != "" {
-		defer m.removeExec(execID)
+	if opened.cleanup != nil {
+		defer opened.cleanup()
 	}
-	defer stream.Close()
+	defer opened.stream.Close()
 	defer cancel()
-	if err := peer.WriteControl(serveCtx, Control{Type: ControlReady, ReadOnly: session.ReadOnly}); err != nil {
-		return fmt.Errorf("terminal: write ready control: %w", err)
+	result.Host = opened.info
+	if err := peer.WriteControl(serveCtx, Control{
+		Type: ControlReady, ReadOnly: session.ReadOnly,
+		Hostname: opened.info.Hostname, User: opened.info.User, Shell: opened.info.Shell,
+	}); err != nil {
+		return result, fmt.Errorf("terminal: write ready control: %w", err)
 	}
 
-	err = m.bridge(serveCtx, session, execID, stream, peer)
+	err = m.bridge(serveCtx, session, opened, peer)
+	if opened.exitCode != nil {
+		if code, ok := opened.exitCode(); ok {
+			result.ExitCode = &code
+		}
+	}
+	result.CloseReason = closeReason(err)
 	switch {
 	case err == nil, errors.Is(err, io.EOF), errors.Is(err, ErrPeerDisconnected), errors.Is(err, context.Canceled):
-		return nil
+		return result, nil
 	case errors.Is(err, ErrIdleTimeout):
 		_ = peer.WriteControl(ctx, Control{Type: ControlError, Code: "idle_timeout", Message: "Terminal closed after being idle."})
 	case errors.Is(err, ErrHardTimeout):
@@ -219,7 +315,7 @@ func (m *Manager) Serve(ctx context.Context, id, user string, peer Peer) error {
 	default:
 		_ = peer.WriteControl(ctx, Control{Type: ControlError, Code: "stream_error", Message: "Terminal stream closed unexpectedly."})
 	}
-	return err
+	return result, err
 }
 
 func (m *Manager) claim(id, user string) (*Session, error) {
@@ -243,13 +339,36 @@ func (m *Manager) claim(id, user string) (*Session, error) {
 	return &copy, nil
 }
 
-func (m *Manager) openStream(ctx context.Context, session *Session) (io.ReadWriteCloser, string, error) {
+type openedStream struct {
+	stream   io.ReadWriteCloser
+	resize   func(context.Context, HostSize) error
+	cleanup  func()
+	info     HostInfo
+	exitCode func() (int, bool)
+}
+
+func (m *Manager) openStream(ctx context.Context, session *Session) (*openedStream, error) {
 	if session.Mode == ModeLogs {
 		logs, err := m.backend.Logs(ctx, session.ContainerID, podman.LogsOptions{Tail: session.tail, Follow: session.follow})
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
-		return readOnlyStream{ReadCloser: logs}, "", nil
+		return &openedStream{stream: readOnlyStream{ReadCloser: logs}}, nil
+	}
+	if session.Mode == ModeHost {
+		if m.hostBackend == nil {
+			return nil, ErrHostUnavailable
+		}
+		stream, err := m.hostBackend.Open(ctx, HostSize{Cols: session.cols, Rows: session.rows})
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrHostUnavailable, err)
+		}
+		return &openedStream{
+			stream:   stream,
+			resize:   stream.Resize,
+			info:     stream.Info(),
+			exitCode: stream.ExitCode,
+		}, nil
 	}
 
 	size := podman.TerminalSize{Cols: session.cols, Rows: session.rows}
@@ -263,7 +382,13 @@ func (m *Manager) openStream(ctx context.Context, session *Session) (io.ReadWrit
 		stream, err := m.backend.StartExec(ctx, execID, size)
 		if err == nil {
 			session.execID = execID
-			return stream, execID, nil
+			return &openedStream{
+				stream: stream,
+				resize: func(ctx context.Context, hostSize HostSize) error {
+					return m.backend.ResizeExec(ctx, execID, podman.TerminalSize{Cols: hostSize.Cols, Rows: hostSize.Rows})
+				},
+				cleanup: func() { m.removeExec(execID) },
+			}, nil
 		}
 		lastErr = err
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -273,10 +398,10 @@ func (m *Manager) openStream(ctx context.Context, session *Session) (io.ReadWrit
 	if lastErr == nil {
 		lastErr = errors.New("terminal: no supported shell")
 	}
-	return nil, "", lastErr
+	return nil, lastErr
 }
 
-func (m *Manager) bridge(ctx context.Context, session *Session, execID string, stream io.ReadWriteCloser, peer Peer) error {
+func (m *Manager) bridge(ctx context.Context, session *Session, opened *openedStream, peer Peer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -288,8 +413,10 @@ func (m *Manager) bridge(ctx context.Context, session *Session, execID string, s
 	peerInput := make(chan ClientMessage)
 	peerErr := make(chan error, 1)
 
-	go readBackend(ctx, stream, m.options.OutputChunkSize, backendEvents)
+	go readBackend(ctx, opened.stream, m.options.OutputChunkSize, backendEvents)
 	go readPeer(ctx, peer, peerInput, peerErr)
+	writeResults := make(chan error, 1)
+	activePeerInput := (<-chan ClientMessage)(peerInput)
 
 	idle := time.NewTimer(m.options.IdleTimeout)
 	defer idle.Stop()
@@ -315,11 +442,17 @@ func (m *Manager) bridge(ctx context.Context, session *Session, execID string, s
 				continue
 			}
 			if errors.Is(event.err, io.EOF) {
-				_ = peer.WriteControl(ctx, Control{Type: ControlExit})
+				control := Control{Type: ControlExit}
+				if opened.exitCode != nil {
+					if code, ok := opened.exitCode(); ok {
+						control.ExitCode = &code
+					}
+				}
+				_ = peer.WriteControl(ctx, control)
 				return nil
 			}
 			return fmt.Errorf("terminal: read backend: %w", event.err)
-		case message := <-peerInput:
+		case message := <-activePeerInput:
 			resetTimer(idle, m.options.IdleTimeout)
 			switch message.Type {
 			case ClientClose:
@@ -331,18 +464,18 @@ func (m *Manager) bridge(ctx context.Context, session *Session, execID string, s
 				if len(message.Data) > m.options.MaxInputFrame {
 					return ErrInputTooLarge
 				}
-				if err := writeAll(stream, message.Data); err != nil {
-					return fmt.Errorf("terminal: write input: %w", err)
-				}
+				payload := append([]byte(nil), message.Data...)
+				activePeerInput = nil
+				go func() { writeResults <- writeAll(opened.stream, payload) }()
 			case ClientResize:
-				if session.ReadOnly || execID == "" {
+				if session.ReadOnly || opened.resize == nil {
 					continue
 				}
 				if !validSize(message.Cols, message.Rows) {
 					return ErrInvalidRequest
 				}
-				if err := m.backend.ResizeExec(ctx, execID, podman.TerminalSize{Cols: message.Cols, Rows: message.Rows}); err != nil {
-					return fmt.Errorf("terminal: resize exec: %w", err)
+				if err := opened.resize(ctx, HostSize{Cols: message.Cols, Rows: message.Rows}); err != nil {
+					return fmt.Errorf("terminal: resize: %w", err)
 				}
 			default:
 				return ErrInvalidRequest
@@ -352,7 +485,29 @@ func (m *Manager) bridge(ctx context.Context, session *Session, execID string, s
 				return ErrPeerDisconnected
 			}
 			return fmt.Errorf("terminal: read peer: %w", err)
+		case err := <-writeResults:
+			if err != nil {
+				return fmt.Errorf("terminal: write input: %w", err)
+			}
+			activePeerInput = peerInput
 		}
+	}
+}
+
+func closeReason(err error) string {
+	switch {
+	case err == nil, errors.Is(err, io.EOF):
+		return "completed"
+	case errors.Is(err, ErrPeerDisconnected):
+		return "peer_disconnected"
+	case errors.Is(err, ErrIdleTimeout):
+		return "idle_timeout"
+	case errors.Is(err, ErrHardTimeout):
+		return "maximum_duration"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "failed"
 	}
 }
 
@@ -381,6 +536,21 @@ func (m *Manager) canReserveExecLocked(user string) bool {
 		}
 	}
 	return userCount < m.options.MaxExecPerUser && globalCount < m.options.MaxExecGlobal
+}
+
+func (m *Manager) canReserveHostLocked(user string) bool {
+	userCount := 0
+	globalCount := 0
+	for _, session := range m.sessions {
+		if session.Mode != ModeHost {
+			continue
+		}
+		globalCount++
+		if session.User == user {
+			userCount++
+		}
+	}
+	return userCount < m.options.MaxHostPerUser && globalCount < m.options.MaxHostGlobal
 }
 
 func (m *Manager) canReserveSessionLocked(user string) bool {

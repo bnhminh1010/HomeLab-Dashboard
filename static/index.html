@@ -26,7 +26,7 @@
     </a>
     <div class="header-status" aria-label="Current dashboard session">
       <span id="demo-badge" class="badge badge-demo" hidden>DEMO</span>
-      <span id="freshness" class="connection-chip" data-state="connecting">
+      <span id="freshness" class="connection-chip" data-state="connecting" aria-label="Metrics stream: connecting">
         <span class="status-dot" aria-hidden="true"></span>
         <span id="freshness-text">CONNECTING</span>
       </span>
@@ -34,26 +34,61 @@
       <button id="alerts-jump" class="icon-button" type="button" title="Jump to alerts" aria-label="Jump to alerts">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       </button>
-      <div class="user-chip" title="Authenticated Tailscale user">
+      <div id="session-identity" class="user-chip" role="group" aria-label="Authenticated Tailscale user" title="Authenticated Tailscale user">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
         <span class="user-copy"><span id="session-user">—</span><span id="session-role">VIEWER</span></span>
       </div>
     </div>
   </header>
 
-  <div id="offline-banner" class="offline-banner" role="status" aria-live="polite" hidden>
+  <div id="offline-banner" class="offline-banner" hidden>
     <span class="pulse-dot" aria-hidden="true"></span>
     <span id="offline-message">Reconnecting to the metrics stream…</span>
   </div>
 
   <div class="app-shell">
     <main id="dashboard" class="dashboard-grid" tabindex="-1">
+      <section id="health-overview" class="panel health-overview" aria-labelledby="overview-title">
+        <h1 id="overview-title" class="visually-hidden">Homelab health overview</h1>
+        <div class="health-cell health-cell-primary">
+          <span class="health-label">OVERALL HEALTH</span>
+          <strong id="overview-health" class="health-value" data-state="waiting"><span class="status-dot" aria-hidden="true"></span>WAITING</strong>
+          <span id="overview-health-detail" class="health-detail">Connecting to the dashboard</span>
+        </div>
+        <div class="health-cell">
+          <span class="health-label">METRICS STREAM</span>
+          <strong id="overview-connection" class="health-value mono" data-state="connecting">CONNECTING</strong>
+          <span id="overview-updated" class="health-detail mono">No snapshot yet</span>
+        </div>
+        <div class="health-cell">
+          <span class="health-label">SERVICES</span>
+          <strong id="overview-services" class="health-value mono">0 / 0 UP</strong>
+          <span id="overview-services-detail" class="health-detail">Waiting for inventory</span>
+        </div>
+        <div class="health-cell">
+          <span class="health-label">CONTAINERS</span>
+          <strong id="overview-containers" class="health-value mono">0 / 0 RUNNING</strong>
+          <span id="overview-containers-detail" class="health-detail">Waiting for Podman</span>
+        </div>
+      </section>
+
+      <section id="alerts-card" class="panel alerts-panel dashboard-alerts" aria-labelledby="alerts-title" hidden>
+        <header class="panel-header compact">
+          <div class="title-with-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+            <div><p class="eyebrow">ACTION REQUIRED</p><h2 id="alerts-title">SYSTEM ALERTS</h2></div>
+          </div>
+          <span id="alerts-count" class="count-badge mono">0</span>
+        </header>
+        <div id="alerts-list" class="alerts-list"></div>
+      </section>
+
       <aside class="column column-left" aria-label="System overview">
         <section id="system-card" class="panel system-panel" aria-labelledby="system-title" aria-busy="true">
           <header class="panel-header">
             <div>
               <p class="eyebrow">SYSTEM STATS</p>
-              <h1 id="system-title" class="node-name mono">Connecting…</h1>
+              <h2 id="system-title" class="node-name mono">Connecting…</h2>
             </div>
             <span id="system-status" class="badge badge-muted"><span class="status-dot" aria-hidden="true"></span>WAITING</span>
           </header>
@@ -88,24 +123,23 @@
             </div>
           </div>
 
+          <div class="disk-io-block">
+            <div class="metric-heading"><span>DISK I/O</span><span class="metric-caption mono">LIVE RATE</span></div>
+            <div class="io-row">
+              <div><span>READ</span><strong id="io-read" class="mono">—</strong></div>
+              <div id="io-read-progress" class="progress progress-thin" role="progressbar" aria-label="Disk read activity" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="progress-fill"></span></div>
+            </div>
+            <div class="io-row">
+              <div><span>WRITE</span><strong id="io-write" class="mono">—</strong></div>
+              <div id="io-write-progress" class="progress progress-thin progress-yellow" role="progressbar" aria-label="Disk write activity" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="progress-fill"></span></div>
+            </div>
+          </div>
+
           <footer class="system-footer mono">
             <div><span>UPTIME</span><strong id="uptime">—</strong></div>
             <div><span>PROCS</span><strong id="processes">—</strong></div>
             <div><span>LOAD</span><strong id="load-average">—</strong></div>
           </footer>
-        </section>
-
-        <section id="alerts-card" class="panel alerts-panel" aria-labelledby="alerts-title">
-          <header class="panel-header compact">
-            <div class="title-with-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
-              <h2 id="alerts-title">ALERTS</h2>
-            </div>
-            <span id="alerts-count" class="count-badge mono">0</span>
-          </header>
-          <div id="alerts-list" class="alerts-list" aria-live="polite">
-            <div class="empty-state compact"><span class="skeleton-line"></span><span class="skeleton-line short"></span></div>
-          </div>
         </section>
       </aside>
 
@@ -119,37 +153,18 @@
             <div class="panel-actions">
               <span id="services-stale" class="badge badge-degraded" hidden>⚠ STALE</span>
               <span id="services-count" class="count-badge mono">0</span>
-              <button id="focus-add-service" class="button button-ghost button-small admin-only" type="button">+ ADD</button>
+              <button id="focus-add-service" class="button button-ghost button-small admin-only" type="button">+ ADD SERVICE</button>
             </div>
           </header>
-          <div id="services-grid" class="services-grid" aria-live="polite" aria-busy="true">
+          <div id="services-grid" class="services-grid" aria-busy="true">
             <div class="service-card skeleton-card" aria-hidden="true"></div>
             <div class="service-card skeleton-card" aria-hidden="true"></div>
           </div>
           <div id="services-empty" class="empty-state" hidden>
             <span class="empty-icon">◇</span>
             <strong>No services configured</strong>
-            <span>Use Quick Add to register your first endpoint.</span>
+            <span>Use Add Service to register your first endpoint.</span>
           </div>
-        </section>
-
-        <section id="quick-add-card" class="panel quick-add-panel admin-only" aria-labelledby="quick-add-title">
-          <header class="panel-header compact">
-            <div class="title-with-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
-              <h2 id="quick-add-title">QUICK ADD SERVICE</h2>
-            </div>
-          </header>
-          <form id="quick-add-form" class="quick-add-form" autocomplete="off">
-            <label><span>NAME</span><input id="quick-name" name="name" type="text" maxlength="40" placeholder="e.g. Nextcloud" required></label>
-            <label><span>URL / PORT</span><input name="displayUrl" type="text" maxlength="300" placeholder="8080 or https://service.tailnet.ts.net" required></label>
-            <label class="icon-field"><span>ICON</span><input name="icon" type="text" maxlength="8" placeholder="◇" aria-label="Service icon or emoji"></label>
-            <button class="button button-primary" type="submit">ADD SERVICE</button>
-            <details class="advanced-fields">
-              <summary>Advanced health probe</summary>
-              <label><span>PROBE URL <small>(optional)</small></span><input name="probeUrl" type="url" maxlength="300" placeholder="http://100.64.0.10:8080/health"></label>
-            </details>
-          </form>
         </section>
       </section>
 
@@ -162,7 +177,7 @@
             </div>
             <span id="containers-count" class="count-badge mono">0</span>
           </header>
-          <div id="containers-list" class="containers-list" aria-live="polite" aria-busy="true">
+          <div id="containers-list" class="containers-list" aria-busy="true">
             <div class="container-item skeleton-container" aria-hidden="true"></div>
             <div class="container-item skeleton-container" aria-hidden="true"></div>
           </div>
@@ -172,22 +187,10 @@
             <span>The Podman host returned an empty inventory.</span>
           </div>
         </section>
-
-        <section class="panel disk-io-panel" aria-labelledby="disk-io-title">
-          <header class="panel-header compact"><h2 id="disk-io-title">DISK I/O</h2></header>
-          <div class="io-row">
-            <div><span>READ</span><strong id="io-read" class="mono">—</strong></div>
-            <div id="io-read-progress" class="progress progress-thin" role="progressbar" aria-label="Disk read activity" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="progress-fill"></span></div>
-          </div>
-          <div class="io-row">
-            <div><span>WRITE</span><strong id="io-write" class="mono">—</strong></div>
-            <div id="io-write-progress" class="progress progress-thin progress-yellow" role="progressbar" aria-label="Disk write activity" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="progress-fill"></span></div>
-          </div>
-        </section>
       </aside>
     </main>
 
-    <section id="terminal-panel" class="terminal-panel" aria-labelledby="terminal-title">
+    <section id="terminal-panel" class="terminal-panel is-collapsed terminal-state-idle" aria-labelledby="terminal-title">
       <div id="terminal-resize" class="terminal-resize" role="separator" aria-label="Resize terminal" aria-orientation="horizontal" tabindex="0"></div>
       <header class="terminal-toolbar">
         <div class="terminal-heading">
@@ -196,36 +199,37 @@
           <span id="terminal-session-label" class="terminal-session mono">IDLE</span>
         </div>
         <div class="terminal-tools">
+          <button id="terminal-host-shell" class="terminal-button terminal-host-button" type="button" title="Open a Bash shell on the homelab host" hidden>HOST SHELL</button>
           <button id="terminal-clear" class="terminal-button" type="button">CLEAR</button>
           <button id="terminal-bell" class="terminal-button" type="button">BELL</button>
           <button id="terminal-disconnect" class="terminal-button" type="button" hidden>DISCONNECT</button>
-          <button id="terminal-toggle" class="terminal-button terminal-toggle" type="button" aria-expanded="true" aria-controls="terminal-body"><span>COLLAPSE</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg></button>
+          <button id="terminal-toggle" class="terminal-button terminal-toggle" type="button" aria-expanded="false" aria-controls="terminal-body" aria-label="Expand terminal workbench" title="Expand terminal workbench"><span>EXPAND</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg></button>
         </div>
       </header>
       <div id="terminal-body" class="terminal-body">
-        <div id="terminal" class="terminal" aria-label="Container terminal"></div>
+        <div id="terminal" class="terminal" aria-label="Host and container terminal"></div>
       </div>
     </section>
   </div>
 
-  <dialog id="service-dialog" class="modal">
-    <form id="service-form" class="modal-form" method="dialog" autocomplete="off">
-      <header><div><p class="eyebrow">SERVICE CONFIGURATION</p><h2 id="service-dialog-title">Edit service</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close dialog">×</button></header>
+  <dialog id="service-dialog" class="modal" aria-labelledby="service-dialog-title">
+    <form id="service-form" class="modal-form" autocomplete="off">
+      <header><div><p class="eyebrow">SERVICE CONFIGURATION</p><h2 id="service-dialog-title">Add service</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close dialog">×</button></header>
       <input name="id" type="hidden">
       <div class="form-grid">
         <label><span>NAME</span><input name="name" type="text" maxlength="40" required></label>
         <label><span>ICON</span><input name="icon" type="text" maxlength="8" placeholder="◇"></label>
-        <label class="full"><span>DISPLAY URL</span><input name="displayUrl" type="url" maxlength="300" required></label>
+        <label class="full"><span>DISPLAY URL OR PORT</span><input name="displayUrl" type="text" maxlength="300" placeholder="8080 or https://service.tailnet.ts.net" required></label>
         <label class="full"><span>PROBE URL <small>(optional)</small></span><input name="probeUrl" type="url" maxlength="300"></label>
       </div>
       <p id="service-form-error" class="form-error" role="alert" hidden></p>
-      <footer><button class="button button-ghost" type="button" data-dialog-close>CANCEL</button><button class="button button-primary" type="submit">SAVE CHANGES</button></footer>
+      <footer><button class="button button-ghost" type="button" data-dialog-close>CANCEL</button><button id="service-form-submit" class="button button-primary" type="submit">ADD SERVICE</button></footer>
     </form>
   </dialog>
 
-  <dialog id="delete-dialog" class="modal modal-small">
+  <dialog id="delete-dialog" class="modal modal-small" aria-labelledby="delete-dialog-title">
     <form id="delete-form" class="modal-form" method="dialog">
-      <header><div><p class="eyebrow">DESTRUCTIVE ACTION</p><h2>Delete service?</h2></div></header>
+      <header><div><p class="eyebrow">DESTRUCTIVE ACTION</p><h2 id="delete-dialog-title">Delete service?</h2></div></header>
       <p>Remove <strong id="delete-service-name"></strong> from the dashboard? This does not stop its container.</p>
       <input name="id" type="hidden">
       <p id="delete-form-error" class="form-error" role="alert" hidden></p>
@@ -233,8 +237,21 @@
     </form>
   </dialog>
 
+  <dialog id="host-shell-dialog" class="modal modal-small" aria-labelledby="host-shell-dialog-title" aria-describedby="host-shell-dialog-description">
+    <form id="host-shell-confirm-form" class="modal-form" method="dialog">
+      <header><div><p class="eyebrow">PRIVILEGED SESSION</p><h2 id="host-shell-dialog-title">Open Host Shell?</h2></div></header>
+      <p id="host-shell-dialog-description">This opens an interactive <code>/bin/bash</code> session on <strong id="host-shell-target" class="mono">the homelab host</strong> as the Unix account running the host agent. The actual account is shown after connection.</p>
+      <p id="host-shell-replace-warning" class="security-callout" hidden>The current terminal session will be disconnected first.</p>
+      <footer>
+        <button class="button button-ghost" type="submit" value="cancel" autofocus>CANCEL</button>
+        <button class="button button-danger" type="submit" value="confirm">OPEN HOST SHELL</button>
+      </footer>
+    </form>
+  </dialog>
+
   <div id="context-menu" class="context-menu" role="menu" hidden></div>
   <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div id="dashboard-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <script src="/lib/chart.umd.min.js"></script>
   <script type="module" src="/js/app.js"></script>

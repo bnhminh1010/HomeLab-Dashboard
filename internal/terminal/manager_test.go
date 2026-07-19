@@ -68,6 +68,33 @@ func TestCreateLimitsReadOnlyLogReservations(t *testing.T) {
 	}
 }
 
+func TestCreateHostEnforcesAuthorizationAvailabilityAndLimits(t *testing.T) {
+	host := &fakeHostBackend{stream: newFakeHostStream()}
+	manager, err := NewManagerWithHost(&fakeBackend{}, host, ManagerOptions{
+		Random:         bytes.NewReader(bytes.Repeat([]byte{3}, 256)),
+		MaxHostPerUser: 1,
+		MaxHostGlobal:  2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.CreateHost(context.Background(), "viewer", false, HostCreateRequest{}); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("unauthorized CreateHost() error = %v", err)
+	}
+	first, err := manager.CreateHost(context.Background(), "admin", true, HostCreateRequest{Cols: 100, Rows: 25})
+	if err != nil || first.Mode != ModeHost || first.ReadOnly || first.ContainerID != "" {
+		t.Fatalf("first CreateHost() = %#v, %v", first, err)
+	}
+	if _, err := manager.CreateHost(context.Background(), "admin", true, HostCreateRequest{}); !errors.Is(err, ErrHostLimit) {
+		t.Fatalf("same-user CreateHost() error = %v", err)
+	}
+
+	host.probeErr = errors.New("agent down")
+	if _, err := manager.CreateHost(context.Background(), "other-admin", true, HostCreateRequest{}); !errors.Is(err, ErrHostUnavailable) {
+		t.Fatalf("unavailable CreateHost() error = %v", err)
+	}
+}
+
 func TestServeLogsStreamsOutputAndIsReadOnly(t *testing.T) {
 	backend := &fakeBackend{logs: io.NopCloser(bytes.NewBufferString("hello log\n"))}
 	manager := newTestManager(t, backend, ManagerOptions{})
@@ -150,6 +177,88 @@ func TestServeExecFallsBackToBashAndHandlesTypedInput(t *testing.T) {
 	}
 }
 
+func TestServeHostReportsMetadataAndHandlesInputAndResize(t *testing.T) {
+	stream := newFakeHostStream()
+	host := &fakeHostBackend{stream: stream}
+	manager, err := NewManagerWithHost(&fakeBackend{}, host, ManagerOptions{Random: bytes.NewReader(bytes.Repeat([]byte{4}, 128))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := manager.CreateHost(context.Background(), "admin", true, HostCreateRequest{Cols: 100, Rows: 25})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := &fakePeer{messages: []ClientMessage{
+		{Type: ClientInput, Data: []byte("whoami\n")},
+		{Type: ClientResize, Cols: 140, Rows: 40},
+		{Type: ClientClose},
+	}}
+	result, err := manager.ServeDetailed(context.Background(), session.ID, "admin", peer)
+	if err != nil {
+		t.Fatalf("ServeDetailed() error = %v", err)
+	}
+	if result.Mode != ModeHost || result.Host != stream.info || result.CloseReason != "completed" {
+		t.Fatalf("ServeDetailed() result = %#v", result)
+	}
+	if got := stream.written(); got != "whoami\n" {
+		t.Fatalf("host input = %q", got)
+	}
+	if stream.size != (HostSize{Cols: 140, Rows: 40}) {
+		t.Fatalf("host resize = %#v", stream.size)
+	}
+	controls := peer.controlsSnapshot()
+	if len(controls) == 0 || controls[0].Type != ControlReady || controls[0].Hostname != "homelab" || controls[0].User != "binhminh" || controls[0].Shell != "/bin/bash" {
+		t.Fatalf("host ready control = %#v", controls)
+	}
+}
+
+func TestServeHostReportsExitCode(t *testing.T) {
+	stream := &exitingHostStream{reader: bytes.NewReader([]byte("bye\n")), code: 7}
+	host := &fakeHostBackend{stream: stream}
+	manager, err := NewManagerWithHost(&fakeBackend{}, host, ManagerOptions{Random: bytes.NewReader(bytes.Repeat([]byte{5}, 64))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := manager.CreateHost(context.Background(), "admin", true, HostCreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := &fakePeer{}
+	result, err := manager.ServeDetailed(context.Background(), session.ID, "admin", peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ExitCode == nil || *result.ExitCode != 7 {
+		t.Fatalf("host exit code = %#v", result.ExitCode)
+	}
+	controls := peer.controlsSnapshot()
+	last := controls[len(controls)-1]
+	if last.Type != ControlExit || last.ExitCode == nil || *last.ExitCode != 7 {
+		t.Fatalf("host exit control = %#v", last)
+	}
+}
+
+func TestBlockedInputWriteCannotDefeatIdleTimeout(t *testing.T) {
+	stream := newBlockingWriteStream()
+	backend := &fakeBackend{stream: stream}
+	manager := newTestManager(t, backend, ManagerOptions{IdleTimeout: 15 * time.Millisecond})
+	session, err := manager.Create("admin", true, CreateRequest{Mode: ModeExec, ContainerID: "app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := &fakePeer{messages: []ClientMessage{{Type: ClientInput, Data: []byte("blocked")}}}
+	done := make(chan error, 1)
+	go func() { done <- manager.Serve(context.Background(), session.ID, "admin", peer) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrIdleTimeout) {
+			t.Fatalf("Serve() error = %v, want ErrIdleTimeout", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked stream write prevented the idle timeout")
+	}
+}
+
 func TestServeRejectsInputForLogSession(t *testing.T) {
 	stream := newBlockingStream()
 	backend := &fakeBackend{logs: stream}
@@ -206,6 +315,58 @@ type fakeBackend struct {
 	resize     podman.TerminalSize
 	removed    []string
 }
+
+type fakeHostBackend struct {
+	probeErr error
+	openErr  error
+	stream   HostStream
+}
+
+func (b *fakeHostBackend) Probe(context.Context) error { return b.probeErr }
+
+func (b *fakeHostBackend) Open(context.Context, HostSize) (HostStream, error) {
+	if b.openErr != nil {
+		return nil, b.openErr
+	}
+	return b.stream, nil
+}
+
+type fakeHostStream struct {
+	*blockingStream
+	info HostInfo
+	size HostSize
+}
+
+func newFakeHostStream() *fakeHostStream {
+	return &fakeHostStream{
+		blockingStream: newBlockingStream(),
+		info:           HostInfo{Hostname: "homelab", User: "binhminh", Shell: "/bin/bash"},
+	}
+}
+
+func (s *fakeHostStream) Resize(_ context.Context, size HostSize) error {
+	s.size = size
+	return nil
+}
+
+func (s *fakeHostStream) Info() HostInfo        { return s.info }
+func (s *fakeHostStream) ExitCode() (int, bool) { return 0, false }
+
+type exitingHostStream struct {
+	reader *bytes.Reader
+	code   int
+}
+
+func (s *exitingHostStream) Read(target []byte) (int, error) { return s.reader.Read(target) }
+func (*exitingHostStream) Write(payload []byte) (int, error) { return len(payload), nil }
+func (*exitingHostStream) Close() error                      { return nil }
+func (*exitingHostStream) Resize(context.Context, HostSize) error {
+	return nil
+}
+func (*exitingHostStream) Info() HostInfo {
+	return HostInfo{Hostname: "homelab", User: "binhminh", Shell: "/bin/bash"}
+}
+func (s *exitingHostStream) ExitCode() (int, bool) { return s.code, true }
 
 func (b *fakeBackend) Logs(_ context.Context, _ string, options podman.LogsOptions) (io.ReadCloser, error) {
 	b.mu.Lock()
@@ -270,6 +431,30 @@ type blockingStream struct {
 	writes bytes.Buffer
 	closed chan struct{}
 	once   sync.Once
+}
+
+type blockingWriteStream struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newBlockingWriteStream() *blockingWriteStream {
+	return &blockingWriteStream{closed: make(chan struct{})}
+}
+
+func (s *blockingWriteStream) Read([]byte) (int, error) {
+	<-s.closed
+	return 0, io.EOF
+}
+
+func (s *blockingWriteStream) Write([]byte) (int, error) {
+	<-s.closed
+	return 0, io.ErrClosedPipe
+}
+
+func (s *blockingWriteStream) Close() error {
+	s.once.Do(func() { close(s.closed) })
+	return nil
 }
 
 type finalEOFReader struct {

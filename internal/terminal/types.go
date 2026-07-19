@@ -15,6 +15,8 @@ var (
 	ErrSessionClaimed   = errors.New("terminal: session is already connected")
 	ErrSessionExpired   = errors.New("terminal: session expired")
 	ErrExecLimit        = errors.New("terminal: interactive exec limit reached")
+	ErrHostLimit        = errors.New("terminal: host shell limit reached")
+	ErrHostUnavailable  = errors.New("terminal: host shell agent is unavailable")
 	ErrSessionLimit     = errors.New("terminal: session limit reached")
 	ErrInvalidRequest   = errors.New("terminal: invalid request")
 	ErrInputTooLarge    = errors.New("terminal: input frame exceeds limit")
@@ -29,6 +31,7 @@ type Mode string
 const (
 	ModeLogs Mode = "logs"
 	ModeExec Mode = "exec"
+	ModeHost Mode = "host"
 )
 
 type CreateRequest struct {
@@ -40,10 +43,15 @@ type CreateRequest struct {
 	Rows        uint   `json:"rows,omitempty"`
 }
 
+type HostCreateRequest struct {
+	Cols uint `json:"cols,omitempty"`
+	Rows uint `json:"rows,omitempty"`
+}
+
 type Session struct {
 	ID          string    `json:"id"`
 	Mode        Mode      `json:"mode"`
-	ContainerID string    `json:"containerId"`
+	ContainerID string    `json:"containerId,omitempty"`
 	User        string    `json:"-"`
 	ReadOnly    bool      `json:"readOnly"`
 	CreatedAt   time.Time `json:"createdAt"`
@@ -70,6 +78,29 @@ type Backend interface {
 	StartExec(context.Context, string, podman.TerminalSize) (io.ReadWriteCloser, error)
 	ResizeExec(context.Context, string, podman.TerminalSize) error
 	RemoveExec(context.Context, string, bool) error
+}
+
+type HostSize struct {
+	Cols uint
+	Rows uint
+}
+
+type HostInfo struct {
+	Hostname string
+	User     string
+	Shell    string
+}
+
+type HostStream interface {
+	io.ReadWriteCloser
+	Resize(context.Context, HostSize) error
+	Info() HostInfo
+	ExitCode() (int, bool)
+}
+
+type HostBackend interface {
+	Probe(context.Context) error
+	Open(context.Context, HostSize) (HostStream, error)
 }
 
 // Peer is a WebSocket-neutral boundary. The HTTP layer translates its chosen
@@ -107,9 +138,21 @@ const (
 type Control struct {
 	Type     ControlType `json:"type"`
 	ReadOnly bool        `json:"readOnly,omitempty"`
+	Hostname string      `json:"hostname,omitempty"`
+	User     string      `json:"user,omitempty"`
+	Shell    string      `json:"shell,omitempty"`
 	ExitCode *int        `json:"exitCode,omitempty"`
 	Code     string      `json:"code,omitempty"`
 	Message  string      `json:"message,omitempty"`
+}
+
+type ServeResult struct {
+	Mode        Mode
+	Host        HostInfo
+	StartedAt   time.Time
+	ClosedAt    time.Time
+	CloseReason string
+	ExitCode    *int
 }
 
 type ManagerOptions struct {
@@ -118,6 +161,8 @@ type ManagerOptions struct {
 	HardTimeout        time.Duration
 	MaxExecPerUser     int
 	MaxExecGlobal      int
+	MaxHostPerUser     int
+	MaxHostGlobal      int
 	MaxSessionsPerUser int
 	MaxSessionsGlobal  int
 	MaxInputFrame      int

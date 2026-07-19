@@ -51,7 +51,12 @@ export class DemoApi {
   constructor() { this.demo = true; }
 
   async session() {
-    return { identity: { login: "binhminh@tailnet", name: "Binh Minh" }, role: "admin", csrfToken: "demo" };
+    return {
+      identity: { login: "binhminh@tailnet", name: "Binh Minh" },
+      role: "admin",
+      csrfToken: "demo",
+      capabilities: { manageServices: true, containerExec: true, hostShell: true },
+    };
   }
 
   async snapshot() { return snapshot(); }

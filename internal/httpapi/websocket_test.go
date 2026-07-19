@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -64,7 +65,7 @@ func newLiveTestServer(t *testing.T) liveTestServer {
 		t.Fatal(err)
 	}
 	server, err := New(Options{
-		Auth: auth.NewManager([]string{"admin@example.com"}, false), Metrics: hub,
+		Auth: auth.NewManager([]string{"admin@example.com"}, true, false), Metrics: hub,
 		Services: serviceManager, Terminal: terminalManager, Static: static,
 	})
 	if err != nil {
@@ -72,7 +73,8 @@ func newLiveTestServer(t *testing.T) liveTestServer {
 	}
 	live := httptest.NewServer(server.Handler())
 
-	request, _ := http.NewRequest(http.MethodGet, live.URL+"/api/v1/session", nil)
+	request, _ := http.NewRequest(http.MethodPost, live.URL+"/api/v1/session", nil)
+	request.Header.Set("Origin", live.URL)
 	request.Header.Set("Tailscale-User-Login", "admin@example.com")
 	response, err := live.Client().Do(request)
 	if err != nil {
@@ -183,4 +185,224 @@ func TestTerminalSessionStreamsOverCompatibleWebSocket(t *testing.T) {
 	if err != nil || messageType != websocket.BinaryMessage || string(output) != "service ready\n" {
 		t.Fatalf("terminal output type=%d payload=%q err=%v", messageType, output, err)
 	}
+}
+
+func TestHostTerminalStreamsMetadataAndAuditsClose(t *testing.T) {
+	stream := newWebsocketHostStream()
+	audit := &memoryAudit{}
+	live := newHostLiveTestServer(t, stream, audit)
+	defer live.Close()
+
+	body := bytes.NewBufferString(`{"cols":100,"rows":25}`)
+	request, _ := http.NewRequest(http.MethodPost, live.URL+"/api/v1/terminal/host-sessions", body)
+	request.Header = live.headers()
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", live.CSRF)
+	response, err := live.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		payload, _ := io.ReadAll(response.Body)
+		t.Fatalf("host terminal create status=%d body=%s", response.StatusCode, payload)
+	}
+	var created struct {
+		ID           string `json:"id"`
+		WebSocketURL string `json:"websocketUrl"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.WebSocketURL != "/ws/v1/terminal/"+created.ID {
+		t.Fatalf("host terminal URL = %q", created.WebSocketURL)
+	}
+
+	connection, _, err := websocket.DefaultDialer.Dial(websocketURL(live.URL, created.WebSocketURL), live.headers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ready, err := connection.ReadMessage()
+	if err != nil || !bytes.Contains(ready, []byte(`"hostname":"test-host"`)) || !bytes.Contains(ready, []byte(`"user":"binhminh"`)) || !bytes.Contains(ready, []byte(`"shell":"/bin/bash"`)) {
+		t.Fatalf("host terminal ready=%s err=%v", ready, err)
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, []byte("whoami\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.WriteJSON(map[string]any{"type": "resize", "cols": 140, "rows": 40}); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.WriteJSON(map[string]any{"type": "close"}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _ = connection.ReadMessage()
+	_ = connection.Close()
+
+	deadline := time.Now().Add(time.Second)
+	for len(audit.snapshot()) < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	events := audit.snapshot()
+	if len(events) != 2 || events[1].Action != "terminal.host.close" || events[1].TargetID != "test-host" || events[1].Outcome != "success" || events[1].Metadata["closeReason"] != "completed" {
+		t.Fatalf("host terminal audits = %#v", events)
+	}
+	encodedAudit, _ := json.Marshal(events)
+	if bytes.Contains(encodedAudit, []byte(created.ID)) {
+		t.Fatal("host terminal audit contains bearer session ID")
+	}
+	if stream.written() != "whoami\n" || stream.sizeSnapshot() != (terminal.HostSize{Cols: 140, Rows: 40}) {
+		t.Fatalf("host terminal stream input=%q resize=%#v", stream.written(), stream.sizeSnapshot())
+	}
+}
+
+func TestHostTerminalHeartbeatClosesSilentPeer(t *testing.T) {
+	stream := newWebsocketHostStream()
+	audit := &memoryAudit{}
+	live := newHostLiveTestServerWithHeartbeat(t, stream, audit, 25*time.Millisecond, 100*time.Millisecond)
+	defer live.Close()
+
+	body := bytes.NewBufferString(`{"cols":100,"rows":25}`)
+	request, _ := http.NewRequest(http.MethodPost, live.URL+"/api/v1/terminal/host-sessions", body)
+	request.Header = live.headers()
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", live.CSRF)
+	response, err := live.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		payload, _ := io.ReadAll(response.Body)
+		t.Fatalf("host terminal create status=%d body=%s", response.StatusCode, payload)
+	}
+	var created struct {
+		WebSocketURL string `json:"websocketUrl"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+
+	connection, _, err := websocket.DefaultDialer.Dial(websocketURL(live.URL, created.WebSocketURL), live.headers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if _, _, err := connection.ReadMessage(); err != nil {
+		t.Fatalf("read ready message: %v", err)
+	}
+	// Stop reading so the client cannot process the server ping and return a pong.
+	select {
+	case <-stream.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("host stream remained open after the WebSocket heartbeat deadline")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for len(audit.snapshot()) < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	events := audit.snapshot()
+	if len(events) != 2 || events[1].Outcome != "interrupted" || events[1].Metadata["closeReason"] != "peer_disconnected" {
+		t.Fatalf("host terminal heartbeat audit = %#v", events)
+	}
+}
+
+func newHostLiveTestServer(t *testing.T, stream terminal.HostStream, audit AuditWriter) liveTestServer {
+	return newHostLiveTestServerWithHeartbeat(t, stream, audit, defaultTerminalPingPeriod, defaultTerminalPongWait)
+}
+
+func newHostLiveTestServerWithHeartbeat(t *testing.T, stream terminal.HostStream, audit AuditWriter, pingPeriod, pongWait time.Duration) liveTestServer {
+	t.Helper()
+	repository := &memoryServices{items: make(map[string]model.Service)}
+	serviceManager := services.NewManager(repository)
+	hub := metrics.NewHub(metrics.Sources{Host: fixedHost{}, Services: serviceManager}, time.Hour)
+	if _, err := hub.CollectOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	terminalManager, err := terminal.NewManagerWithHost(streamingTerminalBackend{}, &testHostBackend{stream: stream}, terminal.ManagerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, _ := NewStaticHandler(fstest.MapFS{"index.html": {Data: []byte("dashboard")}})
+	server, err := New(Options{
+		Auth: auth.NewManager([]string{"admin@example.com"}, true, false), Metrics: hub,
+		Services: serviceManager, Terminal: terminalManager, Static: static, Audit: audit,
+		HostShellEnabled: true, HostShellUsers: []string{"admin@example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.terminalPingPeriod = pingPeriod
+	server.terminalPongWait = pongWait
+	live := httptest.NewServer(server.Handler())
+	request, _ := http.NewRequest(http.MethodPost, live.URL+"/api/v1/session", nil)
+	request.Header.Set("Origin", live.URL)
+	request.Header.Set("Tailscale-User-Login", "admin@example.com")
+	response, err := live.Client().Do(request)
+	if err != nil {
+		live.Close()
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var session struct {
+		CSRF string `json:"csrfToken"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&session); err != nil {
+		live.Close()
+		t.Fatal(err)
+	}
+	return liveTestServer{URL: live.URL, Cookie: response.Cookies()[0], CSRF: session.CSRF, Client: live.Client(), Close: live.Close}
+}
+
+type websocketHostStream struct {
+	mu     sync.Mutex
+	writes bytes.Buffer
+	size   terminal.HostSize
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newWebsocketHostStream() *websocketHostStream {
+	return &websocketHostStream{closed: make(chan struct{})}
+}
+
+func (stream *websocketHostStream) Read([]byte) (int, error) {
+	<-stream.closed
+	return 0, io.EOF
+}
+
+func (stream *websocketHostStream) Write(payload []byte) (int, error) {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	return stream.writes.Write(payload)
+}
+
+func (stream *websocketHostStream) Close() error {
+	stream.once.Do(func() { close(stream.closed) })
+	return nil
+}
+
+func (stream *websocketHostStream) Resize(_ context.Context, size terminal.HostSize) error {
+	stream.mu.Lock()
+	stream.size = size
+	stream.mu.Unlock()
+	return nil
+}
+
+func (*websocketHostStream) Info() terminal.HostInfo {
+	return terminal.HostInfo{Hostname: "test-host", User: "binhminh", Shell: "/bin/bash"}
+}
+
+func (*websocketHostStream) ExitCode() (int, bool) { return 0, false }
+
+func (stream *websocketHostStream) written() string {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	return stream.writes.String()
+}
+
+func (stream *websocketHostStream) sizeSnapshot() terminal.HostSize {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	return stream.size
 }

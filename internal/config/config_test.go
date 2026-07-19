@@ -8,6 +8,9 @@ import (
 func TestLoadFromDefaultsAndOverrides(t *testing.T) {
 	values := map[string]string{
 		"ADMIN_USERS":           "Alice@Example.com, bob@example.com, alice@example.com",
+		"HOST_SHELL_ENABLED":    "true",
+		"HOST_SHELL_USERS":      "alice@example.com",
+		"HOST_AGENT_SOCKET":     "/run/user/1000/homelab/agent.sock",
 		"METRICS_INTERVAL":      "5s",
 		"PROBE_CONCURRENCY":     "8",
 		"TAILSCALE_SOCKS5_ADDR": "127.0.0.1:1055",
@@ -22,11 +25,67 @@ func TestLoadFromDefaultsAndOverrides(t *testing.T) {
 	if len(cfg.AdminUsers) != 2 || cfg.AdminUsers[0] != "alice@example.com" {
 		t.Fatalf("admin normalization failed: %v", cfg.AdminUsers)
 	}
+	if !cfg.HostShellEnabled || len(cfg.HostShellUsers) != 1 || cfg.HostShellUsers[0] != "alice@example.com" {
+		t.Fatalf("host shell config = enabled %t users %v", cfg.HostShellEnabled, cfg.HostShellUsers)
+	}
+	if cfg.HostAgentSocket != "/run/user/1000/homelab/agent.sock" {
+		t.Fatalf("host agent socket = %q", cfg.HostAgentSocket)
+	}
 	if len(cfg.ProbeAllowCIDRs) != 5 || cfg.ProbeConcurrency != 8 {
 		t.Fatalf("unexpected probe config: %+v", cfg)
 	}
 	if cfg.TailscaleSOCKS5Address != "127.0.0.1:1055" {
 		t.Fatalf("unexpected SOCKS5 address: %q", cfg.TailscaleSOCKS5Address)
+	}
+}
+
+func TestLoadFromRejectsUnsafeIdentityProxyConfiguration(t *testing.T) {
+	_, err := LoadFrom(func(key string) string {
+		if key == "DASHBOARD_ADDR" {
+			return "0.0.0.0:8082"
+		}
+		return ""
+	})
+	if err == nil {
+		t.Fatal("expected non-loopback listener with trusted headers to fail")
+	}
+
+	cfg, err := LoadFrom(func(key string) string {
+		switch key {
+		case "DASHBOARD_ADDR":
+			return "0.0.0.0:8082"
+		case "TRUST_TAILSCALE_HEADERS":
+			return "false"
+		default:
+			return ""
+		}
+	})
+	if err != nil || cfg.TrustTailscaleHeaders {
+		t.Fatalf("explicitly untrusted non-loopback config = %+v, %v", cfg, err)
+	}
+}
+
+func TestLoadFromValidatesHostShellAllowlist(t *testing.T) {
+	for name, values := range map[string]map[string]string{
+		"empty enabled allowlist": {
+			"HOST_SHELL_ENABLED": "true",
+			"ADMIN_USERS":        "admin@example.com",
+		},
+		"non-admin host user": {
+			"HOST_SHELL_ENABLED": "true",
+			"ADMIN_USERS":        "admin@example.com",
+			"HOST_SHELL_USERS":   "viewer@example.com",
+		},
+		"relative agent socket": {
+			"HOST_AGENT_SOCKET": "agent.sock",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadFrom(func(key string) string { return values[key] })
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+		})
 	}
 }
 
