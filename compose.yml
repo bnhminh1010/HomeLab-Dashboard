@@ -1,0 +1,71 @@
+name: homelab-dashboard
+
+services:
+  tailscale:
+    image: docker.io/tailscale/tailscale:v1.98.9
+    hostname: ${TS_HOSTNAME:-homelab-dashboard}
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?Set TS_AUTHKEY in .env}
+      TS_AUTH_ONCE: "true"
+      TS_HOSTNAME: ${TS_HOSTNAME:-homelab-dashboard}
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+      TS_SOCKS5_SERVER: 127.0.0.1:1055
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./deploy/tailscale:/config:ro
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges
+    labels:
+      io.homelab.dashboard.protected: "true"
+      io.homelab.dashboard.hidden: "true"
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Containerfile
+    network_mode: service:tailscale
+    depends_on:
+      - tailscale
+    environment:
+      DASHBOARD_ADDR: 127.0.0.1:8082
+      DATA_PATH: /data/dashboard.db
+      ADMIN_USERS: ${ADMIN_USERS:?Set ADMIN_USERS in .env}
+      PODMAN_SOCKET: /run/podman/podman.sock
+      HOST_PROC_PATH: /host/proc
+      HOST_SYS_PATH: /host/sys
+      HOST_ROOT_PATH: /host/root
+      PROBE_ALLOW_CIDRS: ${PROBE_ALLOW_CIDRS:-}
+      TAILSCALE_SOCKS5_ADDR: 127.0.0.1:1055
+      TRUST_TAILSCALE_HEADERS: "true"
+    volumes:
+      - dashboard-data:/data
+      - ${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/podman/podman.sock:/run/podman/podman.sock
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges
+      - label=disable
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "/dashboard", "healthcheck", "http://127.0.0.1:8082/health/live"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    labels:
+      io.homelab.dashboard.protected: "true"
+      io.homelab.dashboard.hidden: "true"
+
+volumes:
+  dashboard-data:
+  tailscale-state:

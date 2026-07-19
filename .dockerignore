@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+.git
+.omc
+Docs
+bin
+coverage.out
+*.db
+*.db-shm
+*.db-wal

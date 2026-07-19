@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "policy": "Vendored browser bundles only. No Node.js, package manager, CDN, or runtime download is required.",
+  "packages": [
+    {
+      "name": "@xterm/xterm",
+      "version": "6.0.0",
+      "upstream": "https://github.com/xtermjs/xterm.js/releases/tag/6.0.0",
+      "license": "MIT",
+      "files": [
+        { "path": "xterm.mjs", "sha256": "b336ec65a086c056d4804b3d4c2347da5663d3f23c3f25be866467bd8857ad59", "bytes": 344970, "gzipBytes": 88029 },
+        { "path": "xterm.css", "sha256": "854a7c0fb70e8b1a083c16797ab827299fb18744f5ad34f227b48337e33293c6", "bytes": 7112, "gzipBytes": 2512 },
+        { "path": "xterm.LICENSE", "sha256": "b569f629d00f2626a8100df2a1798210535621e42164dfd426a6fe5aac7b0ccd", "bytes": 1261 }
+      ]
+    },
+    {
+      "name": "@xterm/addon-fit",
+      "version": "0.11.0",
+      "upstream": "https://github.com/xtermjs/xterm.js/releases/tag/6.0.0",
+      "license": "MIT",
+      "files": [
+        { "path": "addon-fit.mjs", "sha256": "2d87e1bddc73be9111de8beee5370c3bb7aac9c94e18e6f245f02ca741ef1769", "bytes": 1967, "gzipBytes": 816 },
+        { "path": "addon-fit.LICENSE", "sha256": "e256f01188af527e4d06d21d06fbf785ae9c50d4b328bf03cbe0ba7f0aa4228f", "bytes": 1103 }
+      ]
+    },
+    {
+      "name": "chart.js",
+      "version": "4.5.1",
+      "upstream": "https://github.com/chartjs/Chart.js/releases/tag/v4.5.1",
+      "license": "MIT",
+      "files": [
+        { "path": "chart.umd.min.js", "sha256": "48444a82d4edcb5bec0f1965faacdde18d9c17db3063d042abada2f705c9f54a", "bytes": 208522, "gzipBytes": 70402 },
+        { "path": "chart.LICENSE.md", "sha256": "41a84aa2caba645f966a18d9c2056b73e6d3a81d80bc0046bc0011a2634d4cce", "bytes": 1093 }
+      ]
+    }
+  ]
+}
