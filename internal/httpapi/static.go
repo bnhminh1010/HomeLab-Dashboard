@@ -94,7 +94,10 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if requestPath == "/index.html" {
 		w.Header().Set("Cache-Control", "no-cache")
 	} else if strings.HasPrefix(requestPath, "/lib/") {
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		// Vendor filenames are stable across dashboard releases. Require
+		// revalidation so an upgraded embedded bundle cannot remain pinned in a
+		// browser cache for a year under the same URL.
+		w.Header().Set("Cache-Control", "public, max-age=86400, must-revalidate")
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=3600, must-revalidate")
 	}

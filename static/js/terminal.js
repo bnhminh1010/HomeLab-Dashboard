@@ -4,12 +4,24 @@ import { clamp, websocketUrl } from "./format.js";
 
 const MAX_OUTPUT_FRAME = 1024 * 1024;
 const MAX_INPUT_CHUNK = 8 * 1024;
+const MAX_LOG_LINES = 10_000;
+const MAX_LOG_BYTES = 5 * 1024 * 1024;
+const DEFAULT_LOG_SINCE = "1h";
+const DEFAULT_LOG_TAIL = 500;
 const HEIGHT_STORAGE_KEY = "homelab.terminal.height";
 const MOBILE_WORKBENCH_QUERY = "(max-width: 899px)";
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
 function cleanControlText(value) {
   return String(value || "").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").slice(0, 300);
+}
+
+function apiErrorText(error, fallback) {
+  const message = cleanControlText(error?.message || fallback || "Request failed.");
+  const code = cleanControlText(error?.code || "").replace(/[^a-zA-Z0-9_.-]/g, "");
+  const status = Number(error?.status) || 0;
+  const diagnostic = [code, status ? `HTTP ${status}` : ""].filter(Boolean).join(" · ");
+  return diagnostic ? `[${diagnostic}] ${message}` : message;
 }
 
 function sessionFromResponse(payload) {
@@ -21,6 +33,13 @@ export function createTerminalController({ api, demo = false, toast }) {
   const panel = document.getElementById("terminal-panel");
   const body = document.getElementById("terminal-body");
   const host = document.getElementById("terminal");
+  const logViewer = document.getElementById("log-viewer");
+  const logOutput = document.getElementById("log-output");
+  const logSearch = document.getElementById("log-search");
+  const logFollowButton = document.getElementById("log-follow");
+  const logPauseButton = document.getElementById("log-pause");
+  const logDownloadButton = document.getElementById("log-download");
+  const logStats = document.getElementById("log-stats");
   const resizeHandle = document.getElementById("terminal-resize");
   const toggle = document.getElementById("terminal-toggle");
   const toggleLabel = toggle.querySelector("span");
@@ -112,6 +131,8 @@ export function createTerminalController({ api, demo = false, toast }) {
 
   let socket = null;
   let active = null;
+  let selectedNodeId = "local";
+  let selectedNodeLabel = "local";
   let demoExec = false;
   let demoLine = "";
   let resizeTimer = 0;
@@ -122,6 +143,20 @@ export function createTerminalController({ api, demo = false, toast }) {
   let inactiveState = "idle";
   let inactiveMode = "";
   let sessionInvoker = null;
+  let logLines = [];
+  let logBytes = 0;
+  let logPending = "";
+  let logPendingBytes = 0;
+  let logPartialElement = null;
+  let logPaused = false;
+  let logFollowing = true;
+  let logQuery = "";
+  let logDropped = 0;
+  let logDecoder = new TextDecoder();
+  let logSeen = new Set();
+  let logSeenOrder = [];
+  let logSeenBytes = 0;
+  const logEncoder = new TextEncoder();
 
   function defaultHeight() {
     return clamp(window.innerHeight * 0.36, 240, 420);
@@ -152,8 +187,212 @@ export function createTerminalController({ api, demo = false, toast }) {
     }
   }
 
+  function compactBytes(value) {
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+    return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+
+  function cleanLogText(value) {
+    return String(value || "")
+      .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+  }
+
+  function trimUTF8Tail(value, limit) {
+    const encoded = logEncoder.encode(value);
+    if (encoded.byteLength <= limit) return value;
+    return new TextDecoder().decode(encoded.slice(encoded.byteLength - limit));
+  }
+
+  function logMatches(value) {
+    return !logQuery || value.toLocaleLowerCase().includes(logQuery);
+  }
+
+  function updateLogElement(element, value, kind = "log") {
+    element.textContent = value;
+    element.className = `log-line${kind === "system" ? " is-system" : ""}`;
+    const matches = logMatches(value);
+    element.hidden = !matches;
+    element.classList.toggle("is-match", Boolean(logQuery) && matches);
+  }
+
+  function renderLogLine(entry) {
+    if (entry.element || logPaused) return;
+    const element = document.createElement("div");
+    updateLogElement(element, entry.text, entry.kind);
+    entry.element = element;
+    logOutput.append(element);
+  }
+
+  function renderLogPartial() {
+    if (logPaused || !logPending) return;
+    if (!logPartialElement) {
+      logPartialElement = document.createElement("div");
+      logOutput.append(logPartialElement);
+    }
+    updateLogElement(logPartialElement, logPending);
+  }
+
+  function logLineCount() {
+    return logLines.length + (logPending ? 1 : 0);
+  }
+
+  function trimLogBuffer() {
+    while (logLines.length > 0 && (logLineCount() > MAX_LOG_LINES || logBytes + logPendingBytes > MAX_LOG_BYTES)) {
+      const removed = logLines.shift();
+      logBytes -= removed.bytes;
+      removed.element?.remove();
+      logDropped += 1;
+    }
+    if (logBytes + logPendingBytes > MAX_LOG_BYTES) {
+      logPending = trimUTF8Tail(logPending, Math.max(0, MAX_LOG_BYTES - logBytes));
+      logPendingBytes = logEncoder.encode(logPending).byteLength;
+      renderLogPartial();
+    }
+  }
+
+  function updateLogStats() {
+    const total = logLineCount();
+    let visible = total;
+    if (logQuery) {
+      visible = logLines.reduce((count, entry) => count + Number(logMatches(entry.text)), 0) + Number(Boolean(logPending) && logMatches(logPending));
+    }
+    const parts = [`${total} ${total === 1 ? "LINE" : "LINES"}`, compactBytes(logBytes + logPendingBytes)];
+    if (logQuery) parts.push(`${visible} MATCH${visible === 1 ? "" : "ES"}`);
+    if (logPaused) parts.push("PAUSED");
+    if (logDropped) parts.push(`${logDropped} DROPPED`);
+    logStats.textContent = parts.join(" · ");
+    logStats.dataset.lines = String(total);
+    logStats.dataset.bytes = String(logBytes + logPendingBytes);
+    logDownloadButton.disabled = total === 0;
+  }
+
+  function scrollLogToEnd() {
+    if (!logPaused && logFollowing) logOutput.scrollTop = logOutput.scrollHeight;
+  }
+
+  function addLogLine(value, kind = "log") {
+    const text = cleanLogText(value);
+    // Log sessions always request Podman timestamps. Keep a bounded replay
+    // window so reconnecting with the one-hour lookback does not append the
+    // same tail repeatedly. System notices are intentionally never deduped.
+    if (kind === "log") {
+      if (logSeen.has(text)) return false;
+      const seenBytes = logEncoder.encode(text).byteLength;
+      logSeen.add(text);
+      logSeenOrder.push({ text, bytes: seenBytes });
+      logSeenBytes += seenBytes;
+      while (logSeenOrder.length > MAX_LOG_LINES || logSeenBytes > MAX_LOG_BYTES) {
+        const removed = logSeenOrder.shift();
+        logSeen.delete(removed.text);
+        logSeenBytes -= removed.bytes;
+      }
+    }
+    const entry = { text, kind, bytes: logEncoder.encode(`${text}\n`).byteLength, element: null };
+    logLines.push(entry);
+    logBytes += entry.bytes;
+    renderLogLine(entry);
+    trimLogBuffer();
+    return true;
+  }
+
+  function appendLogChunk(value) {
+    const normalized = `${logPending}${cleanLogText(value)}`.replace(/\r\n?/g, "\n");
+    logPartialElement?.remove();
+    logPartialElement = null;
+    logPending = "";
+    logPendingBytes = 0;
+    const parts = normalized.split("\n");
+    const incomplete = parts.pop() || "";
+    for (const line of parts) addLogLine(line);
+    logPending = trimUTF8Tail(incomplete, MAX_LOG_BYTES);
+    logPendingBytes = logEncoder.encode(logPending).byteLength;
+    renderLogPartial();
+    trimLogBuffer();
+    updateLogStats();
+    scrollLogToEnd();
+  }
+
+  function appendLogNotice(message) {
+    addLogLine(`[homelab] ${cleanControlText(message)}`, "system");
+    updateLogStats();
+    scrollLogToEnd();
+  }
+
+  function applyLogSearch() {
+    for (const entry of logLines) {
+      if (entry.element) updateLogElement(entry.element, entry.text, entry.kind);
+    }
+    if (logPartialElement) updateLogElement(logPartialElement, logPending);
+    updateLogStats();
+  }
+
+  function renderAllLogs() {
+    logOutput.replaceChildren();
+    logPartialElement = null;
+    for (const entry of logLines) {
+      entry.element = null;
+      renderLogLine(entry);
+    }
+    renderLogPartial();
+    applyLogSearch();
+    scrollLogToEnd();
+  }
+
+  function resetLogViewer() {
+    logLines = [];
+    logBytes = 0;
+    logPending = "";
+    logPendingBytes = 0;
+    logPartialElement = null;
+    logPaused = false;
+    logFollowing = true;
+    logQuery = "";
+    logDropped = 0;
+    logDecoder = new TextDecoder();
+    logSeen = new Set();
+    logSeenOrder = [];
+    logSeenBytes = 0;
+    logOutput.replaceChildren();
+    logSearch.value = "";
+    logPauseButton.textContent = "PAUSE";
+    logPauseButton.setAttribute("aria-pressed", "false");
+    logFollowButton.setAttribute("aria-pressed", "true");
+    updateLogStats();
+  }
+
+  function finalizeLogConnection() {
+    const decoderTail = logDecoder.decode();
+    if (decoderTail) appendLogChunk(decoderTail);
+    if (logPending) {
+      const pending = logPending;
+      logPending = "";
+      logPendingBytes = 0;
+      logPartialElement?.remove();
+      logPartialElement = null;
+      addLogLine(pending);
+      updateLogStats();
+    }
+    logDecoder = new TextDecoder();
+  }
+
+  function syncTerminalSurface(mode) {
+    const logs = mode === "logs";
+    host.hidden = logs;
+    logViewer.hidden = !logs;
+    if (!logs) fit();
+  }
+
+  function modeLabel(mode) {
+    if (mode === "host") return "HOST";
+    if (mode === "logs") return "LOGS";
+    if (mode === "exec") return "CONTAINER SHELL";
+    return String(mode || "").toUpperCase();
+  }
+
   function fitNow() {
-    if (panel.classList.contains("is-collapsed")) return;
+    if (panel.classList.contains("is-collapsed") || !logViewer.hidden) return;
     try { fitAddon.fit(); } catch { /* xterm may be between layout frames */ }
   }
 
@@ -174,6 +413,7 @@ export function createTerminalController({ api, demo = false, toast }) {
     for (const value of ["idle", "connecting", "connected", "disconnected", "exited", "unavailable"]) {
       panel.classList.toggle(`terminal-state-${value}`, state === value);
     }
+    syncTerminalSurface(mode);
   }
 
   function captureInvoker(explicitInvoker = null) {
@@ -226,6 +466,10 @@ export function createTerminalController({ api, demo = false, toast }) {
   setHeight(storedHeight());
 
   function writeNotice(message, color = "36") {
+    if (!logViewer.hidden) {
+      appendLogNotice(message);
+      return;
+    }
     terminal.writeln(`\x1b[${color}m[homelab]\x1b[0m ${cleanControlText(message)}`);
   }
 
@@ -281,7 +525,7 @@ export function createTerminalController({ api, demo = false, toast }) {
           const endedMode = active?.mode || "exec";
           const endedContainer = active?.containerName || "container";
           writeNotice("Demo shell exited.", "33");
-          inactiveLabel = endedMode === "host" ? "HOST · EXITED" : `EXEC · ${endedContainer} · EXITED`;
+          inactiveLabel = endedMode === "host" ? "HOST · EXITED" : `CONTAINER SHELL · ${endedContainer} · EXITED`;
           inactiveState = "exited";
           inactiveMode = endedMode;
           demoExec = false;
@@ -318,7 +562,7 @@ export function createTerminalController({ api, demo = false, toast }) {
       sessionLabel.textContent = inactiveLabel;
       setPanelState(inactiveMode, inactiveState);
     } else if (active.connecting) {
-      const scope = active.mode === "host" ? "HOST" : `${active.mode.toUpperCase()} · ${active.containerName}`;
+      const scope = active.mode === "host" ? "HOST" : `${modeLabel(active.mode)} · ${active.containerName}`;
       sessionLabel.textContent = `${scope} · ${active.connectedOnce ? "RECONNECTING" : "CONNECTING"}`;
       setPanelState(active.mode, "connecting");
     } else if (active.mode === "host") {
@@ -326,10 +570,10 @@ export function createTerminalController({ api, demo = false, toast }) {
       sessionLabel.textContent = `HOST · ${identity} · CONNECTED`;
       setPanelState(active.mode, "connected");
     } else if (active.mode === "logs") {
-      sessionLabel.textContent = `LOGS · ${active.containerName} · STREAMING`;
+      sessionLabel.textContent = `LOGS · ${active.nodeLabel || active.nodeId || "local"} / ${active.containerName} · ${logPaused ? "PAUSED" : "STREAMING"}`;
       setPanelState(active.mode, "connected");
     } else {
-      sessionLabel.textContent = `EXEC · ${active.containerName} · CONNECTED`;
+      sessionLabel.textContent = `CONTAINER SHELL · ${active.nodeLabel || active.nodeId || "local"} / ${active.containerName} · CONNECTED`;
       setPanelState(active.mode, "connected");
     }
   }
@@ -371,27 +615,33 @@ export function createTerminalController({ api, demo = false, toast }) {
     else collapsePanel();
   }
 
-  async function open({ mode, containerId, containerName, invoker = null }) {
+  async function open({ mode, containerId, containerName, nodeId = selectedNodeId, invoker = null }) {
     if (!['logs', 'exec'].includes(mode)) throw new Error("Unsupported terminal mode.");
-    if ((active?.mode === "exec" || active?.mode === "host") && !window.confirm(`Disconnect the current ${active.mode === "host" ? "Host Shell" : "Exec"} session?`)) return;
+    if ((active?.mode === "exec" || active?.mode === "host") && !window.confirm(`Disconnect the current ${active.mode === "host" ? "Host Shell" : "Container Shell"} session?`)) return;
     disconnect(false);
     captureInvoker(invoker);
     inactiveLabel = "IDLE";
     inactiveState = "idle";
     inactiveMode = "";
     expand();
-    terminal.clear();
-    terminal.reset();
-    terminal.options.disableStdin = true;
-    writeNotice(`Opening ${mode} for ${containerName}…`);
+    if (mode === "logs") {
+      resetLogViewer();
+      syncTerminalSurface("logs");
+    } else {
+      terminal.clear();
+      terminal.reset();
+      terminal.options.disableStdin = true;
+      syncTerminalSurface("exec");
+    }
+    writeNotice(`Opening ${mode === "exec" ? "container shell" : "logs"} for ${containerName}…`);
 
     if (demo) {
-      active = { mode, containerId, containerName, readOnly: mode === "logs", ready: true, connectedOnce: true };
+      active = { mode, containerId, containerName, nodeId: nodeId || "local", nodeLabel: selectedNodeLabel, readOnly: mode === "logs", ready: true, connectedOnce: true };
       updateActiveState();
       if (mode === "logs") {
-        terminal.writeln("\x1b[90m2026-07-17T09:41:02Z\x1b[0m service ready on :8080");
-        terminal.writeln("\x1b[90m2026-07-17T09:41:04Z\x1b[0m health probe \x1b[32mok\x1b[0m");
-        terminal.writeln("\x1b[90m2026-07-17T09:41:06Z\x1b[0m GET /api/ping 200 4ms");
+        appendLogChunk("2026-07-17T09:41:02Z service ready on :8080\n");
+        appendLogChunk("2026-07-17T09:41:04Z health probe ok\n");
+        appendLogChunk("2026-07-17T09:41:06Z GET /api/ping 200 4ms\n");
       } else {
         demoExec = true;
         demoLine = "";
@@ -402,20 +652,20 @@ export function createTerminalController({ api, demo = false, toast }) {
     }
 
     const version = connectionVersion;
-    active = { mode, containerId, containerName, readOnly: mode === "logs", connecting: true, connectedOnce: false, ready: false };
+    active = { mode, containerId, containerName, nodeId: nodeId || "local", nodeLabel: selectedNodeLabel, readOnly: mode === "logs", connecting: true, connectedOnce: false, ready: false };
     updateActiveState();
     try {
       await startRemoteSession(version);
     } catch (error) {
       if (version !== connectionVersion || !active) return;
-      if (retryable(error)) {
+      if (retryable(error) && active.mode === "logs") {
         active.connecting = true;
         updateActiveState();
-        writeNotice(`${error?.message || "Terminal connection failed."} Retrying in 3 seconds…`, "33");
+        writeNotice(`${apiErrorText(error, "Terminal connection failed.")} Retrying in 3 seconds…`, "33");
         scheduleReconnect(version);
         return;
       }
-      inactiveLabel = `${mode.toUpperCase()} · UNAVAILABLE`;
+      inactiveLabel = `${modeLabel(mode)} · UNAVAILABLE`;
       inactiveState = "unavailable";
       inactiveMode = mode;
       active = null;
@@ -436,20 +686,24 @@ export function createTerminalController({ api, demo = false, toast }) {
     terminal.clear();
     terminal.reset();
     terminal.options.disableStdin = true;
-    writeNotice("Opening Bash on the homelab host with its configured host-agent account…");
+    writeNotice(`Opening Bash on ${selectedNodeLabel} with its configured host-agent account…`);
 
     if (demo) {
       if (demoHostAgentState === "offline") {
+        const error = new Error("Host agent unavailable. Start homelab-host-agent and try again.");
+        error.code = "host_agent_unavailable";
+        error.status = 503;
         inactiveLabel = "HOST · UNAVAILABLE";
         inactiveState = "unavailable";
         inactiveMode = "host";
         updateActiveState();
-        writeNotice("Host agent unavailable. Start homelab-host-agent and try again.", "31");
+        writeNotice(apiErrorText(error), "31");
         restoreInvoker();
-        throw new Error("Host agent unavailable.");
+        throw error;
       }
       active = {
         mode: "host",
+        nodeId: selectedNodeId,
         readOnly: false,
         connecting: false,
         connectedOnce: true,
@@ -481,7 +735,7 @@ export function createTerminalController({ api, demo = false, toast }) {
     }
 
     const version = connectionVersion;
-    active = { mode: "host", readOnly: false, connecting: true, connectedOnce: false, ready: false };
+    active = { mode: "host", nodeId: selectedNodeId, readOnly: false, connecting: true, connectedOnce: false, ready: false };
     updateActiveState();
     try {
       await startRemoteSession(version);
@@ -492,7 +746,7 @@ export function createTerminalController({ api, demo = false, toast }) {
       inactiveState = "unavailable";
       inactiveMode = "host";
       updateActiveState();
-      writeNotice(error?.message || "Unable to open the host shell.", "31");
+      writeNotice(apiErrorText(error, "Unable to open the host shell."), "31");
       restoreInvoker();
       throw error;
     }
@@ -503,12 +757,17 @@ export function createTerminalController({ api, demo = false, toast }) {
     active.connecting = true;
     active.ready = false;
     updateActiveState();
-    const request = { mode: active.mode, containerId: active.containerId };
+    const request = { mode: active.mode, containerId: active.containerId, nodeId: active.nodeId || "local" };
     const payload = request.mode === "host"
-      ? await api.createHostTerminalSession(terminalSize())
+      ? await api.createHostTerminalSession({ ...terminalSize(), nodeId: request.nodeId })
       : await api.createTerminalSession({
         ...request,
-        ...(request.mode === "logs" ? { tail: 200, follow: true } : {}),
+        ...(request.mode === "logs" ? {
+          tail: DEFAULT_LOG_TAIL,
+          follow: true,
+          since: DEFAULT_LOG_SINCE,
+          timestamps: true,
+        } : {}),
         ...terminalSize(),
       });
     const session = sessionFromResponse(payload);
@@ -571,6 +830,7 @@ export function createTerminalController({ api, demo = false, toast }) {
           return;
         }
         if (version !== connectionVersion || !active) return;
+		if (active.mode === "logs") finalizeLogConnection();
         if (active.mode === "host") {
           active = null;
           inactiveLabel = "HOST · DISCONNECTED";
@@ -582,6 +842,18 @@ export function createTerminalController({ api, demo = false, toast }) {
           restoreInvoker();
           return;
         }
+		if (active.mode === "exec") {
+		  const containerName = active.containerName || "container";
+		  active = null;
+		  inactiveLabel = `CONTAINER SHELL · ${containerName} · DISCONNECTED`;
+		  inactiveState = "disconnected";
+		  inactiveMode = "exec";
+		  connectionVersion += 1;
+		  updateActiveState();
+		  writeNotice(event.reason || "Container shell connection lost. Open a new shell to start a fresh process.", "33");
+		  restoreInvoker();
+		  return;
+		}
         active.id = "";
         active.connecting = true;
         active.ready = false;
@@ -593,7 +865,7 @@ export function createTerminalController({ api, demo = false, toast }) {
   }
 
   function scheduleReconnect(version) {
-    if (demo || reconnectTimer || !active || active.mode === "host" || version !== connectionVersion) return;
+    if (demo || reconnectTimer || !active || active.mode !== "logs" || version !== connectionVersion) return;
     reconnectTimer = window.setTimeout(async () => {
       reconnectTimer = 0;
       if (!active || version !== connectionVersion) return;
@@ -607,11 +879,11 @@ export function createTerminalController({ api, demo = false, toast }) {
           scheduleReconnect(version);
           return;
         }
-        writeNotice(error?.message || "Terminal reconnect was rejected.", "31");
+        writeNotice(apiErrorText(error, "Terminal reconnect was rejected."), "31");
         const endedMode = active.mode;
         const endedContainer = active.containerName || "container";
         active = null;
-        inactiveLabel = `${endedMode.toUpperCase()} · ${endedContainer} · DISCONNECTED`;
+        inactiveLabel = `${modeLabel(endedMode)} · ${endedContainer} · DISCONNECTED`;
         inactiveState = "disconnected";
         inactiveMode = endedMode;
         updateActiveState();
@@ -646,7 +918,7 @@ export function createTerminalController({ api, demo = false, toast }) {
           const endedContainer = active?.containerName || "container";
           writeNotice(`Process exited with code ${Number(control.exitCode) || 0}.`, "33");
           active = null;
-          inactiveLabel = endedMode === "host" ? "HOST · EXITED" : `${endedMode.toUpperCase()} · ${endedContainer} · EXITED`;
+          inactiveLabel = endedMode === "host" ? "HOST · EXITED" : `${modeLabel(endedMode)} · ${endedContainer} · EXITED`;
           inactiveState = "exited";
           inactiveMode = endedMode;
           connectionVersion += 1;
@@ -658,9 +930,11 @@ export function createTerminalController({ api, demo = false, toast }) {
         if (control.type === "error") {
           const endedMode = active?.mode || "exec";
           const endedContainer = active?.containerName || "container";
-          writeNotice(control.message || control.code || "Terminal error.", "31");
+          const code = cleanControlText(control.code || "").replace(/[^a-zA-Z0-9_.-]/g, "");
+          const message = cleanControlText(control.message || "Terminal error.");
+          writeNotice(code ? `[${code}] ${message}` : message, "31");
           active = null;
-          inactiveLabel = endedMode === "host" ? "HOST · DISCONNECTED" : `${endedMode.toUpperCase()} · ${endedContainer} · DISCONNECTED`;
+          inactiveLabel = endedMode === "host" ? "HOST · DISCONNECTED" : `${modeLabel(endedMode)} · ${endedContainer} · DISCONNECTED`;
           inactiveState = "disconnected";
           inactiveMode = endedMode;
           connectionVersion += 1;
@@ -678,6 +952,10 @@ export function createTerminalController({ api, demo = false, toast }) {
     if (version !== connectionVersion || socket !== connection) return;
     if (data.byteLength > MAX_OUTPUT_FRAME) {
       writeNotice("Oversized terminal output frame discarded.", "31");
+      return;
+    }
+    if (active?.mode === "logs") {
+      appendLogChunk(logDecoder.decode(data, { stream: true }));
       return;
     }
     terminal.write(data);
@@ -708,8 +986,42 @@ export function createTerminalController({ api, demo = false, toast }) {
   }
 
   toggle.addEventListener("click", togglePanel);
-  clear.addEventListener("click", () => terminal.clear());
+  clear.addEventListener("click", () => {
+    if (!logViewer.hidden) {
+      resetLogViewer();
+      updateActiveState();
+    } else terminal.clear();
+  });
   bell.addEventListener("click", () => terminal.write("\x07"));
+  logSearch.addEventListener("input", () => {
+    logQuery = logSearch.value.toLocaleLowerCase();
+    applyLogSearch();
+  });
+  logFollowButton.addEventListener("click", () => {
+    logFollowing = !logFollowing;
+    logFollowButton.setAttribute("aria-pressed", String(logFollowing));
+    if (logFollowing) scrollLogToEnd();
+  });
+  logPauseButton.addEventListener("click", () => {
+    logPaused = !logPaused;
+    logPauseButton.textContent = logPaused ? "RESUME" : "PAUSE";
+    logPauseButton.setAttribute("aria-pressed", String(logPaused));
+    updateActiveState();
+    if (!logPaused) renderAllLogs();
+    else updateLogStats();
+  });
+  logDownloadButton.addEventListener("click", () => {
+    const content = [...logLines.map((entry) => entry.text), ...(logPending ? [logPending] : [])].join("\n");
+    if (!content) return;
+    const blob = new Blob([`${content}\n`], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const name = String(active?.containerName || "container").replace(/[^a-zA-Z0-9_.-]/g, "_");
+    anchor.href = url;
+    anchor.download = `${name}-logs.txt`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  });
   compactButton.addEventListener("click", () => {
     setMaximized(false);
     setHeight(180, true);
@@ -725,7 +1037,7 @@ export function createTerminalController({ api, demo = false, toast }) {
     setMaximized(!panel.classList.contains("is-maximized"));
   });
   hostShellButton.addEventListener("click", () => {
-    void openHostShell().catch((error) => toast(error?.message || "Unable to open the host shell.", "error"));
+    void openHostShell().catch((error) => toast(apiErrorText(error, "Unable to open the host shell."), "error"));
   });
   disconnectButton.addEventListener("click", () => disconnect());
 
@@ -764,7 +1076,7 @@ export function createTerminalController({ api, demo = false, toast }) {
     syncWorkbenchClass();
     fit();
     terminal.writeln("\x1b[36mHomelab terminal\x1b[0m");
-    terminal.writeln("Select container \x1b[1mLogs\x1b[0m / \x1b[1mExec\x1b[0m, or open an authorized \x1b[1mHost Shell\x1b[0m.");
+    terminal.writeln("Select container \x1b[1mLogs\x1b[0m / \x1b[1mContainer Shell\x1b[0m, or open an authorized \x1b[1mHost Shell\x1b[0m.");
   });
 
   function setHostShellCapability(enabled) {
@@ -773,5 +1085,12 @@ export function createTerminalController({ api, demo = false, toast }) {
     if (!enabled && active?.mode === "host") disconnect(false);
   }
 
-  return { open, disconnect, fit, setHostShellCapability };
+  function setNode(nodeId, label = "") {
+    const nextNodeId = String(nodeId || "local");
+    if (nextNodeId !== selectedNodeId && active) disconnect(false);
+    selectedNodeId = nextNodeId;
+    selectedNodeLabel = cleanControlText(label || nextNodeId) || nextNodeId;
+  }
+
+  return { open, disconnect, fit, setHostShellCapability, setNode };
 }

@@ -54,6 +54,14 @@ export class DashboardApi {
     return this.request("/api/v1/snapshot", { signal });
   }
 
+  preferences(signal) {
+    return this.request("/api/v1/preferences", { signal });
+  }
+
+  updatePreferences(preferences) {
+    return this.request("/api/v1/preferences", { method: "PATCH", mutation: true, body: preferences });
+  }
+
   createService(service) {
     return this.request("/api/services", { method: "POST", mutation: true, body: service });
   }
@@ -76,6 +84,99 @@ export class DashboardApi {
 
   cancelTerminalSession(id) {
     return this.request(`/api/v1/terminal/sessions/${encodeURIComponent(id)}`, { method: "DELETE", mutation: true });
+  }
+
+  listNodes(signal) {
+    return this.request("/api/v1/nodes", { signal });
+  }
+
+  createNodeEnrollment() {
+    return this.request("/api/v1/nodes/enrollment-tokens", { method: "POST", mutation: true, body: {} });
+  }
+
+  revokeNode(id) {
+    return this.request(`/api/v1/nodes/${encodeURIComponent(id)}`, { method: "DELETE", mutation: true });
+  }
+
+  systemHistory(node, range, signal) {
+    const query = new URLSearchParams({ node: node || "local", range: range || "24h", resolution: "auto", maxPoints: "60" });
+    return this.request(`/api/v1/history/system?${query}`, { signal });
+  }
+
+  containerHistory(node, instanceId, range, signal) {
+    const query = new URLSearchParams({ node: node || "local", range: range || "24h", resolution: "auto", maxPoints: "60" });
+    return this.request(`/api/v1/history/containers/${encodeURIComponent(instanceId)}?${query}`, { signal });
+  }
+
+  serviceHistory(node, serviceId, range, signal) {
+    const query = new URLSearchParams({ node: node || "local", range: range || "24h", maxPoints: "60" });
+    return this.request(`/api/v1/history/services/${encodeURIComponent(serviceId)}?${query}`, { signal });
+  }
+
+  historyResources(node, signal) {
+    const query = new URLSearchParams({ node: node || "local" });
+    return this.request(`/api/v1/history/resources?${query}`, { signal });
+  }
+
+  listAlertRules(signal) {
+    return this.request("/api/v1/alert-rules", { signal });
+  }
+
+  createAlertRule(rule) {
+    return this.request("/api/v1/alert-rules", { method: "POST", mutation: true, body: rule });
+  }
+
+  updateAlertRule(id, rule) {
+    return this.request(`/api/v1/alert-rules/${encodeURIComponent(id)}`, { method: "PATCH", mutation: true, body: rule });
+  }
+
+  deleteAlertRule(id) {
+    return this.request(`/api/v1/alert-rules/${encodeURIComponent(id)}`, { method: "DELETE", mutation: true });
+  }
+
+  listAlerts({ node = "", active = true, limit = 100, signal } = {}) {
+    const query = new URLSearchParams({ active: String(active), limit: String(limit) });
+    if (node) query.set("node", node);
+    return this.request(`/api/v1/alerts?${query}`, { signal });
+  }
+
+  listAlertEvents({ node = "", limit = 100, signal } = {}) {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (node) query.set("node", node);
+    return this.request(`/api/v1/alerts/events?${query}`, { signal });
+  }
+
+  acknowledgeAlert(alert) {
+    return this.request("/api/v1/alerts/acknowledge", { method: "POST", mutation: true, body: alert });
+  }
+
+  silenceAlert(alert, duration) {
+    return this.request("/api/v1/alerts/silence", { method: "POST", mutation: true, body: { ...alert, duration } });
+  }
+
+  ntfyStatus(signal) {
+    return this.request("/api/v1/notifications/ntfy", { signal });
+  }
+
+  testNtfy() {
+    return this.request("/api/v1/notifications/ntfy/test", { method: "POST", mutation: true, body: {} });
+  }
+
+  exportDashboardConfig(signal) {
+    return this.request("/api/v1/config/export", { signal });
+  }
+
+  previewDashboardImport(document, mode) {
+    const query = new URLSearchParams({ mode: mode || "merge" });
+    return this.request(`/api/v1/config/import/preview?${query}`, { method: "POST", mutation: true, body: document });
+  }
+
+  applyDashboardImport(document, mode, revision) {
+    const query = new URLSearchParams({ mode: mode || "merge" });
+    return this.request(`/api/v1/config/import/apply?${query}`, {
+      method: "POST", mutation: true, body: document,
+      headers: { "If-Match": `"${revision || ""}"` },
+    });
   }
 }
 

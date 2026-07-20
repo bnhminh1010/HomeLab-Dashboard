@@ -23,7 +23,7 @@ func (c *Client) CreateShellExec(ctx context.Context, containerID string, shell 
 	if err != nil {
 		return "", err
 	}
-	if details.Protected {
+	if details.Protected || IsHidden(details.Labels) {
 		return "", ErrProtectedContainer
 	}
 	if !details.Running {

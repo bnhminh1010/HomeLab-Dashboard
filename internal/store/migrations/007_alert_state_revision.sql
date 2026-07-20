@@ -1,0 +1,2 @@
+ALTER TABLE alert_states
+    ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;

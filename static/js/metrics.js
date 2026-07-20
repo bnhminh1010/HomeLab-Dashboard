@@ -58,6 +58,15 @@ export function createMetricCharts() {
       append(cpuChart, cpu, cpuFallback);
       append(ramChart, ram, ramFallback);
     },
+    reset() {
+      for (const chart of [cpuChart, ramChart]) {
+        if (!chart) continue;
+        chart.data.datasets[0].data = [];
+        chart.update("none");
+      }
+      cpuFallback.length = 0;
+      ramFallback.length = 0;
+    },
     destroy() {
       cpuChart?.destroy();
       ramChart?.destroy();

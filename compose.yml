@@ -43,6 +43,12 @@ services:
       PROBE_ALLOW_CIDRS: ${PROBE_ALLOW_CIDRS:-}
       TAILSCALE_SOCKS5_ADDR: 127.0.0.1:1055
       TRUST_TAILSCALE_HEADERS: "true"
+      HISTORY_QUOTA_BYTES: ${HISTORY_QUOTA_BYTES:-2147483648}
+      NTFY_URL: ${NTFY_URL:-}
+      NTFY_TOPIC: ${NTFY_TOPIC:-}
+      # Empty means anonymous ntfy delivery. When the host path is configured,
+      # expose only the fixed in-container secret path to the dashboard.
+      NTFY_TOKEN_FILE: ${NTFY_TOKEN_FILE:+/run/secrets/ntfy-token}
     volumes:
       - dashboard-data:/data
       - ${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/podman/podman.sock:/run/podman/podman.sock
@@ -50,6 +56,7 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave
+      - ${NTFY_TOKEN_FILE:-/dev/null}:/run/secrets/ntfy-token:ro
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=16m

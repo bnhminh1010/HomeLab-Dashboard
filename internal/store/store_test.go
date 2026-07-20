@@ -3,10 +3,12 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
 	"github.com/binhminh/HomeLab-Minh/internal/model"
+	"github.com/binhminh/HomeLab-Minh/internal/services"
 )
 
 func TestServiceCRUDAndAudit(t *testing.T) {
@@ -68,5 +70,27 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 		if err := store.Close(); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestStoreEnforcesServiceCapacityAtomically(t *testing.T) {
+	ctx := context.Background()
+	database, err := Open(ctx, filepath.Join(t.TempDir(), "dashboard.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	for index := 0; index < services.MaxServices; index++ {
+		if _, err := database.CreateService(ctx, model.Service{
+			ID: fmt.Sprintf("svc_%03d", index), Name: fmt.Sprintf("Service %d", index),
+			DisplayURL: fmt.Sprintf("https://service-%d.example", index),
+		}); err != nil {
+			t.Fatalf("create service %d: %v", index, err)
+		}
+	}
+	if _, err := database.CreateService(ctx, model.Service{
+		ID: "svc_overflow", Name: "Overflow", DisplayURL: "https://overflow.example",
+	}); !errors.Is(err, services.ErrServiceLimit) {
+		t.Fatalf("overflow service error = %v", err)
 	}
 }

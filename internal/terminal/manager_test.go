@@ -27,6 +27,11 @@ func TestCreateEnforcesRoleLimitsAndExpiration(t *testing.T) {
 	if _, err := manager.Create("viewer@example.com", false, CreateRequest{Mode: ModeLogs, ContainerID: "app", Tail: 501}); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("oversized log tail error = %v", err)
 	}
+	for _, since := range []string{"invalid", "-1s", "0s", "24h1s"} {
+		if _, err := manager.Create("viewer@example.com", false, CreateRequest{Mode: ModeLogs, ContainerID: "app", Since: since}); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("invalid log since %q error = %v", since, err)
+		}
+	}
 	first, err := manager.Create("admin@example.com", true, CreateRequest{Mode: ModeExec, ContainerID: "app"})
 	if err != nil {
 		t.Fatalf("first Create() error = %v", err)
@@ -98,7 +103,9 @@ func TestCreateHostEnforcesAuthorizationAvailabilityAndLimits(t *testing.T) {
 func TestServeLogsStreamsOutputAndIsReadOnly(t *testing.T) {
 	backend := &fakeBackend{logs: io.NopCloser(bytes.NewBufferString("hello log\n"))}
 	manager := newTestManager(t, backend, ManagerOptions{})
-	session, err := manager.Create("viewer", false, CreateRequest{Mode: ModeLogs, ContainerID: "app", Tail: 25, Follow: false})
+	session, err := manager.Create("viewer", false, CreateRequest{
+		Mode: ModeLogs, ContainerID: "app", Tail: 25, Follow: false, Since: "6h", Timestamps: true,
+	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -113,7 +120,7 @@ func TestServeLogsStreamsOutputAndIsReadOnly(t *testing.T) {
 	if len(controls) < 2 || controls[0].Type != ControlReady || !controls[0].ReadOnly || controls[len(controls)-1].Type != ControlExit {
 		t.Fatalf("controls = %#v", controls)
 	}
-	if backend.logOptions.Tail != 25 || backend.logOptions.Follow {
+	if backend.logOptions.Tail != 25 || backend.logOptions.Follow || backend.logOptions.Since != 6*time.Hour || !backend.logOptions.Timestamps {
 		t.Fatalf("log options = %#v", backend.logOptions)
 	}
 }
@@ -259,6 +266,35 @@ func TestBlockedInputWriteCannotDefeatIdleTimeout(t *testing.T) {
 	}
 }
 
+func TestRemoteNodeUsesTypedBackendAndPreservesLocalDefault(t *testing.T) {
+	remote := &fakeRemoteBackend{stream: &fakeRemoteStream{reader: bytes.NewReader([]byte("remote log\n"))}}
+	manager, err := NewManagerWithRemote(&fakeBackend{}, nil, remote, ManagerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := manager.Create("admin", true, CreateRequest{
+		Mode: ModeLogs, NodeID: "node_compute", ContainerID: "app", Tail: 50, Since: "1h", Timestamps: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := &fakePeer{}
+	if err := manager.Serve(context.Background(), session.ID, "admin", peer); err != nil {
+		t.Fatal(err)
+	}
+	if remote.nodeID != "node_compute" || remote.containerID != "app" || remote.logs.Tail != 50 || remote.logs.Since != time.Hour || !remote.logs.Timestamps {
+		t.Fatalf("remote request = node %q container %q options %#v", remote.nodeID, remote.containerID, remote.logs)
+	}
+	if outputs := peer.binary(); len(outputs) != 1 || string(outputs[0]) != "remote log\n" {
+		t.Fatalf("remote outputs = %q", outputs)
+	}
+
+	local, err := manager.Create("admin", true, CreateRequest{Mode: ModeLogs, ContainerID: "local-app"})
+	if err != nil || local.NodeID != localNodeID {
+		t.Fatalf("local default session = %#v, %v", local, err)
+	}
+}
+
 func TestServeRejectsInputForLogSession(t *testing.T) {
 	stream := newBlockingStream()
 	backend := &fakeBackend{logs: stream}
@@ -321,6 +357,49 @@ type fakeHostBackend struct {
 	openErr  error
 	stream   HostStream
 }
+
+type fakeRemoteBackend struct {
+	nodeID      string
+	containerID string
+	logs        podman.LogsOptions
+	stream      RemoteStream
+}
+
+func (backend *fakeRemoteBackend) Probe(_ context.Context, nodeID string) error {
+	backend.nodeID = nodeID
+	return nil
+}
+
+func (backend *fakeRemoteBackend) OpenLogs(_ context.Context, nodeID, containerID string, options podman.LogsOptions) (RemoteStream, error) {
+	backend.nodeID, backend.containerID, backend.logs = nodeID, containerID, options
+	return backend.stream, nil
+}
+
+func (backend *fakeRemoteBackend) OpenExec(_ context.Context, nodeID, containerID string, _ HostSize) (RemoteStream, error) {
+	backend.nodeID, backend.containerID = nodeID, containerID
+	return backend.stream, nil
+}
+
+func (backend *fakeRemoteBackend) OpenHost(_ context.Context, nodeID string, _ HostSize) (RemoteStream, error) {
+	backend.nodeID = nodeID
+	return backend.stream, nil
+}
+
+type fakeRemoteStream struct {
+	reader *bytes.Reader
+	writes bytes.Buffer
+	info   HostInfo
+	exit   int
+}
+
+func (stream *fakeRemoteStream) Read(target []byte) (int, error) { return stream.reader.Read(target) }
+func (stream *fakeRemoteStream) Write(payload []byte) (int, error) {
+	return stream.writes.Write(payload)
+}
+func (*fakeRemoteStream) Close() error                           { return nil }
+func (*fakeRemoteStream) Resize(context.Context, HostSize) error { return nil }
+func (stream *fakeRemoteStream) Info() HostInfo                  { return stream.info }
+func (stream *fakeRemoteStream) ExitCode() (int, bool)           { return stream.exit, true }
 
 func (b *fakeHostBackend) Probe(context.Context) error { return b.probeErr }
 

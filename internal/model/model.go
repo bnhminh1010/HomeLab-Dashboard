@@ -21,16 +21,17 @@ type ServiceInput struct {
 }
 
 type Service struct {
-	ID            string        `json:"id"`
-	Name          string        `json:"name"`
-	Icon          string        `json:"icon,omitempty"`
-	DisplayURL    string        `json:"displayUrl"`
-	ProbeURL      string        `json:"probeUrl,omitempty"`
-	Status        ServiceStatus `json:"status"`
-	LastCheckedAt *time.Time    `json:"lastCheckedAt,omitempty"`
-	LatencyMS     *int64        `json:"latencyMs,omitempty"`
-	CreatedAt     time.Time     `json:"createdAt"`
-	UpdatedAt     time.Time     `json:"updatedAt"`
+	ID                  string        `json:"id"`
+	Name                string        `json:"name"`
+	Icon                string        `json:"icon,omitempty"`
+	DisplayURL          string        `json:"displayUrl"`
+	ProbeURL            string        `json:"probeUrl,omitempty"`
+	Status              ServiceStatus `json:"status"`
+	ConsecutiveFailures int           `json:"consecutiveFailures,omitempty"`
+	LastCheckedAt       *time.Time    `json:"lastCheckedAt,omitempty"`
+	LatencyMS           *int64        `json:"latencyMs,omitempty"`
+	CreatedAt           time.Time     `json:"createdAt"`
+	UpdatedAt           time.Time     `json:"updatedAt"`
 }
 
 type CPUStats struct {
@@ -115,12 +116,14 @@ type SnapshotData struct {
 }
 
 type SnapshotEnvelope struct {
-	Version     int          `json:"version"`
-	Type        string       `json:"type"`
-	Sequence    uint64       `json:"seq"`
-	CollectedAt time.Time    `json:"collectedAt"`
-	Truncated   bool         `json:"truncated,omitempty"`
-	Data        SnapshotData `json:"data"`
+	Version          int          `json:"version"`
+	Type             string       `json:"type"`
+	Sequence         uint64       `json:"seq"`
+	CollectedAt      time.Time    `json:"collectedAt"`
+	Truncated        bool         `json:"truncated,omitempty"`
+	TruncatedSources []string     `json:"truncatedSources,omitempty"`
+	StaleSources     []string     `json:"staleSources,omitempty"`
+	Data             SnapshotData `json:"data"`
 }
 
 type AuditEvent struct {

@@ -277,8 +277,17 @@ type interactionReport struct {
 	TerminalOutput       string  `json:"terminalOutput"`
 	CollapsedHeight      float64 `json:"collapsedHeight"`
 	TerminalModeLogs     bool    `json:"terminalModeLogs"`
+	LogViewerVisible     bool    `json:"logViewerVisible"`
+	XtermHidden          bool    `json:"xtermHidden"`
+	LogSearchMatches     int     `json:"logSearchMatches"`
+	LogPausePressed      string  `json:"logPausePressed"`
+	LogFollowPressed     string  `json:"logFollowPressed"`
+	LogDownloadName      string  `json:"logDownloadName"`
+	LogDownloadBytes     int     `json:"logDownloadBytes"`
 	InvokerFocusRestored bool    `json:"invokerFocusRestored"`
 	DisconnectIsVisible  bool    `json:"disconnectIsVisible"`
+	PartialBadgeVisible  bool    `json:"partialBadgeVisible"`
+	OverviewHealth       string  `json:"overviewHealth"`
 }
 
 func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
@@ -300,7 +309,7 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 	defer cancelAllocator()
 	ctx, cancel := chromedp.NewContext(allocator)
 	defer cancel()
-	ctx, timeout := context.WithTimeout(ctx, 25*time.Second)
+	ctx, timeout := context.WithTimeout(ctx, 40*time.Second)
 	defer timeout()
 
 	var failures []string
@@ -337,6 +346,8 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 		chromedp.SetValue(`#service-form input[name="displayUrl"]`, "9090", chromedp.ByQuery),
 		chromedp.Click(`#service-form button[type="submit"]`, chromedp.ByQuery),
 		chromedp.WaitVisible(`.service-card[data-service-id^="demo-"]`, chromedp.ByQuery),
+		chromedp.Poll(`!document.querySelector('#service-dialog').open && document.activeElement === document.querySelector('#focus-add-service')`, nil,
+			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Evaluate(`(() => {
           const link = document.querySelector('.service-card .service-link');
           window.__keyboardService = '';
@@ -348,17 +359,30 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
         })()`, nil),
 		chromedp.KeyEvent("\r"),
 		chromedp.ActionFunc(func(context.Context) error { t.Log("before service menu focus"); return nil }),
-		chromedp.Focus(".service-menu-button", chromedp.ByQuery),
+		chromedp.Poll(`(() => {
+          const trigger = document.querySelector('.service-card[data-service-id^="demo-"] .service-menu-button');
+          if (!trigger || trigger.hidden || trigger.disabled || trigger.getClientRects().length === 0) return false;
+          window.__serviceMenuTrigger = trigger;
+          trigger.focus({ preventScroll: true });
+          return document.activeElement === trigger;
+		})()`, nil, chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(3*time.Second)),
 		chromedp.ActionFunc(func(context.Context) error { t.Log("after service menu focus"); return nil }),
-		chromedp.KeyEvent("\r"),
-		chromedp.WaitVisible("#context-menu", chromedp.ByQuery),
-		chromedp.Poll(`document.activeElement?.getAttribute('role') === 'menuitem'`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.SendKeys(`.service-card[data-service-id^="demo-"] .service-menu-button`, kb.Enter, chromedp.ByQuery),
+		chromedp.Poll(`(() => {
+          const menu = document.querySelector('#context-menu');
+          const trigger = document.querySelector('.service-card[data-service-id^="demo-"] .service-menu-button');
+          return !menu.hidden && trigger.getAttribute('aria-expanded') === 'true' && document.activeElement === menu.querySelector('[role="menuitem"]');
+        })()`, nil,
+			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Evaluate(`document.activeElement?.textContent || ''`, &report.MenuInitialItem),
-		chromedp.KeyEvent(kb.ArrowDown),
+		chromedp.SendKeys(`#context-menu [role="menuitem"]:first-child`, kb.ArrowDown, chromedp.ByQuery),
+		chromedp.Poll(`document.activeElement === document.querySelector('#context-menu [role="menuitem"]:nth-child(2)')`, nil,
+			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Evaluate(`document.activeElement?.textContent || ''`, &report.MenuSecondItem),
-		chromedp.KeyEvent("\x1b"),
-		chromedp.Sleep(50*time.Millisecond),
-		chromedp.Evaluate(`document.activeElement?.classList.contains('service-menu-button') === true && document.querySelector('#context-menu').hidden`, &report.MenuRestoredFocus),
+		chromedp.SendKeys(`#context-menu [role="menuitem"]:nth-child(2)`, kb.Escape, chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#context-menu').hidden && document.activeElement === document.querySelector('.service-card[data-service-id^="demo-"] .service-menu-button')`, nil,
+			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`document.querySelector('#context-menu').hidden && document.activeElement === document.querySelector('.service-card[data-service-id^="demo-"] .service-menu-button')`, &report.MenuRestoredFocus),
 		chromedp.ActionFunc(func(context.Context) error { t.Log("before service link focus"); return nil }),
 		chromedp.Focus(".service-link", chromedp.ByQuery),
 		chromedp.ActionFunc(func(context.Context) error { t.Log("after service link focus"); return nil }),
@@ -376,12 +400,42 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 		chromedp.Click("#terminal-maximize", chromedp.ByQuery),
 		chromedp.Click("#terminal-toggle", chromedp.ByQuery),
 		chromedp.ActionFunc(func(context.Context) error { t.Log("before container action focus"); return nil }),
-		chromedp.Focus(".container-item .container-action:not(:disabled)", chromedp.ByQuery),
+		chromedp.WaitVisible(".container-item .container-action:not(:disabled)", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('.container-item .container-action:not(:disabled)').focus()`, nil),
+		chromedp.Poll(`document.activeElement?.matches('.container-item .container-action:not(:disabled)') === true`, nil, chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.ActionFunc(func(context.Context) error { t.Log("after container action focus"); return nil }),
 		chromedp.Evaluate(`window.__terminalInvoker = document.activeElement`, nil),
 		chromedp.KeyEvent("\r"),
 		chromedp.WaitVisible("#terminal-disconnect", chromedp.ByQuery),
+		chromedp.WaitVisible("#log-viewer", chromedp.ByQuery),
 		chromedp.Sleep(150*time.Millisecond),
+		chromedp.Evaluate(`(() => { const input = document.querySelector('#log-search'); input.value = 'HEALTH'; input.dispatchEvent(new Event('input', { bubbles: true })); })()`, nil),
+		chromedp.Evaluate(`document.querySelectorAll('#log-output .log-line:not([hidden])').length`, &report.LogSearchMatches),
+		chromedp.Click("#log-pause", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('#log-pause').getAttribute('aria-pressed')`, &report.LogPausePressed),
+		chromedp.Click("#log-pause", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => { const input = document.querySelector('#log-search'); input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); })()`, nil),
+		chromedp.Click("#log-follow", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('#log-follow').getAttribute('aria-pressed')`, &report.LogFollowPressed),
+		chromedp.Click("#log-follow", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+          window.__logDownload = { name: '', bytes: 0 };
+          window.__createObjectURL = URL.createObjectURL;
+          window.__revokeObjectURL = URL.revokeObjectURL;
+          window.__anchorClick = HTMLAnchorElement.prototype.click;
+          URL.createObjectURL = (blob) => { window.__logDownload.bytes = blob.size; return 'blob:log-test'; };
+          URL.revokeObjectURL = () => {};
+          HTMLAnchorElement.prototype.click = function () { window.__logDownload.name = this.download; };
+        })()`, nil),
+		chromedp.Click("#log-download", chromedp.ByQuery),
+		chromedp.Sleep(25*time.Millisecond),
+		chromedp.Evaluate(`(() => {
+          const result = { logDownloadName: window.__logDownload.name, logDownloadBytes: window.__logDownload.bytes };
+          URL.createObjectURL = window.__createObjectURL;
+          URL.revokeObjectURL = window.__revokeObjectURL;
+          HTMLAnchorElement.prototype.click = window.__anchorClick;
+          return result;
+        })()`, &report),
 		chromedp.Click("#terminal-toggle", chromedp.ByQuery),
 		chromedp.Sleep(250*time.Millisecond),
 		chromedp.Evaluate(`document.querySelector('#terminal-body').getBoundingClientRect().height`, &report.CollapsedHeight),
@@ -404,10 +458,14 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
           statusHasText: [...document.querySelectorAll('.service-status, .container-state')].every((node) => node.textContent.trim().length > 0),
           listsAreQuiet: ['services-grid', 'containers-list', 'alerts-list'].every((id) => !document.querySelector('#' + id).hasAttribute('aria-live')),
           terminalSession: document.querySelector('#terminal-session-label').textContent,
-          terminalOutput: document.querySelector('.xterm-rows')?.textContent || '',
+          terminalOutput: document.querySelector('#log-output')?.textContent || '',
           terminalModeLogs: document.querySelector('#terminal-panel').classList.contains('terminal-mode-logs'),
-          disconnectIsVisible: !document.querySelector('#terminal-disconnect').hidden
-        }))()`, &report),
+          logViewerVisible: !document.querySelector('#log-viewer').hidden,
+	          xtermHidden: document.querySelector('#terminal').hidden,
+	          disconnectIsVisible: !document.querySelector('#terminal-disconnect').hidden,
+	          partialBadgeVisible: !document.querySelector('#snapshot-partial').hidden,
+	          overviewHealth: document.querySelector('#overview-health').textContent.trim()
+	        }))()`, &report),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -429,6 +487,9 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 	if report.CrashedContainers < 1 || report.StoppedContainers < 1 {
 		t.Fatalf("container status edge states failed: %+v", report)
 	}
+	if !report.PartialBadgeVisible || report.OverviewHealth != "PARTIAL" {
+		t.Fatalf("truncated snapshot was presented as complete: %+v", report)
+	}
 	if report.Services != 5 || !strings.HasSuffix(report.AddedEndpoint, ":9090") {
 		t.Fatalf("port-only quick add failed: %+v", report)
 	}
@@ -449,6 +510,9 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 	}
 	if !strings.Contains(report.TerminalSession, "LOGS") || !strings.Contains(report.TerminalOutput, "service ready") || !report.DisconnectIsVisible || !report.TerminalModeLogs {
 		t.Fatalf("container logs terminal failed: %+v", report)
+	}
+	if !report.LogViewerVisible || !report.XtermHidden || report.LogSearchMatches != 1 || report.LogPausePressed != "true" || report.LogFollowPressed != "false" || report.LogDownloadBytes < 1 || !strings.HasSuffix(report.LogDownloadName, "-logs.txt") {
+		t.Fatalf("dedicated log viewer controls failed: %+v", report)
 	}
 	if report.CollapsedHeight != 0 || !report.InvokerFocusRestored {
 		t.Fatalf("terminal collapse did not restore an unobscured invoker focus: %+v", report)
@@ -530,6 +594,7 @@ type hostShellReport struct {
 	DisconnectVisible bool   `json:"disconnectVisible"`
 	DisconnectedLabel string `json:"disconnectedLabel"`
 	UnavailableLabel  string `json:"unavailableLabel"`
+	UnavailableNotice string `json:"unavailableNotice"`
 	LostLabel         string `json:"lostLabel"`
 	LostStillLabel    string `json:"lostStillLabel"`
 	LostButtonHidden  bool   `json:"lostButtonHidden"`
@@ -616,7 +681,10 @@ func TestDemoHostShellIsExplicitAndNeverSilentlyReopened(t *testing.T) {
 		chromedp.WaitVisible("#host-shell-dialog", chromedp.ByQuery),
 		chromedp.Click(`#host-shell-confirm-form button[value="confirm"]`, chromedp.ByQuery),
 		chromedp.WaitVisible("#toast-region .toast", chromedp.ByQuery),
-		chromedp.Evaluate(`document.querySelector('#terminal-session-label').textContent`, &report.UnavailableLabel),
+		chromedp.Evaluate(`(() => ({
+          unavailableLabel: document.querySelector('#terminal-session-label').textContent,
+          unavailableNotice: [document.querySelector('.xterm-rows')?.textContent || '', document.querySelector('#toast-region .toast')?.textContent || ''].join(' ')
+        }))()`, &report),
 		chromedp.Navigate(server.URL+"/?demo=1&hostAgent=disconnect"),
 		chromedp.WaitVisible("#terminal-host-shell", chromedp.ByQuery),
 		chromedp.Click("#terminal-host-shell", chromedp.ByQuery),
@@ -653,8 +721,155 @@ func TestDemoHostShellIsExplicitAndNeverSilentlyReopened(t *testing.T) {
 	if report.UnavailableLabel != "HOST · UNAVAILABLE" {
 		t.Fatalf("offline host agent state was not explicit: %+v", report)
 	}
+	if !strings.Contains(report.UnavailableNotice, "host_agent_unavailable") || !strings.Contains(report.UnavailableNotice, "HTTP 503") {
+		t.Fatalf("host shell API diagnostics were not surfaced: %+v", report)
+	}
 	if report.LostLabel != "HOST · DISCONNECTED" || report.LostStillLabel != "HOST · DISCONNECTED" || !report.LostButtonHidden {
 		t.Fatalf("lost host shell was silently reopened: %+v", report)
+	}
+}
+
+func TestDemoMonitoringWorkbench(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+	ctx, cancel := chromedp.NewContext(allocator)
+	defer cancel()
+	ctx, timeout := context.WithTimeout(ctx, 25*time.Second)
+	defer timeout()
+
+	var browserFailures []string
+	chromedp.ListenTarget(ctx, func(event any) {
+		switch value := event.(type) {
+		case *cdpruntime.EventExceptionThrown:
+			browserFailures = append(browserFailures, value.ExceptionDetails.Text)
+		case *cdpruntime.EventConsoleAPICalled:
+			if value.Type == cdpruntime.APITypeError {
+				browserFailures = append(browserFailures, "console.error")
+			}
+		}
+	})
+
+	var report struct {
+		HistoryPoints          int    `json:"historyPoints"`
+		ContainerHistoryPoints int    `json:"containerHistoryPoints"`
+		ServiceHistoryPoints   int    `json:"serviceHistoryPoints"`
+		HistoryResolution      string `json:"historyResolution"`
+		NodeOptions            int    `json:"nodeOptions"`
+		RuleCount              int    `json:"ruleCount"`
+		NtfyConfigured         bool   `json:"ntfyConfigured"`
+		AlertFocusRestored     bool   `json:"alertFocusRestored"`
+		PreviewReady           bool   `json:"previewReady"`
+		ApplyDisabledBefore    bool   `json:"applyDisabledBefore"`
+		ImportApplied          bool   `json:"importApplied"`
+		TokenVisible           bool   `json:"tokenVisible"`
+		TokenCleared           bool   `json:"tokenCleared"`
+		RemoteTruthful         bool   `json:"remoteTruthful"`
+	}
+
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(1440, 900),
+		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.WaitVisible("#history-panel", chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#history-empty').hidden`, nil, chromedp.WithPollingTimeout(3*time.Second)),
+		chromedp.Evaluate(`(() => ({
+          historyPoints: Chart.getChart(document.querySelector('#history-chart'))?.data?.datasets?.[0]?.data?.length || 0,
+          historyResolution: document.querySelector('#history-resolution').textContent,
+          nodeOptions: document.querySelector('#node-selector').options.length
+        }))()`, &report),
+		chromedp.Click(`[data-history-kind="container"]`, chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#history-resource').options.length > 0 && document.querySelector('#history-empty').hidden`, nil, chromedp.WithPollingTimeout(3*time.Second)),
+		chromedp.Evaluate(`Chart.getChart(document.querySelector('#history-chart'))?.data?.datasets?.[0]?.data?.length || 0`, &report.ContainerHistoryPoints),
+		chromedp.Click(`[data-history-kind="service"]`, chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#history-resource').options.length > 0 && document.querySelector('#history-empty').hidden`, nil, chromedp.WithPollingTimeout(3*time.Second)),
+		chromedp.Evaluate(`Chart.getChart(document.querySelector('#history-chart'))?.data?.datasets?.[0]?.data?.length || 0`, &report.ServiceHistoryPoints),
+		chromedp.Click(`[data-history-kind="system"]`, chromedp.ByQuery),
+		chromedp.Click("#alerts-jump", chromedp.ByQuery),
+		chromedp.WaitVisible("#alert-center-dialog", chromedp.ByQuery),
+		chromedp.Poll(`document.querySelectorAll('#alert-rules-list .management-item').length === 2`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Click("#alert-rule-add", chromedp.ByQuery),
+		chromedp.WaitVisible("#alert-rule-dialog", chromedp.ByQuery),
+		chromedp.SetValue(`#alert-rule-form input[name="name"]`, "Memory pressure", chromedp.ByQuery),
+		chromedp.SetValue(`#alert-rule-form select[name="metric"]`, "system.memory.percent", chromedp.ByQuery),
+		chromedp.Click("#alert-rule-submit", chromedp.ByQuery),
+		chromedp.Poll(`!document.querySelector('#alert-rule-dialog').open && document.querySelectorAll('#alert-rules-list .management-item').length === 3`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`(() => ({
+          ruleCount: document.querySelectorAll('#alert-rules-list .management-item').length,
+          ntfyConfigured: document.querySelector('#ntfy-status').dataset.configured === 'true'
+        }))()`, &report),
+		chromedp.KeyEvent("\x1b"),
+		chromedp.Poll(`!document.querySelector('#alert-center-dialog').open`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`document.activeElement === document.querySelector('#alerts-jump')`, &report.AlertFocusRestored),
+		chromedp.Click("#settings-open", chromedp.ByQuery),
+		chromedp.WaitVisible("#settings-dialog", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('#config-apply').disabled`, &report.ApplyDisabledBefore),
+		chromedp.Evaluate(`(() => {
+          const config = { version: 'homelab-dashboard.config/v1', services: [], alertRules: [], uiPreferences: { terminalHeight: 200, terminalCollapsed: true, historyRange: '24h', defaultNodeId: 'local' }, nodes: [] };
+          const transfer = new DataTransfer();
+          transfer.items.add(new File([JSON.stringify(config)], 'config.json', { type: 'application/json' }));
+          const input = document.querySelector('#config-file');
+          input.files = transfer.files;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        })()`, nil),
+		chromedp.Poll(`!document.querySelector('#config-preview').disabled`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Click("#config-preview", chromedp.ByQuery),
+		chromedp.Poll(`!document.querySelector('#config-apply').disabled`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`document.querySelector('#config-preview-result dl') !== null`, &report.PreviewReady),
+		chromedp.Click("#config-apply", chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#settings-status').textContent.includes('applied successfully')`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`document.querySelector('#settings-status').textContent.includes('applied successfully')`, &report.ImportApplied),
+		chromedp.Click("#settings-dialog [data-dialog-close]", chromedp.ByQuery),
+		chromedp.Click("#nodes-open", chromedp.ByQuery),
+		chromedp.WaitVisible("#nodes-dialog", chromedp.ByQuery),
+		chromedp.Click("#node-enroll-create", chromedp.ByQuery),
+		chromedp.Poll(`!document.querySelector('#enrollment-result').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`!document.querySelector('#enrollment-result').hidden && document.querySelector('#enrollment-token').textContent.startsWith('enroll_')`, &report.TokenVisible),
+		chromedp.Click("#nodes-dialog [data-dialog-close]", chromedp.ByQuery),
+		chromedp.Click("#nodes-open", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('#enrollment-result').hidden && document.querySelector('#enrollment-token').textContent === ''`, &report.TokenCleared),
+		chromedp.Click("#nodes-dialog [data-dialog-close]", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+          const selector = document.querySelector('#node-selector');
+          selector.value = 'node_demo';
+          selector.dispatchEvent(new Event('change', { bubbles: true }));
+        })()`, nil),
+		chromedp.Poll(`document.body.classList.contains('remote-node')`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`(() => {
+          const actions = document.querySelector('.container-actions');
+          return document.body.classList.contains('remote-node') && document.querySelector('#freshness-text').textContent === 'OFFLINE' && (!actions || getComputedStyle(actions).display === 'none');
+        })()`, &report.RemoteTruthful),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(browserFailures) > 0 {
+		t.Fatalf("browser failures: %s", strings.Join(browserFailures, "; "))
+	}
+	if report.HistoryPoints == 0 || report.ContainerHistoryPoints == 0 || report.ServiceHistoryPoints == 0 ||
+		!strings.Contains(report.HistoryResolution, "RESOLUTION") || report.NodeOptions != 2 {
+		t.Fatalf("history/node selector did not initialize: %+v", report)
+	}
+	if report.RuleCount != 3 || !report.NtfyConfigured || !report.AlertFocusRestored {
+		t.Fatalf("alert center CRUD, ntfy state, or focus restoration failed: %+v", report)
+	}
+	if !report.ApplyDisabledBefore || !report.PreviewReady || !report.ImportApplied {
+		t.Fatalf("configuration preview-before-apply flow failed: %+v", report)
+	}
+	if !report.TokenVisible || !report.TokenCleared || !report.RemoteTruthful {
+		t.Fatalf("node enrollment secrecy or remote offline state failed: %+v", report)
 	}
 }
 

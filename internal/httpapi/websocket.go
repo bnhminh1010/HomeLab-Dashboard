@@ -47,6 +47,11 @@ func (s *Server) serveMetricsStream(c *gin.Context, marshal func(model.SnapshotE
 	if err != nil {
 		return
 	}
+	untrack, tracked := s.websockets.track(connection)
+	if !tracked {
+		return
+	}
+	defer untrack()
 	defer connection.Close()
 	_ = connection.SetReadDeadline(time.Time{})
 	connection.SetReadLimit(1024)
@@ -110,10 +115,13 @@ func marshalSnapshot(snapshot model.SnapshotEnvelope, limit int) ([]byte, error)
 		snapshot.Truncated = true
 		switch {
 		case len(snapshot.Data.Containers) > 0:
+			snapshot.TruncatedSources = appendSnapshotSource(snapshot.TruncatedSources, "containers")
 			snapshot.Data.Containers = snapshot.Data.Containers[:len(snapshot.Data.Containers)/2]
 		case len(snapshot.Data.Services) > 0:
+			snapshot.TruncatedSources = appendSnapshotSource(snapshot.TruncatedSources, "services")
 			snapshot.Data.Services = snapshot.Data.Services[:len(snapshot.Data.Services)/2]
 		case len(snapshot.Data.Alerts) > 0:
+			snapshot.TruncatedSources = appendSnapshotSource(snapshot.TruncatedSources, "alerts")
 			snapshot.Data.Alerts = snapshot.Data.Alerts[:len(snapshot.Data.Alerts)/2]
 		default:
 			return nil, fmt.Errorf("metrics snapshot exceeds %d bytes without optional items", limit)
@@ -124,6 +132,15 @@ func marshalSnapshot(snapshot model.SnapshotEnvelope, limit int) ([]byte, error)
 		}
 	}
 	return payload, nil
+}
+
+func appendSnapshotSource(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func (s *Server) serveTerminalWS(c *gin.Context) {
@@ -145,6 +162,11 @@ func (s *Server) serveTerminalWS(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	untrack, tracked := s.websockets.track(connection)
+	if !tracked {
+		return
+	}
+	defer untrack()
 	defer connection.Close()
 	connection.SetReadLimit(20 << 10)
 	peer := &websocketPeer{connection: connection}

@@ -76,8 +76,10 @@ type ContainerStats struct {
 }
 
 type LogsOptions struct {
-	Tail   uint
-	Follow bool
+	Tail       uint
+	Follow     bool
+	Since      time.Duration
+	Timestamps bool
 }
 
 type Shell string

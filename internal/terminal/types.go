@@ -10,20 +10,21 @@ import (
 )
 
 var (
-	ErrUnauthorized     = errors.New("terminal: administrator access is required")
-	ErrNotFound         = errors.New("terminal: session not found")
-	ErrSessionClaimed   = errors.New("terminal: session is already connected")
-	ErrSessionExpired   = errors.New("terminal: session expired")
-	ErrExecLimit        = errors.New("terminal: interactive exec limit reached")
-	ErrHostLimit        = errors.New("terminal: host shell limit reached")
-	ErrHostUnavailable  = errors.New("terminal: host shell agent is unavailable")
-	ErrSessionLimit     = errors.New("terminal: session limit reached")
-	ErrInvalidRequest   = errors.New("terminal: invalid request")
-	ErrInputTooLarge    = errors.New("terminal: input frame exceeds limit")
-	ErrReadOnly         = errors.New("terminal: log sessions are read-only")
-	ErrIdleTimeout      = errors.New("terminal: idle timeout")
-	ErrHardTimeout      = errors.New("terminal: maximum duration reached")
-	ErrPeerDisconnected = errors.New("terminal: peer disconnected")
+	ErrUnauthorized      = errors.New("terminal: administrator access is required")
+	ErrNotFound          = errors.New("terminal: session not found")
+	ErrSessionClaimed    = errors.New("terminal: session is already connected")
+	ErrSessionExpired    = errors.New("terminal: session expired")
+	ErrExecLimit         = errors.New("terminal: interactive exec limit reached")
+	ErrHostLimit         = errors.New("terminal: host shell limit reached")
+	ErrHostUnavailable   = errors.New("terminal: host shell agent is unavailable")
+	ErrRemoteUnavailable = errors.New("terminal: remote node is unavailable")
+	ErrSessionLimit      = errors.New("terminal: session limit reached")
+	ErrInvalidRequest    = errors.New("terminal: invalid request")
+	ErrInputTooLarge     = errors.New("terminal: input frame exceeds limit")
+	ErrReadOnly          = errors.New("terminal: log sessions are read-only")
+	ErrIdleTimeout       = errors.New("terminal: idle timeout")
+	ErrHardTimeout       = errors.New("terminal: maximum duration reached")
+	ErrPeerDisconnected  = errors.New("terminal: peer disconnected")
 )
 
 type Mode string
@@ -36,33 +37,40 @@ const (
 
 type CreateRequest struct {
 	Mode        Mode   `json:"mode"`
+	NodeID      string `json:"nodeId,omitempty"`
 	ContainerID string `json:"containerId"`
 	Tail        uint   `json:"tail,omitempty"`
 	Follow      bool   `json:"follow,omitempty"`
+	Since       string `json:"since,omitempty"`
+	Timestamps  bool   `json:"timestamps,omitempty"`
 	Cols        uint   `json:"cols,omitempty"`
 	Rows        uint   `json:"rows,omitempty"`
 }
 
 type HostCreateRequest struct {
-	Cols uint `json:"cols,omitempty"`
-	Rows uint `json:"rows,omitempty"`
+	NodeID string `json:"nodeId,omitempty"`
+	Cols   uint   `json:"cols,omitempty"`
+	Rows   uint   `json:"rows,omitempty"`
 }
 
 type Session struct {
 	ID          string    `json:"id"`
 	Mode        Mode      `json:"mode"`
 	ContainerID string    `json:"containerId,omitempty"`
+	NodeID      string    `json:"nodeId"`
 	User        string    `json:"-"`
 	ReadOnly    bool      `json:"readOnly"`
 	CreatedAt   time.Time `json:"createdAt"`
 	ExpiresAt   time.Time `json:"expiresAt"`
 
-	tail   uint
-	follow bool
-	cols   uint
-	rows   uint
-	state  sessionState
-	execID string
+	tail       uint
+	follow     bool
+	since      time.Duration
+	timestamps bool
+	cols       uint
+	rows       uint
+	state      sessionState
+	execID     string
 }
 
 type sessionState uint8
@@ -101,6 +109,20 @@ type HostStream interface {
 type HostBackend interface {
 	Probe(context.Context) error
 	Open(context.Context, HostSize) (HostStream, error)
+}
+
+type RemoteStream interface {
+	io.ReadWriteCloser
+	Resize(context.Context, HostSize) error
+	Info() HostInfo
+	ExitCode() (int, bool)
+}
+
+type RemoteBackend interface {
+	Probe(context.Context, string) error
+	OpenLogs(context.Context, string, string, podman.LogsOptions) (RemoteStream, error)
+	OpenExec(context.Context, string, string, HostSize) (RemoteStream, error)
+	OpenHost(context.Context, string, HostSize) (RemoteStream, error)
 }
 
 // Peer is a WebSocket-neutral boundary. The HTTP layer translates its chosen

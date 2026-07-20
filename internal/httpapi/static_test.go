@@ -9,8 +9,9 @@ import (
 
 func TestStaticHandlerServesGzipAndETag(t *testing.T) {
 	handler, err := NewStaticHandler(fstest.MapFS{
-		"index.html": {Data: []byte("<!doctype html><title>dashboard</title>")},
-		"js/app.js":  {Data: []byte("console.log('local')")},
+		"index.html":   {Data: []byte("<!doctype html><title>dashboard</title>")},
+		"js/app.js":    {Data: []byte("console.log('local')")},
+		"lib/chart.js": {Data: []byte("window.Chart = function Chart() {}")},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -24,6 +25,12 @@ func TestStaticHandlerServesGzipAndETag(t *testing.T) {
 	}
 	if w.Header().Get("Content-Security-Policy") == "" || w.Header().Get("ETag") == "" {
 		t.Fatal("security header or ETag missing")
+	}
+	vendorRequest := httptest.NewRequest(http.MethodGet, "http://dashboard.test/lib/chart.js", nil)
+	vendorResponse := httptest.NewRecorder()
+	handler.ServeHTTP(vendorResponse, vendorRequest)
+	if cache := vendorResponse.Header().Get("Cache-Control"); cache != "public, max-age=86400, must-revalidate" {
+		t.Fatalf("vendor cache policy = %q", cache)
 	}
 
 	conditional := httptest.NewRequest(http.MethodGet, "http://dashboard.test/js/app.js", nil)

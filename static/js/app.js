@@ -1,9 +1,13 @@
 import { DashboardApi, unwrapSnapshot } from "./api.js";
+import { createAlertsController } from "./alerts.js";
 import { createContainersController } from "./containers.js";
 import { DemoApi, startDemoFeed } from "./demo.js";
 import { bytes, clamp, number, percent, rate, setProgress, setText, timeAgo, uptime } from "./format.js";
+import { createHistoryController } from "./history.js";
 import { createMetricCharts } from "./metrics.js";
+import { createNodesController } from "./nodes.js";
 import { createServicesController } from "./services.js";
+import { createSettingsController } from "./settings.js";
 import { MetricsStream } from "./socket.js";
 import { createTerminalController } from "./terminal.js";
 
@@ -15,7 +19,20 @@ let stopDemoFeed = null;
 let latestCollectedAt = null;
 let refreshing = null;
 let connectionState = "connecting";
+let localConnectionState = "connecting";
 let lastAnnouncedConnection = null;
+let latestLocalEnvelope = null;
+let latestServices = [];
+let latestSelectedContainers = [];
+let selectedNodeId = "local";
+let nodeSelectionInitialized = false;
+let sessionRenewalTimer = null;
+let lastSessionRenewalAt = 0;
+let preferenceSaveTimer = null;
+let preferenceSavePending = {};
+let sessionAdmin = false;
+let sessionHostShellCapability = false;
+let snapshotPartial = false;
 const alertNodes = new Map();
 const overviewSummary = {
   services: { total: 0, up: 0, down: 0, unknown: 0 },
@@ -33,6 +50,7 @@ const elements = Object.fromEntries([
   "services-stale", "alerts-card", "overview-health", "overview-health-detail",
   "overview-connection", "overview-updated", "overview-services", "overview-services-detail",
   "overview-containers", "overview-containers-detail", "dashboard-status",
+  "snapshot-partial",
 ].map((id) => [id, document.getElementById(id)]));
 
 function toast(message, level = "info") {
@@ -47,7 +65,33 @@ function toast(message, level = "info") {
 
 const terminal = createTerminalController({ api, demo, toast });
 const containersController = createContainersController({ terminal, toast });
-const servicesController = createServicesController({ api, toast });
+const servicesController = createServicesController({
+  api,
+  toast,
+  onChanged: (services, summary) => {
+    latestServices = services;
+    overviewSummary.services = summary;
+    if (selectedNodeId === "local") historyController.setResources(latestSelectedContainers, latestServices);
+    updateOverview();
+  },
+});
+const historyController = createHistoryController({ api, demo, toast });
+const alertsController = createAlertsController({ api, demo, toast });
+const nodesController = createNodesController({
+  api,
+  demo,
+  toast,
+  onSelect: selectNode,
+});
+const settingsController = createSettingsController({
+  api,
+  demo,
+  toast,
+  onApplied: async () => {
+    await hydratePreferences();
+    await Promise.allSettled([refreshSnapshot(), alertsController.refresh()]);
+  },
+});
 
 function setSystemBadge(label, state) {
   const dot = document.createElement("span");
@@ -89,6 +133,8 @@ function updateOverview() {
     setOverviewHealth("STALE", "degraded", "Last known data is preserved while metrics reconnect");
   } else if (connectionState !== "online") {
     setOverviewHealth("WAITING", "waiting", "Connecting to the dashboard");
+  } else if (snapshotPartial) {
+    setOverviewHealth("PARTIAL", "degraded", "The latest frame was size-limited; omitted inventory is not treated as healthy");
   } else if (alerts.critical || services.down || containers.issue) {
     const issueCount = alerts.critical + services.down + containers.issue;
     setOverviewHealth("ACTION NEEDED", "down", `${issueCount} monitored ${issueCount === 1 ? "issue needs" : "issues need"} attention`);
@@ -97,6 +143,15 @@ function updateOverview() {
   } else {
     setOverviewHealth("HEALTHY", "up", services.unknown ? `${services.unknown} service${services.unknown === 1 ? " has" : "s have"} no health probe` : "All monitored systems operational");
   }
+}
+
+function setSnapshotCompleteness(envelope) {
+  snapshotPartial = envelope?.truncated === true;
+  const sources = Array.isArray(envelope?.truncatedSources) ? envelope.truncatedSources.map(String) : [];
+  elements["snapshot-partial"].hidden = !snapshotPartial;
+  elements["snapshot-partial"].title = snapshotPartial
+    ? `Snapshot was truncated${sources.length ? `: ${sources.join(", ")}` : " to fit the frame limit"}`
+    : "";
 }
 
 function setConnectionState(state, detail = {}) {
@@ -109,7 +164,8 @@ function setConnectionState(state, detail = {}) {
   connectionState = state;
   document.body.classList.toggle("is-stale", ["stale", "offline"].includes(state) && hasData);
   document.body.classList.toggle("is-offline", state === "offline");
-  elements["services-stale"].hidden = !stale;
+  const servicesStale = ["stale", "offline"].includes(localConnectionState) && Boolean(latestLocalEnvelope);
+  elements["services-stale"].hidden = !servicesStale;
 
   if (state === "online") {
     latestCollectedAt = detail.collectedAt || latestCollectedAt || new Date().toISOString();
@@ -194,15 +250,96 @@ function normalize(data) {
   };
 }
 
-function renderSnapshot(payload) {
+function renderSelectedSnapshot(payload, state = "online") {
   const envelope = payload || {};
+  setSnapshotCompleteness(envelope);
   const data = normalize(unwrapSnapshot(envelope));
   latestCollectedAt = envelope.collectedAt || new Date().toISOString();
   renderSystem(data.system, data.disks, data.network);
-  overviewSummary.services = servicesController.render(data.services);
+  if (selectedNodeId === "local") latestServices = data.services;
+  latestSelectedContainers = data.containers;
+  overviewSummary.services = servicesController.render(selectedNodeId === "local" ? data.services : latestServices);
   overviewSummary.containers = containersController.render(data.containers);
+  historyController.setResources(data.containers, data.services);
   overviewSummary.alerts = renderAlerts(data.alerts);
-  setConnectionState("online", { collectedAt: latestCollectedAt });
+  setConnectionState(state, { collectedAt: latestCollectedAt });
+}
+
+function renderLocalSnapshot(payload) {
+  latestLocalEnvelope = payload;
+  latestServices = normalize(unwrapSnapshot(payload)).services;
+  if (demo) localConnectionState = "online";
+  if (selectedNodeId === "local") renderSelectedSnapshot(payload, "online");
+  else {
+    overviewSummary.services = servicesController.render(latestServices);
+    updateOverview();
+  }
+}
+
+function renderUnavailableNode(state) {
+  const name = state?.node?.displayName || state?.node?.hostname || selectedNodeId;
+  latestCollectedAt = state?.lastSeenAt || state?.node?.lastSeenAt || null;
+  setSnapshotCompleteness(null);
+  setConnectionState("offline");
+  setText(elements["system-title"], name || "Remote node");
+  setText(elements["header-hostname"], state?.node?.hostname || name || "remote");
+  setText(elements["cpu-percent"], "—");
+  setText(elements["cpu-detail"], "No remote metrics snapshot received");
+  setText(elements["ram-percent"], "—");
+  setText(elements["ram-detail"], "Waiting for the node agent");
+  elements["ram-percent"].classList.remove("is-over-limit");
+  setText(elements["disk-percent"], "—");
+  setText(elements["disk-detail"], "—");
+  setText(elements["disk-device"], "—");
+  elements["disk-warning"].hidden = true;
+  elements["disk-progress"].dataset.level = "";
+  setText(elements["network-interface"], "—");
+  setText(elements["network-down"], "—");
+  setText(elements["network-up"], "—");
+  setText(elements.uptime, "—");
+  setText(elements.processes, "—");
+  setText(elements["load-average"], "—");
+  setText(elements["io-read"], "Idle");
+  setText(elements["io-write"], "Idle");
+  setProgress(elements["cpu-progress"], 0);
+  setProgress(elements["ram-progress"], 0);
+  setProgress(elements["disk-progress"], 0);
+  setProgress(elements["io-read-progress"], 0);
+  setProgress(elements["io-write-progress"], 0);
+  overviewSummary.services = servicesController.render(latestServices);
+  overviewSummary.containers = containersController.render([]);
+  latestSelectedContainers = [];
+  historyController.setResources([], []);
+  overviewSummary.alerts = renderAlerts([]);
+  updateOverview();
+}
+
+function selectNode({ id, state }) {
+  const nextNodeId = id || "local";
+  const nodeChanged = !nodeSelectionInitialized || selectedNodeId !== nextNodeId;
+  nodeSelectionInitialized = true;
+  selectedNodeId = nextNodeId;
+  const remote = selectedNodeId !== "local";
+  document.body.classList.toggle("remote-node", remote);
+  const nodeLabel = state?.node?.displayName || state?.node?.hostname || selectedNodeId;
+  containersController.setNode(selectedNodeId);
+  terminal.setNode?.(selectedNodeId, nodeLabel);
+  if (nodeChanged) {
+    charts.reset();
+    historyController.setNode(selectedNodeId);
+    alertsController.setNode(selectedNodeId);
+  }
+  terminal.setHostShellCapability?.(sessionHostShellCapability);
+  if (!remote) {
+    if (latestLocalEnvelope) renderSelectedSnapshot(latestLocalEnvelope, localConnectionState === "online" ? "online" : localConnectionState);
+    else refreshSnapshot().catch(() => setConnectionState("offline"));
+    return;
+  }
+  if (state?.snapshot) {
+    renderSelectedSnapshot(state.snapshot, state.online ? "online" : "stale");
+  } else {
+    renderUnavailableNode(state);
+  }
 }
 
 function renderSystem(system, disks, network) {
@@ -326,7 +463,7 @@ function renderAlerts(alerts) {
 async function refreshSnapshot() {
   if (refreshing) return refreshing;
   refreshing = api.snapshot()
-    .then(renderSnapshot)
+    .then(renderLocalSnapshot)
     .catch((error) => { if (!latestCollectedAt) setConnectionState("offline"); throw error; })
     .finally(() => { refreshing = null; });
   return refreshing;
@@ -337,7 +474,10 @@ function applySession(session = {}) {
   const login = typeof identity === "string" ? identity : identity.login || identity.email || identity.name || session.login || "tailnet user";
   const role = String(session.role || "viewer").toLowerCase();
   const admin = role === "admin";
+  sessionAdmin = admin;
+  sessionHostShellCapability = session.capabilities?.hostShell === true;
   document.body.classList.toggle("viewer", !admin);
+  document.body.classList.toggle("admin", admin);
   setText(elements["session-user"], login);
   setText(elements["session-role"], admin ? "ADMIN" : "VIEWER");
   const identityGroup = document.getElementById("session-identity");
@@ -345,41 +485,121 @@ function applySession(session = {}) {
   identityGroup.title = `${login} · ${admin ? "ADMIN" : "VIEWER"}`;
   servicesController.setAdmin(admin);
   containersController.setAdmin(admin);
-  terminal.setHostShellCapability(session.capabilities?.hostShell === true);
+  alertsController.setAdmin(admin);
+  nodesController.setAdmin(admin);
+  settingsController.setAdmin(admin);
+  terminal.setHostShellCapability(sessionHostShellCapability);
+}
+
+function handleLocalConnectionState(state, detail = {}) {
+  localConnectionState = state;
+  if (selectedNodeId === "local") setConnectionState(state, detail);
+  else elements["services-stale"].hidden = !(["stale", "offline"].includes(state) && Boolean(latestLocalEnvelope));
+}
+
+function scheduleSessionRenewal(delay = 1200) {
+  if (demo || sessionRenewalTimer) return;
+  sessionRenewalTimer = window.setTimeout(async () => {
+    sessionRenewalTimer = null;
+    if (Date.now() - lastSessionRenewalAt < 12_000) return;
+    lastSessionRenewalAt = Date.now();
+    try {
+      applySession(await api.session());
+    } catch {
+      if (["offline", "stale"].includes(localConnectionState)) scheduleSessionRenewal(3000);
+    }
+  }, delay);
+}
+
+async function hydratePreferences() {
+  if (demo || typeof api.preferences !== "function") return;
+  try {
+    const preferences = await api.preferences();
+    if (preferences?.historyRange) historyController.setRange(preferences.historyRange, false);
+    await nodesController.refresh();
+    if (preferences?.defaultNodeId) nodesController.setSelected(preferences.defaultNodeId);
+    const height = Number(preferences?.terminalHeight);
+    if (Number.isFinite(height) && height >= 120) {
+      const bounded = Math.min(height, Math.max(120, window.innerHeight * 0.6));
+      document.documentElement.style.setProperty("--terminal-height", `${Math.round(bounded)}px`);
+      try { localStorage.setItem("homelab.terminal.height", String(Math.round(bounded))); } catch { /* Storage is optional. */ }
+      terminal.fit();
+    }
+    const panel = document.getElementById("terminal-panel");
+    if (typeof preferences?.terminalCollapsed === "boolean" &&
+        preferences.terminalCollapsed !== panel.classList.contains("is-collapsed")) {
+      document.getElementById("terminal-toggle").click();
+    }
+    historyController.refresh();
+  } catch (error) {
+    console.warn("Dashboard preferences unavailable; using local UI preferences.", error);
+  }
+}
+
+function savePreferences(update) {
+  if (!sessionAdmin || demo || typeof api.updatePreferences !== "function") return;
+  preferenceSavePending = { ...preferenceSavePending, ...update };
+  window.clearTimeout(preferenceSaveTimer);
+  preferenceSaveTimer = window.setTimeout(async () => {
+    const pending = preferenceSavePending;
+    preferenceSavePending = {};
+    try { await api.updatePreferences(pending); }
+    catch (error) { console.warn("Unable to persist dashboard preferences.", error); }
+  }, 450);
 }
 
 async function start() {
   elements["demo-badge"].hidden = !demo;
   try {
-    applySession(await api.session());
+	applySession(await api.session());
+	if (demo) await nodesController.refresh();
+	await hydratePreferences();
   } catch (error) {
     applySession({ role: "viewer", identity: { login: "unauthenticated" } });
     toast(error?.message || "Unable to load the Tailscale session.", "error");
   }
 
   if (demo) {
-    stopDemoFeed = startDemoFeed(renderSnapshot);
+    stopDemoFeed = startDemoFeed(renderLocalSnapshot);
     return;
   }
 
   try { await refreshSnapshot(); } catch { /* WebSocket retry owns the live recovery path. */ }
   stream = new MetricsStream({
-    onSnapshot: renderSnapshot,
-    onState: setConnectionState,
+    onSnapshot: renderLocalSnapshot,
+    onState: handleLocalConnectionState,
     onError: (error) => console.warn("Metrics stream frame rejected:", error),
+    refreshSession: async () => {
+      const session = await api.session();
+      applySession(session);
+      return session;
+    },
   });
   stream.start();
 }
 
-document.getElementById("alerts-jump").addEventListener("click", () => {
-  const target = elements["alerts-card"].hidden ? document.getElementById("health-overview") : elements["alerts-card"];
-  target.scrollIntoView({ behavior: "smooth", block: "start" });
+document.getElementById("node-selector").addEventListener("change", () => savePreferences({ defaultNodeId: nodesController.selectedNode() }));
+document.querySelectorAll("[data-history-range]").forEach((button) => button.addEventListener("click", () => savePreferences({ historyRange: historyController.range() })));
+document.getElementById("terminal-toggle").addEventListener("click", () => window.setTimeout(() => savePreferences({ terminalCollapsed: document.getElementById("terminal-panel").classList.contains("is-collapsed") }), 0));
+document.getElementById("terminal-resize").addEventListener("pointerup", () => savePreferences({ terminalHeight: Math.round(document.getElementById("terminal-body").getBoundingClientRect().height) }));
+document.getElementById("terminal-resize").addEventListener("keydown", (event) => {
+  if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+  window.setTimeout(() => savePreferences({ terminalHeight: Math.round(document.getElementById("terminal-body").getBoundingClientRect().height) }), 0);
 });
+for (const id of ["terminal-size-compact", "terminal-size-default"]) {
+  document.getElementById(id)?.addEventListener("click", () => window.setTimeout(() => savePreferences({ terminalHeight: Math.round(document.getElementById("terminal-body").getBoundingClientRect().height), terminalCollapsed: false }), 0));
+}
+const sessionKeepalive = window.setInterval(() => scheduleSessionRenewal(0), 5 * 60_000);
 window.addEventListener("beforeunload", () => {
   stream?.stop();
   stopDemoFeed?.();
   terminal.disconnect(false);
   charts.destroy();
+  historyController.destroy();
+  nodesController.destroy();
+  window.clearInterval(sessionKeepalive);
+  window.clearTimeout(sessionRenewalTimer);
+  window.clearTimeout(preferenceSaveTimer);
 });
 
 start();

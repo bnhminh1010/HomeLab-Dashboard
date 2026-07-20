@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/binhminh/HomeLab-Minh/internal/model"
+	servicecatalog "github.com/binhminh/HomeLab-Minh/internal/services"
 	_ "modernc.org/sqlite"
 )
 
@@ -149,13 +150,28 @@ func (s *Store) CreateService(ctx context.Context, service model.Service) (model
 	service.CreatedAt = now
 	service.UpdatedAt = now
 	service.Status = model.ServiceStatusUnknown
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.Service{}, fmt.Errorf("begin create service: %w", err)
+	}
+	defer tx.Rollback()
+	var count int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM services").Scan(&count); err != nil {
+		return model.Service{}, fmt.Errorf("count services: %w", err)
+	}
+	if count >= servicecatalog.MaxServices {
+		return model.Service{}, servicecatalog.ErrServiceLimit
+	}
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO services(id, name, icon, display_url, probe_url, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		service.ID, service.Name, service.Icon, service.DisplayURL, service.ProbeURL,
 		now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
 		return model.Service{}, fmt.Errorf("create service: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return model.Service{}, fmt.Errorf("commit create service: %w", err)
 	}
 	return service, nil
 }

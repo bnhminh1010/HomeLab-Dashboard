@@ -70,6 +70,7 @@ export function createContainersController({ terminal, toast }) {
   const count = document.getElementById("containers-count");
   const items = new Map();
   let admin = false;
+  let nodeId = "local";
   let containers = [];
   let initialized = false;
 
@@ -113,7 +114,7 @@ export function createContainersController({ terminal, toast }) {
     const exec = document.createElement("button");
     exec.type = "button";
     exec.className = "container-action";
-    exec.textContent = "⌁ EXEC";
+    exec.textContent = "⌁ CONTAINER SHELL";
     exec.addEventListener("click", () => openTerminal(exec, article.container, "exec"));
     actions.append(logs, exec);
 
@@ -195,7 +196,7 @@ export function createContainersController({ terminal, toast }) {
     if (!container) return;
     control.disabled = true;
     try {
-      await terminal.open({ mode, containerId: container.id, containerName: container.name, invoker: control });
+      await terminal.open({ mode, containerId: container.id, containerName: container.name, nodeId, invoker: control });
     } catch (error) {
       toast(error?.message || `Unable to open ${mode}.`, "error");
     } finally {
@@ -209,6 +210,9 @@ export function createContainersController({ terminal, toast }) {
       admin = Boolean(value);
       if (initialized) return render(containers);
       return summary();
+    },
+    setNode(value) {
+      nodeId = value || "local";
     },
   };
 }

@@ -26,13 +26,27 @@
     </a>
     <div class="header-status" aria-label="Current dashboard session">
       <span id="demo-badge" class="badge badge-demo" hidden>DEMO</span>
+      <label class="node-switcher" title="Select monitoring node">
+        <span class="visually-hidden">Monitoring node</span>
+        <span class="node-switcher-dot status-dot" aria-hidden="true"></span>
+        <select id="node-selector" aria-label="Monitoring node">
+          <option value="local">LOCAL</option>
+        </select>
+      </label>
       <span id="freshness" class="connection-chip" data-state="connecting" aria-label="Metrics stream: connecting">
         <span class="status-dot" aria-hidden="true"></span>
         <span id="freshness-text">CONNECTING</span>
       </span>
+      <span id="snapshot-partial" class="connection-chip" data-state="partial" aria-label="Partial metrics snapshot" hidden>PARTIAL</span>
       <span id="header-hostname" class="header-hostname mono" title="Server hostname">—</span>
-      <button id="alerts-jump" class="icon-button" type="button" title="Jump to alerts" aria-label="Jump to alerts">
+      <button id="alerts-jump" class="icon-button" type="button" title="Open alert center" aria-label="Open alert center">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </button>
+      <button id="nodes-open" class="icon-button admin-only" type="button" title="Manage monitoring nodes" aria-label="Manage monitoring nodes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01M11 7h7M11 17h7"/></svg>
+      </button>
+      <button id="settings-open" class="icon-button" type="button" title="Dashboard settings" aria-label="Open dashboard settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.97 4.6 1.7 1.7 0 0 0 10 3.08V3h4v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg>
       </button>
       <div id="session-identity" class="user-chip" role="group" aria-label="Authenticated Tailscale user" title="Authenticated Tailscale user">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
@@ -69,6 +83,47 @@
           <span class="health-label">CONTAINERS</span>
           <strong id="overview-containers" class="health-value mono">0 / 0 RUNNING</strong>
           <span id="overview-containers-detail" class="health-detail">Waiting for Podman</span>
+        </div>
+      </section>
+
+      <section id="history-panel" class="panel history-panel" aria-labelledby="history-title">
+        <header class="panel-header compact">
+          <div class="title-with-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-7"/></svg>
+            <div><p class="eyebrow">90-DAY RETENTION</p><h2 id="history-title">SYSTEM HISTORY</h2></div>
+          </div>
+          <div class="history-toolbar">
+            <div class="history-kind-controls" role="group" aria-label="History resource type">
+              <button class="range-button is-active" type="button" data-history-kind="system" aria-pressed="true">SYSTEM</button>
+              <button class="range-button" type="button" data-history-kind="container" aria-pressed="false">CONTAINER</button>
+              <button class="range-button" type="button" data-history-kind="service" aria-pressed="false">SERVICE</button>
+            </div>
+            <label id="history-resource-picker" class="history-resource-picker" hidden>
+              <span class="visually-hidden">History resource</span>
+              <select id="history-resource" aria-label="History resource"></select>
+            </label>
+            <div class="history-controls" role="group" aria-label="History range">
+              <button class="range-button" type="button" data-history-range="1h">1H</button>
+              <button class="range-button" type="button" data-history-range="6h">6H</button>
+              <button class="range-button is-active" type="button" data-history-range="24h" aria-pressed="true">24H</button>
+              <button class="range-button" type="button" data-history-range="7d">7D</button>
+              <button class="range-button" type="button" data-history-range="30d">30D</button>
+              <button class="range-button" type="button" data-history-range="90d">90D</button>
+            </div>
+          </div>
+        </header>
+        <div class="history-body">
+          <div id="history-chart-wrap" class="history-chart-wrap" aria-busy="true">
+            <canvas id="history-chart" width="1200" height="180" aria-label="Historical resource utilization"></canvas>
+            <div id="history-empty" class="history-overlay" role="status">Loading metric history…</div>
+          </div>
+          <footer class="history-footer mono">
+            <span id="history-node">NODE · LOCAL</span>
+            <span id="history-resource-summary">RESOURCE · SYSTEM</span>
+            <span id="history-resolution">RESOLUTION · AUTO</span>
+            <span id="history-quota" class="history-quota">STORAGE · CHECKING</span>
+            <button id="history-refresh" class="text-button" type="button">REFRESH</button>
+          </footer>
         </div>
       </section>
 
@@ -208,6 +263,19 @@
       </header>
       <div id="terminal-body" class="terminal-body">
         <div id="terminal" class="terminal" aria-label="Host and container terminal"></div>
+        <section id="log-viewer" class="log-viewer" aria-label="Container logs" hidden>
+          <div class="log-viewer-toolbar">
+            <label class="log-search">
+              <span class="visually-hidden">Search container logs</span>
+              <input id="log-search" type="search" placeholder="Search logs" autocomplete="off" spellcheck="false">
+            </label>
+            <button id="log-follow" class="log-tool-button" type="button" aria-pressed="true" title="Keep the latest log line in view">FOLLOW</button>
+            <button id="log-pause" class="log-tool-button" type="button" aria-pressed="false" title="Pause log rendering">PAUSE</button>
+            <button id="log-download" class="log-tool-button" type="button" title="Download the buffered logs" disabled>DOWNLOAD</button>
+            <output id="log-stats" class="log-stats mono" aria-live="off">0 LINES · 0 B</output>
+          </div>
+          <div id="log-output" class="log-output mono" role="log" aria-label="Read-only container log output" aria-live="off" tabindex="0"></div>
+        </section>
       </div>
     </section>
   </div>
@@ -247,6 +315,87 @@
         <button class="button button-danger" type="submit" value="confirm">OPEN HOST SHELL</button>
       </footer>
     </form>
+  </dialog>
+
+  <dialog id="alert-center-dialog" class="modal modal-wide" aria-labelledby="alert-center-title">
+    <div class="modal-form monitoring-dialog">
+      <header>
+        <div><p class="eyebrow">MONITORING CONTROL</p><h2 id="alert-center-title">Alert center</h2></div>
+        <button class="icon-button" type="button" data-dialog-close aria-label="Close alert center">×</button>
+      </header>
+      <p id="alert-center-status" class="dialog-status mono" role="status">Loading alert state…</p>
+      <div class="alert-center-grid">
+        <section aria-labelledby="active-alerts-title">
+          <div class="subsection-header"><h3 id="active-alerts-title">ACTIVE ALERTS</h3><span id="active-alerts-count" class="count-badge mono">0</span></div>
+          <div id="active-alerts-list" class="management-list"><div class="skeleton-line"></div></div>
+        </section>
+        <section aria-labelledby="alert-rules-title">
+          <div class="subsection-header"><h3 id="alert-rules-title">RULES</h3><button id="alert-rule-add" class="button button-ghost button-small admin-only" type="button">+ NEW RULE</button></div>
+          <div id="alert-rules-list" class="management-list"><div class="skeleton-line"></div></div>
+        </section>
+        <section aria-labelledby="alert-events-title">
+          <div class="subsection-header"><h3 id="alert-events-title">RECENT EVENTS</h3></div>
+          <div id="alert-events-list" class="management-list"><div class="skeleton-line"></div></div>
+        </section>
+        <section class="notification-section" aria-labelledby="ntfy-title">
+          <div class="subsection-header"><h3 id="ntfy-title">NTFY DELIVERY</h3><button id="ntfy-test" class="button button-ghost button-small admin-only" type="button" disabled>TEST PUSH</button></div>
+          <p id="ntfy-status" class="integration-status mono">Checking configuration…</p>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="alert-rule-dialog" class="modal" aria-labelledby="alert-rule-dialog-title">
+    <form id="alert-rule-form" class="modal-form" autocomplete="off">
+      <header><div><p class="eyebrow">ALERT AUTOMATION</p><h2 id="alert-rule-dialog-title">New alert rule</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close rule editor">×</button></header>
+      <input name="id" type="hidden">
+      <div class="form-grid form-grid-rules">
+        <label class="full"><span>RULE NAME</span><input name="name" type="text" maxlength="160" required></label>
+        <label><span>RESOURCE</span><select name="resourceType" required><option value="node">Node</option><option value="host">Host</option><option value="disk">Disk</option><option value="service">Service</option><option value="container">Container</option></select></label>
+        <label><span>METRIC</span><select name="metric" required></select></label>
+        <label><span>NODE SELECTOR</span><input name="nodeSelector" type="text" maxlength="256" value="*" required></label>
+        <label><span>RESOURCE SELECTOR</span><input name="resourceSelector" type="text" maxlength="256" value="*" required></label>
+        <label><span>OPERATOR</span><select name="operator"><option value="gt">&gt;</option><option value="gte">≥</option><option value="lt">&lt;</option><option value="lte">≤</option><option value="eq">=</option><option value="neq">≠</option></select></label>
+        <label><span>THRESHOLD</span><input name="threshold" type="number" step="any" required></label>
+        <label><span>FOR (SECONDS)</span><input name="forSeconds" type="number" min="0" max="2592000" value="300" required></label>
+        <label><span>COOLDOWN (SECONDS)</span><input name="cooldownSeconds" type="number" min="0" max="2592000" value="1800" required></label>
+        <label><span>SEVERITY</span><select name="severity"><option value="warning">Warning</option><option value="critical">Critical</option><option value="info">Info</option></select></label>
+        <label class="check-field"><input name="enabled" type="checkbox" checked><span>RULE ENABLED</span></label>
+      </div>
+      <p id="alert-rule-error" class="form-error" role="alert" hidden></p>
+      <footer><button class="button button-ghost" type="button" data-dialog-close>CANCEL</button><button id="alert-rule-submit" class="button button-primary" type="submit">SAVE RULE</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="nodes-dialog" class="modal" aria-labelledby="nodes-dialog-title">
+    <div class="modal-form monitoring-dialog">
+      <header><div><p class="eyebrow">OUTBOUND WSS AGENTS</p><h2 id="nodes-dialog-title">Monitoring nodes</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close node manager">×</button></header>
+      <p>Enroll up to four remote nodes (five nodes total including this host). Enrollment tokens expire after 10 minutes and are shown only once.</p>
+      <div class="subsection-header"><h3>ENROLLED NODES</h3><button id="node-enroll-create" class="button button-primary button-small admin-only" type="button">CREATE TOKEN</button></div>
+      <div id="nodes-list" class="management-list"><div class="skeleton-line"></div></div>
+      <section id="enrollment-result" class="one-time-secret" aria-labelledby="enrollment-title" hidden>
+        <strong id="enrollment-title">ONE-TIME ENROLLMENT TOKEN</strong>
+        <code id="enrollment-token" class="mono"></code>
+        <div><span id="enrollment-expiry" class="mono"></span><button id="enrollment-copy" class="button button-ghost button-small" type="button">COPY TOKEN</button></div>
+        <p>Store this token now. Closing this dialog permanently hides it.</p>
+      </section>
+      <p id="nodes-status" class="dialog-status mono" role="status"></p>
+    </div>
+  </dialog>
+
+  <dialog id="settings-dialog" class="modal" aria-labelledby="settings-title">
+    <div class="modal-form monitoring-dialog">
+      <header><div><p class="eyebrow">PORTABLE CONFIGURATION</p><h2 id="settings-title">Dashboard settings</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close settings">×</button></header>
+      <section class="settings-section" aria-labelledby="config-transfer-title">
+        <div class="subsection-header"><h3 id="config-transfer-title">EXPORT / IMPORT</h3><button id="config-export" class="button button-ghost button-small admin-only" type="button">EXPORT JSON</button></div>
+        <p>Transfers services, alert rules, UI preferences, and node display metadata. Secrets, credentials, metrics, logs, and audit records are never included.</p>
+        <label class="file-picker admin-only"><span>CONFIG FILE (MAX 1 MIB)</span><input id="config-file" type="file" accept="application/json,.json"></label>
+        <fieldset id="config-mode" class="mode-picker admin-only"><legend>IMPORT MODE</legend><label><input type="radio" name="config-import-mode" value="merge" checked> Merge (recommended)</label><label><input type="radio" name="config-import-mode" value="replace"> Replace existing configuration</label></fieldset>
+        <div class="settings-actions admin-only"><button id="config-preview" class="button button-ghost" type="button" disabled>PREVIEW CHANGES</button><button id="config-apply" class="button button-danger" type="button" disabled>APPLY IMPORT</button></div>
+        <div id="config-preview-result" class="config-preview" role="status"><span>Select a JSON file to preview an import.</span></div>
+      </section>
+      <p id="settings-status" class="dialog-status mono" role="status"></p>
+    </div>
   </dialog>
 
   <div id="context-menu" class="context-menu" role="menu" hidden></div>

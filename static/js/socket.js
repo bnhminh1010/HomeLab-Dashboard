@@ -3,21 +3,24 @@ import { websocketUrl } from "./format.js";
 const MAX_METRICS_FRAME_BYTES = 50 * 1024;
 
 export class MetricsStream {
-  constructor({ onSnapshot, onState, onError }) {
+  constructor({ onSnapshot, onState, onError, refreshSession = null }) {
     this.onSnapshot = onSnapshot;
     this.onState = onState;
     this.onError = onError;
+    this.refreshSession = refreshSession;
     this.socket = null;
     this.stopped = true;
     this.retryTimer = 0;
     this.staleTimer = 0;
     this.lastMessageAt = 0;
     this.lastSequence = -1;
+    this.needsSessionRefresh = false;
   }
 
   start() {
     this.stop();
     this.stopped = false;
+    this.needsSessionRefresh = false;
     this.staleTimer = window.setInterval(() => this.checkFreshness(), 1000);
     this.connect();
   }
@@ -33,11 +36,24 @@ export class MetricsStream {
     }
   }
 
-  connect() {
+  async connect() {
     if (this.stopped) return;
     this.onState?.("connecting");
+    if (this.needsSessionRefresh && this.refreshSession) {
+      try {
+        await this.refreshSession();
+        this.needsSessionRefresh = false;
+      } catch (error) {
+        this.onError?.(error);
+        this.onState?.("offline");
+        this.scheduleRetry();
+        return;
+      }
+      if (this.stopped) return;
+    }
+    this.lastSequence = -1;
     try {
-      this.socket = new WebSocket(websocketUrl("/ws/metrics"));
+      this.socket = new WebSocket(websocketUrl("/ws/v1/metrics"));
     } catch (error) {
       this.onError?.(error);
       this.scheduleRetry();
@@ -49,6 +65,7 @@ export class MetricsStream {
     this.socket.addEventListener("close", () => {
       this.socket = null;
       if (!this.stopped) {
+        this.needsSessionRefresh = true;
         this.onState?.("offline");
         this.scheduleRetry();
       }

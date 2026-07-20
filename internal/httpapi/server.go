@@ -11,9 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/binhminh/HomeLab-Minh/internal/alerts"
 	"github.com/binhminh/HomeLab-Minh/internal/auth"
+	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
+	"github.com/binhminh/HomeLab-Minh/internal/history"
 	"github.com/binhminh/HomeLab-Minh/internal/metrics"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
+	"github.com/binhminh/HomeLab-Minh/internal/nodes"
 	"github.com/binhminh/HomeLab-Minh/internal/services"
 	"github.com/binhminh/HomeLab-Minh/internal/store"
 	"github.com/binhminh/HomeLab-Minh/internal/terminal"
@@ -26,17 +30,50 @@ type AuditWriter interface {
 	AppendAudit(context.Context, model.AuditEvent) error
 }
 
+type AlertRepository interface {
+	CreateAlertRule(context.Context, alerts.AlertRule) (alerts.AlertRule, error)
+	GetAlertRule(context.Context, string) (alerts.AlertRule, error)
+	ListAlertRules(context.Context) ([]alerts.AlertRule, error)
+	UpdateAlertRule(context.Context, string, alerts.AlertRule) (alerts.AlertRule, error)
+	DeleteAlertRule(context.Context, string) error
+	ListAlertStates(context.Context, alerts.StateFilter) ([]alerts.AlertState, error)
+	ListAlertEvents(context.Context, alerts.EventFilter) ([]alerts.AlertEvent, error)
+	AcknowledgeAlert(context.Context, alerts.AlertKey, string, time.Time) (alerts.AlertState, error)
+	SilenceAlert(context.Context, alerts.AlertKey, string, time.Duration, time.Time) (alerts.AlertState, error)
+}
+
+type NotificationSender interface {
+	Send(context.Context, alerts.Delivery) error
+}
+
+type PreferencesRepository interface {
+	GetDashboardUIPreferences(context.Context) (dashboardconfig.UIPreferences, error)
+	UpdateDashboardUIPreferences(context.Context, dashboardconfig.UIPreferences, string) (dashboardconfig.UIPreferences, error)
+}
+
 type Options struct {
-	Auth             *auth.Manager
-	Metrics          *metrics.Hub
-	Services         *services.Manager
-	Audit            AuditWriter
-	Terminal         *terminal.Manager
-	Static           http.Handler
-	Ready            func(context.Context) error
-	SecureOrigin     bool
-	HostShellEnabled bool
-	HostShellUsers   []string
+	Auth                   *auth.Manager
+	Metrics                *metrics.Hub
+	Services               *services.Manager
+	Audit                  AuditWriter
+	Terminal               *terminal.Manager
+	Static                 http.Handler
+	Ready                  func(context.Context) error
+	SecureOrigin           bool
+	HostShellEnabled       bool
+	HostShellUsers         []string
+	Nodes                  *nodes.Service
+	NodeRegistry           *nodes.Registry
+	History                history.Reader
+	HistoryQuota           func() history.QuotaState
+	Alerts                 AlertRepository
+	Notifications          NotificationSender
+	NTFYURL                string
+	NTFYTopic              string
+	NTFYTokenSet           bool
+	DashboardConfig        *dashboardconfig.Service
+	DashboardConfigApplied func()
+	Preferences            PreferencesRepository
 }
 
 type Server struct {
@@ -45,6 +82,7 @@ type Server struct {
 	hostShellUsers     map[string]struct{}
 	terminalPingPeriod time.Duration
 	terminalPongWait   time.Duration
+	websockets         websocketTracker
 }
 
 func New(options Options) (*Server, error) {
@@ -71,6 +109,14 @@ func New(options Options) (*Server, error) {
 }
 
 func (s *Server) Handler() http.Handler { return s.router }
+
+// Shutdown closes every upgraded WebSocket and waits for its handler to
+// return. net/http.Server.Shutdown deliberately does not manage hijacked
+// connections, so callers must invoke both shutdown methods under one
+// deadline before closing shared dependencies such as the database.
+func (s *Server) Shutdown(ctx context.Context) error {
+	return s.websockets.closeAndWait(ctx)
+}
 
 func (s *Server) routes() {
 	s.router.Use(securityMiddleware(), s.identityMiddleware())
@@ -105,6 +151,40 @@ func (s *Server) routes() {
 	authenticatedAPI.POST("/terminal/sessions", s.createTerminalSession)
 	authenticatedAPI.POST("/terminal/host-sessions", s.createHostTerminalSession)
 	authenticatedAPI.DELETE("/terminal/sessions/:id", s.cancelTerminalSession)
+	if s.options.Nodes != nil && s.options.NodeRegistry != nil {
+		authenticatedAPI.GET("/nodes", s.listNodes)
+		authenticatedAPI.POST("/nodes/enrollment-tokens", s.createNodeEnrollment)
+		authenticatedAPI.DELETE("/nodes/:id", s.revokeNode)
+		api.POST("/agents/enroll", s.enrollAgent)
+		s.router.GET("/ws/v1/agents/connect", s.serveAgentWS)
+	}
+	if s.options.History != nil {
+		authenticatedAPI.GET("/history/resources", s.getHistoryResources)
+		authenticatedAPI.GET("/history/system", s.getSystemHistory)
+		authenticatedAPI.GET("/history/containers/:id", s.getContainerHistory)
+		authenticatedAPI.GET("/history/services/:id", s.getServiceHistory)
+	}
+	if s.options.Alerts != nil {
+		authenticatedAPI.GET("/alert-rules", s.listAlertRules)
+		authenticatedAPI.POST("/alert-rules", s.createAlertRule)
+		authenticatedAPI.PATCH("/alert-rules/:id", s.updateAlertRule)
+		authenticatedAPI.DELETE("/alert-rules/:id", s.deleteAlertRule)
+		authenticatedAPI.GET("/alerts", s.listAlertStates)
+		authenticatedAPI.GET("/alerts/events", s.listAlertEvents)
+		authenticatedAPI.POST("/alerts/acknowledge", s.acknowledgeAlert)
+		authenticatedAPI.POST("/alerts/silence", s.silenceAlert)
+		authenticatedAPI.GET("/notifications/ntfy", s.getNTFYStatus)
+		authenticatedAPI.POST("/notifications/ntfy/test", s.testNTFY)
+	}
+	if s.options.DashboardConfig != nil {
+		authenticatedAPI.GET("/config/export", s.exportDashboardConfig)
+		authenticatedAPI.POST("/config/import/preview", s.previewDashboardConfig)
+		authenticatedAPI.POST("/config/import/apply", s.applyDashboardConfig)
+	}
+	if s.options.Preferences != nil {
+		authenticatedAPI.GET("/preferences", s.getDashboardPreferences)
+		authenticatedAPI.PATCH("/preferences", s.updateDashboardPreferences)
+	}
 	compatibilityAPI := s.router.Group("/api")
 	compatibilityAPI.Use(s.requireSession())
 	compatibilityAPI.GET("/services", s.listServices)
@@ -134,7 +214,7 @@ func (s *Server) routes() {
 
 func (s *Server) identityMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/health/") {
+		if strings.HasPrefix(c.Request.URL.Path, "/health/") || isAgentRoute(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
@@ -151,6 +231,10 @@ func (s *Server) identityMiddleware() gin.HandlerFunc {
 		c.Set(principalKey, principal)
 		c.Next()
 	}
+}
+
+func isAgentRoute(path string) bool {
+	return path == "/api/v1/agents/enroll" || path == "/ws/v1/agents/connect"
 }
 
 func (s *Server) requireSession() gin.HandlerFunc {
@@ -184,6 +268,11 @@ func (s *Server) createSession(c *gin.Context) {
 			"manageServices": principal.Role == auth.RoleAdmin,
 			"containerExec":  principal.Role == auth.RoleAdmin,
 			"hostShell":      s.hostShellAllowed(principal),
+			"manageAlerts":   principal.Role == auth.RoleAdmin && s.options.Alerts != nil,
+			"manageNodes":    principal.Role == auth.RoleAdmin && s.options.Nodes != nil,
+			"manageConfig":   principal.Role == auth.RoleAdmin && s.options.DashboardConfig != nil,
+			"history":        s.options.History != nil,
+			"multiNode":      s.options.NodeRegistry != nil,
 		},
 	})
 }
@@ -280,6 +369,7 @@ func (s *Server) createTerminalSession(c *gin.Context) {
 	s.audit(c, principal, "terminal.create", request.ContainerID, "success")
 	c.JSON(http.StatusCreated, gin.H{
 		"id":           created.ID,
+		"nodeId":       created.NodeID,
 		"websocketUrl": "/ws/terminal?session=" + created.ID,
 		"expiresAt":    created.ExpiresAt,
 		"readOnly":     created.ReadOnly,
@@ -305,9 +395,13 @@ func (s *Server) createHostTerminalSession(c *gin.Context) {
 		writeError(c, status, code, "Unable to reserve a host shell session.", nil)
 		return
 	}
+	targetID := ""
+	if created.NodeID != "local" {
+		targetID = created.NodeID
+	}
 	if err := s.appendAudit(c.Request.Context(), model.AuditEvent{
 		Actor: principal.Login, Action: "terminal.host.reserve", TargetType: "host_shell",
-		Outcome: "success",
+		TargetID: targetID, Outcome: "success",
 	}); err != nil {
 		_ = s.options.Terminal.Cancel(created.ID, principal.Login)
 		writeError(c, http.StatusServiceUnavailable, "audit_unavailable", "Host shell access is unavailable because the security audit could not be recorded.", nil)
@@ -315,6 +409,7 @@ func (s *Server) createHostTerminalSession(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, gin.H{
 		"id":           created.ID,
+		"nodeId":       created.NodeID,
 		"websocketUrl": "/ws/v1/terminal/" + created.ID,
 		"expiresAt":    created.ExpiresAt,
 		"readOnly":     false,
@@ -374,6 +469,8 @@ func (s *Server) writeServiceError(c *gin.Context, err error) {
 	switch {
 	case errors.As(err, &validation):
 		writeError(c, http.StatusUnprocessableEntity, "validation_failed", "Service input is invalid.", validation.Fields)
+	case errors.Is(err, services.ErrServiceLimit):
+		writeError(c, http.StatusConflict, "service_limit_reached", "The dashboard supports at most 100 services.", nil)
 	case errors.Is(err, store.ErrNotFound):
 		writeError(c, http.StatusNotFound, "service_not_found", "The service does not exist.", nil)
 	default:
@@ -472,6 +569,8 @@ func terminalErrorStatus(err error) (int, string) {
 		return http.StatusTooManyRequests, "terminal_limit"
 	case errors.Is(err, terminal.ErrInvalidRequest):
 		return http.StatusUnprocessableEntity, "invalid_terminal_request"
+	case errors.Is(err, terminal.ErrRemoteUnavailable):
+		return http.StatusServiceUnavailable, "node_unavailable"
 	default:
 		return http.StatusBadGateway, "terminal_unavailable"
 	}
@@ -487,6 +586,8 @@ func hostTerminalErrorStatus(err error) (int, string) {
 		return http.StatusUnprocessableEntity, "invalid_terminal_request"
 	case errors.Is(err, terminal.ErrHostUnavailable):
 		return http.StatusServiceUnavailable, "host_agent_unavailable"
+	case errors.Is(err, terminal.ErrRemoteUnavailable):
+		return http.StatusServiceUnavailable, "node_unavailable"
 	default:
 		return http.StatusServiceUnavailable, "host_shell_unavailable"
 	}

@@ -30,6 +30,10 @@ type Config struct {
 	NetworkInterface       string
 	TailscaleSOCKS5Address string
 	TrustTailscaleHeaders  bool
+	HistoryQuotaBytes      int64
+	NTFYURL                string
+	NTFYTopic              string
+	NTFYTokenFile          string
 }
 
 func Load() (Config, error) {
@@ -54,6 +58,10 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		NetworkInterface:       strings.TrimSpace(getenv("NETWORK_INTERFACE")),
 		TailscaleSOCKS5Address: strings.TrimSpace(getenv("TAILSCALE_SOCKS5_ADDR")),
 		TrustTailscaleHeaders:  true,
+		HistoryQuotaBytes:      2 << 30,
+		NTFYURL:                strings.TrimSpace(getenv("NTFY_URL")),
+		NTFYTopic:              strings.TrimSpace(getenv("NTFY_TOPIC")),
+		NTFYTokenFile:          strings.TrimSpace(getenv("NTFY_TOKEN_FILE")),
 	}
 
 	var err error
@@ -84,6 +92,12 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("HOST_SHELL_ENABLED: %w", err)
 		}
 	}
+	if value := strings.TrimSpace(getenv("HISTORY_QUOTA_BYTES")); value != "" {
+		cfg.HistoryQuotaBytes, err = strconv.ParseInt(value, 10, 64)
+		if err != nil || cfg.HistoryQuotaBytes < 64<<20 || cfg.HistoryQuotaBytes > 16<<30 {
+			return Config{}, fmt.Errorf("HISTORY_QUOTA_BYTES must be between 67108864 and 17179869184")
+		}
+	}
 
 	defaultCIDRs := "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7"
 	if cfg.ProbeAllowCIDRs, err = parsePrefixes(valueOr(getenv("PROBE_ALLOW_CIDRS"), defaultCIDRs)); err != nil {
@@ -107,6 +121,18 @@ func (c Config) Validate() error {
 		if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) {
 			return fmt.Errorf("%s must be an absolute path", name)
 		}
+	}
+	if c.NTFYTokenFile != "" && !filepath.IsAbs(c.NTFYTokenFile) {
+		return fmt.Errorf("NTFY_TOKEN_FILE must be an absolute path")
+	}
+	if (c.NTFYURL == "") != (c.NTFYTopic == "") {
+		return fmt.Errorf("NTFY_URL and NTFY_TOPIC must be configured together")
+	}
+	if c.NTFYTopic != "" && !validNTFYTopic(c.NTFYTopic) {
+		return fmt.Errorf("NTFY_TOPIC is invalid")
+	}
+	if c.HistoryQuotaBytes < 64<<20 || c.HistoryQuotaBytes > 16<<30 {
+		return fmt.Errorf("HISTORY_QUOTA_BYTES must be between 67108864 and 17179869184")
 	}
 	if c.TrustTailscaleHeaders && !listenAddressIsLoopback(c.ListenAddress) {
 		return fmt.Errorf("TRUST_TAILSCALE_HEADERS requires DASHBOARD_ADDR to use a loopback address")
@@ -141,6 +167,20 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validNTFYTopic(topic string) bool {
+	if topic == "" || len(topic) > 64 {
+		return false
+	}
+	for _, char := range topic {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '_' || char == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func listenAddressIsLoopback(address string) bool {

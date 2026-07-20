@@ -2,7 +2,9 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -58,6 +60,9 @@ type Hub struct {
 	hasLatest   bool
 	subscribers map[uint64]chan model.SnapshotEnvelope
 	nextID      uint64
+	lastSuccess time.Time
+	lastAttempt time.Time
+	lastError   string
 }
 
 func NewHub(sources Sources, interval time.Duration) *Hub {
@@ -104,9 +109,10 @@ func (h *Hub) CollectOnce(ctx context.Context) (model.SnapshotEnvelope, error) {
 		err    error
 	}
 	var (
-		wg        sync.WaitGroup
-		resultMu  sync.Mutex
-		errorsOut []collectionError
+		wg               sync.WaitGroup
+		resultMu         sync.Mutex
+		errorsOut        []collectionError
+		truncatedSources = make(map[string]struct{})
 	)
 	recordError := func(source string, err error) {
 		resultMu.Lock()
@@ -137,6 +143,9 @@ func (h *Hub) CollectOnce(ctx context.Context) (model.SnapshotEnvelope, error) {
 				return
 			}
 			resultMu.Lock()
+			if len(value) > 100 {
+				truncatedSources["services"] = struct{}{}
+			}
 			data.Services = capSlice(value, 100)
 			resultMu.Unlock()
 		}()
@@ -151,6 +160,9 @@ func (h *Hub) CollectOnce(ctx context.Context) (model.SnapshotEnvelope, error) {
 				return
 			}
 			resultMu.Lock()
+			if len(value) > 100 {
+				truncatedSources["containers"] = struct{}{}
+			}
 			data.Containers = capSlice(value, 100)
 			resultMu.Unlock()
 		}()
@@ -164,28 +176,87 @@ func (h *Hub) CollectOnce(ctx context.Context) (model.SnapshotEnvelope, error) {
 		if err != nil {
 			recordError("alerts", err)
 		} else {
+			if len(value) > 50 {
+				truncatedSources["alerts"] = struct{}{}
+			}
 			data.Alerts = capSlice(value, 50)
 		}
 	}
 
 	now := h.now().UTC()
+	staleSources := make([]string, 0, len(errorsOut))
 	for _, item := range errorsOut {
+		staleSources = append(staleSources, item.source)
 		data.Alerts = append(data.Alerts, model.Alert{
 			ID: "collector-" + item.source, Level: "error", Source: item.source,
 			Message: fmt.Sprintf("Unable to collect %s data", item.source), OccurredAt: now,
 		})
 	}
+	sort.Strings(staleSources)
+	if len(data.Alerts) > 50 {
+		truncatedSources["alerts"] = struct{}{}
+	}
 	data.Alerts = capSlice(data.Alerts, 50)
+	truncated := make([]string, 0, len(truncatedSources))
+	for source := range truncatedSources {
+		truncated = append(truncated, source)
+	}
+	sort.Strings(truncated)
 	sequence := previous.Sequence + 1
 	envelope := model.SnapshotEnvelope{
 		Version: 1, Type: "metrics.snapshot", Sequence: sequence,
-		CollectedAt: now, Data: data,
+		CollectedAt: now, Truncated: len(truncated) > 0, TruncatedSources: truncated,
+		StaleSources: staleSources, Data: data,
 	}
 	h.publish(envelope)
 	if len(errorsOut) > 0 {
-		return envelope, fmt.Errorf("%d snapshot provider(s) failed", len(errorsOut))
+		err := fmt.Errorf("%d snapshot provider(s) failed", len(errorsOut))
+		h.recordAttempt(now, err)
+		return envelope, err
 	}
+	h.recordAttempt(now, nil)
 	return envelope, nil
+}
+
+type Health struct {
+	Ready       bool      `json:"ready"`
+	LastAttempt time.Time `json:"lastAttempt,omitempty"`
+	LastSuccess time.Time `json:"lastSuccess,omitempty"`
+	LastError   string    `json:"lastError,omitempty"`
+}
+
+func (h *Hub) Health(maxAge time.Duration) Health {
+	if maxAge <= 0 {
+		maxAge = h.interval * 3
+	}
+	h.mu.RLock()
+	result := Health{LastAttempt: h.lastAttempt, LastSuccess: h.lastSuccess, LastError: h.lastError}
+	h.mu.RUnlock()
+	result.Ready = !result.LastSuccess.IsZero() && h.now().UTC().Sub(result.LastSuccess) <= maxAge
+	return result
+}
+
+func (h *Hub) Ready(maxAge time.Duration) error {
+	health := h.Health(maxAge)
+	if health.Ready {
+		return nil
+	}
+	if health.LastSuccess.IsZero() {
+		return errors.New("metrics: no successful snapshot has been collected")
+	}
+	return fmt.Errorf("metrics: last successful snapshot is stale: %s", health.LastError)
+}
+
+func (h *Hub) recordAttempt(at time.Time, err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.lastAttempt = at
+	if err == nil {
+		h.lastSuccess = at
+		h.lastError = ""
+		return
+	}
+	h.lastError = err.Error()
 }
 
 func (h *Hub) Latest() (model.SnapshotEnvelope, bool) {

@@ -52,7 +52,7 @@ function statePriority(status) {
   return 3;
 }
 
-export function createServicesController({ api, toast }) {
+export function createServicesController({ api, toast, onChanged }) {
   const grid = document.getElementById("services-grid");
   const empty = document.getElementById("services-empty");
   const count = document.getElementById("services-count");
@@ -341,7 +341,10 @@ export function createServicesController({ api, toast }) {
     if (!id) {
       mutate(serviceSubmit, () => api.createService(payload), async (result) => {
         const created = serviceFromResponse(result, payload);
-        if (created?.id) render([...services, created]);
+        if (created?.id) {
+          const nextSummary = render([...services, created]);
+          onChanged?.([...services], nextSummary);
+        }
         serviceDialog.close();
         toast(`${payload.name} added.`);
       }, serviceError);
@@ -349,7 +352,8 @@ export function createServicesController({ api, toast }) {
     }
     mutate(serviceSubmit, () => api.updateService(id, payload), async (result) => {
       const updated = serviceFromResponse(result, { id, ...payload }) || normalizedService({ id, ...payload });
-      render(services.map((service) => service.id === id ? { ...service, ...updated } : service));
+      const nextSummary = render(services.map((service) => service.id === id ? { ...service, ...updated } : service));
+      onChanged?.([...services], nextSummary);
       serviceDialog.close();
       toast(`${payload.name} updated.`);
     }, serviceError);
@@ -361,7 +365,8 @@ export function createServicesController({ api, toast }) {
     const id = deleteForm.elements.id.value;
     const name = deleteName.textContent;
     mutate(submit, () => api.deleteService(id), async () => {
-      render(services.filter((service) => service.id !== id));
+      const nextSummary = render(services.filter((service) => service.id !== id));
+      onChanged?.([...services], nextSummary);
       deleteDialog.close();
       toast(`${name} deleted.`);
     }, deleteError);
@@ -405,7 +410,17 @@ export function createServicesController({ api, toast }) {
     dialog.addEventListener("close", () => {
       const invoker = dialogInvoker;
       dialogInvoker = null;
-      requestAnimationFrame(() => invoker?.isConnected && invoker.focus());
+      // Browsers often restore focus synchronously when a modal closes. The
+      // fallback runs one frame later only when there is no longer a useful
+      // active element; otherwise it could steal focus from a user who has
+      // already moved on to another control.
+      requestAnimationFrame(() => {
+        if (!invoker?.isConnected || document.activeElement === invoker) return;
+        const active = document.activeElement;
+        if (active === document.body || active === document.documentElement || !active?.isConnected) {
+          invoker.focus({ preventScroll: true });
+        }
+      });
     });
   }
 

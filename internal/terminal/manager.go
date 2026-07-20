@@ -21,12 +21,15 @@ const (
 	maxCols     = 300
 	minRows     = 5
 	maxRows     = 100
+	maxLogSince = 24 * time.Hour
+	localNodeID = "local"
 )
 
 type Manager struct {
-	backend     Backend
-	hostBackend HostBackend
-	options     ManagerOptions
+	backend       Backend
+	hostBackend   HostBackend
+	remoteBackend RemoteBackend
+	options       ManagerOptions
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -37,6 +40,10 @@ func NewManager(backend Backend, options ManagerOptions) (*Manager, error) {
 }
 
 func NewManagerWithHost(backend Backend, hostBackend HostBackend, options ManagerOptions) (*Manager, error) {
+	return NewManagerWithRemote(backend, hostBackend, nil, options)
+}
+
+func NewManagerWithRemote(backend Backend, hostBackend HostBackend, remoteBackend RemoteBackend, options ManagerOptions) (*Manager, error) {
 	if backend == nil {
 		return nil, errors.New("terminal: backend is required")
 	}
@@ -59,7 +66,7 @@ func NewManagerWithHost(backend Backend, hostBackend HostBackend, options Manage
 	if options.MaxInputFrame < 1 || options.OutputChunkSize < 1 || options.OutputQueueSize < options.OutputChunkSize {
 		return nil, errors.New("terminal: invalid stream limits")
 	}
-	return &Manager{backend: backend, hostBackend: hostBackend, options: options, sessions: make(map[string]*Session)}, nil
+	return &Manager{backend: backend, hostBackend: hostBackend, remoteBackend: remoteBackend, options: options, sessions: make(map[string]*Session)}, nil
 }
 
 func withManagerDefaults(options *ManagerOptions) {
@@ -109,7 +116,8 @@ func withManagerDefaults(options *ManagerOptions) {
 
 func (m *Manager) Create(user string, isAdmin bool, request CreateRequest) (Session, error) {
 	user = strings.TrimSpace(user)
-	if user == "" || !validContainerID(request.ContainerID) {
+	request.NodeID = normalizedNodeID(request.NodeID)
+	if user == "" || !validContainerID(request.ContainerID) || !validNodeID(request.NodeID) {
 		return Session{}, ErrInvalidRequest
 	}
 	if request.Mode != ModeLogs && request.Mode != ModeExec {
@@ -123,6 +131,14 @@ func (m *Manager) Create(user string, isAdmin bool, request CreateRequest) (Sess
 	}
 	if request.Tail > 500 {
 		return Session{}, ErrInvalidRequest
+	}
+	var logSince time.Duration
+	if request.Since != "" {
+		parsed, err := time.ParseDuration(request.Since)
+		if err != nil || parsed <= 0 || parsed > maxLogSince {
+			return Session{}, ErrInvalidRequest
+		}
+		logSince = parsed
 	}
 	if request.Cols == 0 {
 		request.Cols = defaultCols
@@ -152,12 +168,15 @@ func (m *Manager) Create(user string, isAdmin bool, request CreateRequest) (Sess
 		ID:          id,
 		Mode:        request.Mode,
 		ContainerID: request.ContainerID,
+		NodeID:      request.NodeID,
 		User:        user,
 		ReadOnly:    request.Mode == ModeLogs,
 		CreatedAt:   now,
 		ExpiresAt:   now.Add(m.options.PendingTTL),
 		tail:        request.Tail,
 		follow:      request.Follow,
+		since:       logSince,
+		timestamps:  request.Timestamps,
 		cols:        request.Cols,
 		rows:        request.Rows,
 		state:       sessionPending,
@@ -168,7 +187,8 @@ func (m *Manager) Create(user string, isAdmin bool, request CreateRequest) (Sess
 
 func (m *Manager) CreateHost(ctx context.Context, user string, authorized bool, request HostCreateRequest) (Session, error) {
 	user = strings.TrimSpace(user)
-	if user == "" {
+	request.NodeID = normalizedNodeID(request.NodeID)
+	if user == "" || !validNodeID(request.NodeID) {
 		return Session{}, ErrInvalidRequest
 	}
 	if !authorized {
@@ -183,11 +203,20 @@ func (m *Manager) CreateHost(ctx context.Context, user string, authorized bool, 
 	if !validSize(request.Cols, request.Rows) {
 		return Session{}, ErrInvalidRequest
 	}
-	if m.hostBackend == nil {
-		return Session{}, ErrHostUnavailable
-	}
-	if err := m.hostBackend.Probe(ctx); err != nil {
-		return Session{}, fmt.Errorf("%w: %v", ErrHostUnavailable, err)
+	if request.NodeID == localNodeID {
+		if m.hostBackend == nil {
+			return Session{}, ErrHostUnavailable
+		}
+		if err := m.hostBackend.Probe(ctx); err != nil {
+			return Session{}, fmt.Errorf("%w: %v", ErrHostUnavailable, err)
+		}
+	} else {
+		if m.remoteBackend == nil {
+			return Session{}, ErrRemoteUnavailable
+		}
+		if err := m.remoteBackend.Probe(ctx, request.NodeID); err != nil {
+			return Session{}, fmt.Errorf("%w: %v", ErrRemoteUnavailable, err)
+		}
 	}
 
 	m.mu.Lock()
@@ -208,6 +237,7 @@ func (m *Manager) CreateHost(ctx context.Context, user string, authorized bool, 
 		ID:        id,
 		Mode:      ModeHost,
 		User:      user,
+		NodeID:    request.NodeID,
 		CreatedAt: now,
 		ExpiresAt: now.Add(m.options.PendingTTL),
 		cols:      request.Cols,
@@ -348,8 +378,13 @@ type openedStream struct {
 }
 
 func (m *Manager) openStream(ctx context.Context, session *Session) (*openedStream, error) {
+	if session.NodeID != localNodeID {
+		return m.openRemoteStream(ctx, session)
+	}
 	if session.Mode == ModeLogs {
-		logs, err := m.backend.Logs(ctx, session.ContainerID, podman.LogsOptions{Tail: session.tail, Follow: session.follow})
+		logs, err := m.backend.Logs(ctx, session.ContainerID, podman.LogsOptions{
+			Tail: session.tail, Follow: session.follow, Since: session.since, Timestamps: session.timestamps,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -399,6 +434,35 @@ func (m *Manager) openStream(ctx context.Context, session *Session) (*openedStre
 		lastErr = errors.New("terminal: no supported shell")
 	}
 	return nil, lastErr
+}
+
+func (m *Manager) openRemoteStream(ctx context.Context, session *Session) (*openedStream, error) {
+	if m.remoteBackend == nil {
+		return nil, ErrRemoteUnavailable
+	}
+	var (
+		stream RemoteStream
+		err    error
+	)
+	size := HostSize{Cols: session.cols, Rows: session.rows}
+	switch session.Mode {
+	case ModeLogs:
+		stream, err = m.remoteBackend.OpenLogs(ctx, session.NodeID, session.ContainerID, podman.LogsOptions{
+			Tail: session.tail, Follow: session.follow, Since: session.since, Timestamps: session.timestamps,
+		})
+	case ModeExec:
+		stream, err = m.remoteBackend.OpenExec(ctx, session.NodeID, session.ContainerID, size)
+	case ModeHost:
+		stream, err = m.remoteBackend.OpenHost(ctx, session.NodeID, size)
+	default:
+		err = ErrInvalidRequest
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrRemoteUnavailable, err)
+	}
+	return &openedStream{
+		stream: stream, resize: stream.Resize, info: stream.Info(), exitCode: stream.ExitCode,
+	}, nil
 }
 
 func (m *Manager) bridge(ctx context.Context, session *Session, opened *openedStream, peer Peer) error {
@@ -598,6 +662,18 @@ func validContainerID(value string) bool {
 		return false
 	}
 	return true
+}
+
+func normalizedNodeID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return localNodeID
+	}
+	return value
+}
+
+func validNodeID(value string) bool {
+	return validContainerID(value)
 }
 
 func validSize(cols, rows uint) bool {

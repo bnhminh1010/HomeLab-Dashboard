@@ -1,0 +1,17 @@
+[Unit]
+Description=Homelab Dashboard Node Agent
+Documentation=https://github.com/binhminh/HomeLab-Minh
+After=network-online.target podman.socket
+Wants=network-online.target podman.socket
+
+[Service]
+Type=simple
+ExecStart=%h/.local/libexec/homelab-node-agent run --state %h/.config/homelab-node-agent/credentials.json
+Restart=always
+RestartSec=3s
+TimeoutStopSec=15s
+KillMode=control-group
+Environment=PODMAN_SOCKET=%t/podman/podman.sock
+
+[Install]
+WantedBy=default.target

@@ -2,9 +2,12 @@
 .env.*
 !.env.example
 .git
+.claude
 .omc
+AGENTS.md
 Docs
 bin
+/dashboard
 coverage.out
 *.db
 *.db-shm

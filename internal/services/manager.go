@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -13,6 +14,10 @@ import (
 
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 )
+
+const MaxServices = 100
+
+var ErrServiceLimit = errors.New("services: service limit reached")
 
 type Repository interface {
 	ListServices(context.Context) ([]model.Service, error)
@@ -46,6 +51,15 @@ func NewManager(repository Repository) *Manager {
 	return &Manager{repository: repository, health: make(map[string]healthState)}
 }
 
+// InvalidateHealth clears probe results after an out-of-band configuration
+// import. A changed URL must not inherit the previous endpoint's health until
+// the scheduler probes the new definition.
+func (m *Manager) InvalidateHealth() {
+	m.mu.Lock()
+	clear(m.health)
+	m.mu.Unlock()
+}
+
 func (m *Manager) ListServices(ctx context.Context) ([]model.Service, error) {
 	services, err := m.repository.ListServices(ctx)
 	if err != nil {
@@ -60,6 +74,7 @@ func (m *Manager) ListServices(ctx context.Context) ([]model.Service, error) {
 			continue
 		}
 		services[index].Status = state.status
+		services[index].ConsecutiveFailures = state.failureCount
 		checked := state.lastChecked
 		latency := state.latencyMS
 		services[index].LastCheckedAt = &checked
@@ -78,6 +93,7 @@ func (m *Manager) Get(ctx context.Context, id string) (model.Service, error) {
 	m.mu.RUnlock()
 	if ok {
 		service.Status = state.status
+		service.ConsecutiveFailures = state.failureCount
 		checked, latency := state.lastChecked, state.latencyMS
 		service.LastCheckedAt, service.LatencyMS = &checked, &latency
 	}
@@ -88,6 +104,13 @@ func (m *Manager) Create(ctx context.Context, input model.ServiceInput) (model.S
 	input = normalize(input)
 	if err := ValidateInput(input); err != nil {
 		return model.Service{}, err
+	}
+	existing, err := m.repository.ListServices(ctx)
+	if err != nil {
+		return model.Service{}, err
+	}
+	if len(existing) >= MaxServices {
+		return model.Service{}, ErrServiceLimit
 	}
 	id, err := serviceID()
 	if err != nil {

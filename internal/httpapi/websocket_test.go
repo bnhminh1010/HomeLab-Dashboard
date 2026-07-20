@@ -45,6 +45,7 @@ type liveTestServer struct {
 	Cookie *http.Cookie
 	CSRF   string
 	Client *http.Client
+	Server *Server
 	Close  func()
 }
 
@@ -89,7 +90,7 @@ func newLiveTestServer(t *testing.T) liveTestServer {
 		live.Close()
 		t.Fatal(err)
 	}
-	return liveTestServer{URL: live.URL, Cookie: response.Cookies()[0], CSRF: session.CSRF, Client: live.Client(), Close: live.Close}
+	return liveTestServer{URL: live.URL, Cookie: response.Cookies()[0], CSRF: session.CSRF, Client: live.Client(), Server: server, Close: live.Close}
 }
 
 func (s liveTestServer) headers() http.Header {
@@ -142,6 +143,30 @@ func TestCompatibleMetricsWebSocketAndOrigin(t *testing.T) {
 		t.Fatalf("cross-origin websocket err=%v status=%v", badErr, badResponse)
 	}
 	badResponse.Body.Close()
+}
+
+func TestServerShutdownClosesMetricsWebSocketHandler(t *testing.T) {
+	live := newLiveTestServer(t)
+	defer live.Close()
+
+	connection, _, err := websocket.DefaultDialer.Dial(websocketURL(live.URL, "/ws/metrics"), live.headers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if _, _, err := connection.ReadMessage(); err != nil {
+		t.Fatalf("read initial metrics snapshot: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := live.Server.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown WebSockets: %v", err)
+	}
+	_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := connection.ReadMessage(); err == nil {
+		t.Fatal("metrics WebSocket remained open after shutdown")
+	}
 }
 
 func TestTerminalSessionStreamsOverCompatibleWebSocket(t *testing.T) {
@@ -307,6 +332,48 @@ func TestHostTerminalHeartbeatClosesSilentPeer(t *testing.T) {
 	}
 }
 
+func TestServerShutdownClosesTerminalStreamAndHandler(t *testing.T) {
+	stream := newWebsocketHostStream()
+	live := newHostLiveTestServer(t, stream, &memoryAudit{})
+	defer live.Close()
+
+	body := bytes.NewBufferString(`{"cols":100,"rows":25}`)
+	request, _ := http.NewRequest(http.MethodPost, live.URL+"/api/v1/terminal/host-sessions", body)
+	request.Header = live.headers()
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", live.CSRF)
+	response, err := live.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var created struct {
+		WebSocketURL string `json:"websocketUrl"`
+	}
+	if response.StatusCode != http.StatusCreated || json.NewDecoder(response.Body).Decode(&created) != nil {
+		t.Fatalf("create host terminal status = %d", response.StatusCode)
+	}
+	connection, _, err := websocket.DefaultDialer.Dial(websocketURL(live.URL, created.WebSocketURL), live.headers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if _, _, err := connection.ReadMessage(); err != nil {
+		t.Fatalf("read terminal ready message: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := live.Server.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown WebSockets: %v", err)
+	}
+	select {
+	case <-stream.closed:
+	default:
+		t.Fatal("terminal backend remained open after shutdown")
+	}
+}
+
 func newHostLiveTestServer(t *testing.T, stream terminal.HostStream, audit AuditWriter) liveTestServer {
 	return newHostLiveTestServerWithHeartbeat(t, stream, audit, defaultTerminalPingPeriod, defaultTerminalPongWait)
 }
@@ -351,7 +418,7 @@ func newHostLiveTestServerWithHeartbeat(t *testing.T, stream terminal.HostStream
 		live.Close()
 		t.Fatal(err)
 	}
-	return liveTestServer{URL: live.URL, Cookie: response.Cookies()[0], CSRF: session.CSRF, Client: live.Client(), Close: live.Close}
+	return liveTestServer{URL: live.URL, Cookie: response.Cookies()[0], CSRF: session.CSRF, Client: live.Client(), Server: server, Close: live.Close}
 }
 
 type websocketHostStream struct {

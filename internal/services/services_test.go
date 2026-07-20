@@ -88,6 +88,40 @@ func TestManagerValidatesNormalizesAndCreates(t *testing.T) {
 	}
 }
 
+func TestManagerExposesConsecutiveProbeFailures(t *testing.T) {
+	manager := NewManager(newMemoryRepository())
+	created, err := manager.Create(context.Background(), model.ServiceInput{
+		Name: "Probe", DisplayURL: "http://10.0.0.2", ProbeURL: "http://10.0.0.2/health",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	manager.recordProbe(created.ID, model.ServiceStatusDown, 20, now)
+	services, err := manager.ListServices(context.Background())
+	if err != nil || len(services) != 1 {
+		t.Fatalf("ListServices() = %#v, %v", services, err)
+	}
+	if services[0].ConsecutiveFailures != 1 || services[0].Status != model.ServiceStatusUnknown {
+		t.Fatalf("first probe failure state = %#v", services[0])
+	}
+	manager.recordProbe(created.ID, model.ServiceStatusDown, 20, now.Add(time.Second))
+	services, _ = manager.ListServices(context.Background())
+	if services[0].ConsecutiveFailures != 2 || services[0].Status != model.ServiceStatusDown {
+		t.Fatalf("second probe failure state = %#v", services[0])
+	}
+	manager.recordProbe(created.ID, model.ServiceStatusUp, 10, now.Add(2*time.Second))
+	services, _ = manager.ListServices(context.Background())
+	if services[0].ConsecutiveFailures != 0 || services[0].Status != model.ServiceStatusUp {
+		t.Fatalf("successful probe did not reset failures: %#v", services[0])
+	}
+	manager.InvalidateHealth()
+	services, _ = manager.ListServices(context.Background())
+	if services[0].Status != model.ServiceStatusUnknown || services[0].LastCheckedAt != nil {
+		t.Fatalf("health invalidation retained a prior endpoint result: %#v", services[0])
+	}
+}
+
 type fakeResolver map[string][]netip.Addr
 
 func (r fakeResolver) LookupNetIP(_ context.Context, _, host string) ([]netip.Addr, error) {

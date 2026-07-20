@@ -5,3 +5,7 @@
 coverage.out
 bin/
 .cache/
+/dashboard
+.claude/
+.omc/
+secrets/

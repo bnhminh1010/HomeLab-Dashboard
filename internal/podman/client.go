@@ -19,6 +19,7 @@ import (
 const (
 	defaultAPIVersion = "v5.0.0"
 	maxJSONBody       = 8 << 20
+	maxLogSince       = 24 * time.Hour
 )
 
 type Option func(*Client)
@@ -211,12 +212,18 @@ func (c *Client) Logs(ctx context.Context, containerID string, options LogsOptio
 	if options.Tail > 500 {
 		return nil, errors.New("podman: log tail must not exceed 500 lines")
 	}
+	if options.Since < 0 || options.Since > maxLogSince {
+		return nil, errors.New("podman: log since must not exceed 24 hours")
+	}
 	query := url.Values{
 		"follow":     {strconv.FormatBool(options.Follow)},
 		"stdout":     {"true"},
 		"stderr":     {"true"},
-		"timestamps": {"false"},
+		"timestamps": {strconv.FormatBool(options.Timestamps)},
 		"tail":       {strconv.FormatUint(uint64(options.Tail), 10)},
+	}
+	if options.Since > 0 {
+		query.Set("since", strconv.FormatInt(time.Now().Add(-options.Since).Unix(), 10))
 	}
 	return c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(containerID)+"/logs", query, nil, "")
 }

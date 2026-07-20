@@ -27,6 +27,8 @@ function snapshot() {
     type: "metrics.snapshot",
     seq: sequence,
     collectedAt: nowIso(),
+    truncated: edgeMode,
+    truncatedSources: edgeMode ? ["containers"] : undefined,
     data: {
       system: {
         hostname: "debian-server",

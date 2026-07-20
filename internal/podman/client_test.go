@@ -8,8 +8,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +20,7 @@ import (
 
 func TestListStatsAndLogs(t *testing.T) {
 	var logQuery string
+	logSinceLowerBound := time.Now().Add(-time.Hour - time.Second).Unix()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v5.0.0/libpod/containers/json", func(response http.ResponseWriter, request *http.Request) {
 		if got := request.URL.Query().Get("all"); got != "true" {
@@ -64,7 +67,9 @@ func TestListStatsAndLogs(t *testing.T) {
 		t.Fatalf("Stats() = %#v, want %#v", stats, wantStats)
 	}
 
-	logs, err := client.Logs(context.Background(), "visible", LogsOptions{Tail: 25, Follow: true})
+	logs, err := client.Logs(context.Background(), "visible", LogsOptions{
+		Tail: 25, Follow: true, Since: time.Hour, Timestamps: true,
+	})
 	if err != nil {
 		t.Fatalf("Logs() error = %v", err)
 	}
@@ -73,13 +78,26 @@ func TestListStatsAndLogs(t *testing.T) {
 	if err != nil || string(payload) != "line one\nline two\n" {
 		t.Fatalf("Logs() = %q, %v", payload, err)
 	}
-	for _, part := range []string{"follow=true", "stderr=true", "stdout=true", "tail=25"} {
+	for _, part := range []string{"follow=true", "stderr=true", "stdout=true", "tail=25", "timestamps=true"} {
 		if !strings.Contains(logQuery, part) {
 			t.Errorf("logs query %q does not contain %q", logQuery, part)
 		}
 	}
+	parsedQuery, err := url.ParseQuery(logQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	since, err := strconv.ParseInt(parsedQuery.Get("since"), 10, 64)
+	if err != nil || since < logSinceLowerBound || since > time.Now().Add(-time.Hour+time.Second).Unix() {
+		t.Errorf("logs since query = %q, want a Unix timestamp one hour ago", parsedQuery.Get("since"))
+	}
 	if _, err := client.Logs(context.Background(), "visible", LogsOptions{Tail: 501}); err == nil {
 		t.Fatal("Logs() accepted more than 500 lines")
+	}
+	for _, since := range []time.Duration{-time.Second, 24*time.Hour + time.Second} {
+		if _, err := client.Logs(context.Background(), "visible", LogsOptions{Since: since}); err == nil {
+			t.Fatalf("Logs() accepted invalid since range %s", since)
+		}
 	}
 }
 
@@ -234,6 +252,27 @@ func TestCreateShellExecRejectsProtectedContainer(t *testing.T) {
 	}
 	if execCalled {
 		t.Fatal("protected container reached exec create endpoint")
+	}
+}
+
+func TestCreateShellExecRejectsHiddenContainerByDirectID(t *testing.T) {
+	execCalled := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v5.0.0/libpod/containers/sidecar/json", func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(response, `{"Id":"sidecar","State":{"Status":"running","Running":true},"Config":{"Labels":{"io.homelab.dashboard.hidden":"true"}}}`)
+	})
+	mux.HandleFunc("/v5.0.0/libpod/containers/sidecar/exec", func(response http.ResponseWriter, _ *http.Request) {
+		execCalled = true
+		response.WriteHeader(http.StatusCreated)
+	})
+	client := newFakeClient(t, mux)
+
+	_, err := client.CreateShellExec(context.Background(), "sidecar", ShellSH, TerminalSize{})
+	if !errors.Is(err, ErrProtectedContainer) {
+		t.Fatalf("CreateShellExec() error = %v, want ErrProtectedContainer", err)
+	}
+	if execCalled {
+		t.Fatal("hidden container reached exec create endpoint")
 	}
 }
 

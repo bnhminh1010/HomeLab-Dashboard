@@ -14,6 +14,10 @@ func TestLoadFromDefaultsAndOverrides(t *testing.T) {
 		"METRICS_INTERVAL":      "5s",
 		"PROBE_CONCURRENCY":     "8",
 		"TAILSCALE_SOCKS5_ADDR": "127.0.0.1:1055",
+		"HISTORY_QUOTA_BYTES":   "1073741824",
+		"NTFY_URL":              "https://ntfy.example.com",
+		"NTFY_TOPIC":            "homelab-alerts",
+		"NTFY_TOKEN_FILE":       "/run/secrets/ntfy-token",
 	}
 	cfg, err := LoadFrom(func(key string) string { return values[key] })
 	if err != nil {
@@ -36,6 +40,9 @@ func TestLoadFromDefaultsAndOverrides(t *testing.T) {
 	}
 	if cfg.TailscaleSOCKS5Address != "127.0.0.1:1055" {
 		t.Fatalf("unexpected SOCKS5 address: %q", cfg.TailscaleSOCKS5Address)
+	}
+	if cfg.HistoryQuotaBytes != 1<<30 || cfg.NTFYURL != "https://ntfy.example.com" || cfg.NTFYTokenFile != "/run/secrets/ntfy-token" {
+		t.Fatalf("unexpected history/ntfy config: %+v", cfg)
 	}
 }
 
@@ -95,6 +102,8 @@ func TestLoadFromRejectsBadValues(t *testing.T) {
 		"PROBE_CONCURRENCY":     "99",
 		"PROBE_ALLOW_CIDRS":     "not-a-network",
 		"TAILSCALE_SOCKS5_ADDR": "10.0.0.2:1055",
+		"HISTORY_QUOTA_BYTES":   "1024",
+		"NTFY_TOKEN_FILE":       "token.txt",
 	} {
 		t.Run(key, func(t *testing.T) {
 			_, err := LoadFrom(func(candidate string) string {
@@ -107,5 +116,17 @@ func TestLoadFromRejectsBadValues(t *testing.T) {
 				t.Fatal("expected an error")
 			}
 		})
+	}
+}
+
+func TestLoadFromRequiresCompleteNTFYConfiguration(t *testing.T) {
+	for _, values := range []map[string]string{
+		{"NTFY_URL": "https://ntfy.example.com"},
+		{"NTFY_TOPIC": "homelab"},
+		{"NTFY_URL": "https://ntfy.example.com", "NTFY_TOPIC": "bad/topic"},
+	} {
+		if _, err := LoadFrom(func(key string) string { return values[key] }); err == nil {
+			t.Fatalf("expected invalid ntfy config: %#v", values)
+		}
 	}
 }
