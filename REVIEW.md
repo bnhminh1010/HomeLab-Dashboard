@@ -147,6 +147,34 @@ nghiệp có HA.
   ứng dụng có `max-age=3600`, đều kèm `must-revalidate`. Vì tên file vendor ổn
   định qua các release, chính sách này tránh cache cũ giữ bundle đã nâng cấp.
 
+### 7. Design audit và cải thiện UI (2026-07-20)
+
+- Đợt cải thiện UI đã áp dụng qua 9 commit. Task về keyboard focus của service
+  card đã tồn tại từ trước nên chỉ được xác minh, không tạo commit rỗng.
+  Dashboard giữ design system riêng trong `DESIGN.md`, dark cyberpunk theme và
+  vanilla CSS/JS; không bổ sung dependency hay build step.
+- Các thay đổi đã áp dụng:
+  - giảm backdrop blur của `.panel` từ 12px xuống 4px và chuẩn hóa DESIGN.md;
+  - giảm `--cyan-glow` từ 20px xuống 8px;
+  - thay eyebrow `SYSTEM STATS` bằng heading ẩn cho screen reader và hostname
+    động riêng, cùng `aria-labelledby` tham chiếu cả hai;
+  - thay health overview bằng tỷ lệ 2fr/1fr/1fr/1fr để cell tổng quan dẫn nhịp;
+  - thay `max-width: 100vw` ở các layout root bằng `100%`, nhưng giữ các
+    `100vw` có chủ đích cho modal/toast;
+  - dùng `flex + gap` cho container list, giảm double-glow brand mark và ẩn icon
+    service khỏi phần trình bày;
+  - chỉ animate text cho state transition; metrics stream cập nhật tĩnh.
+- Follow-up review đã sửa hai regression của đợt UI:
+  - Edit service nay prefill lại display URL và giữ icon bằng hidden compatibility
+    field. Icon không hiện trong UI nhưng vẫn được gửi lại khi PATCH, nên không
+    bị xóa khỏi SQLite, export/import config hoặc legacy API.
+  - Browser test offline nay kiểm tra heading semantic tĩnh và hostname động
+    riêng; DESIGN.md đã đồng bộ blur 4px và hover lift 2px với CSS hiện hành.
+- Xác minh trên worktree sau khi sửa: `go test ./cmd/dashboard/... -count=1`
+  pass; `go test -tags=browser ./tests/browser -count=1 -timeout=180s -v` pass
+  (24.392s); `git diff --check` sạch. Các thay đổi chỉ ở CSS/HTML/JS, docs và
+  browser regression test; không đụng Go backend.
+
 ## Giới hạn còn lại và rủi ro vận hành
 
 ### Giới hạn theo thiết kế

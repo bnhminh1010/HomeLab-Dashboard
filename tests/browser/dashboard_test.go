@@ -266,6 +266,9 @@ type interactionReport struct {
 	MenuInitialItem      string  `json:"menuInitialItem"`
 	MenuSecondItem       string  `json:"menuSecondItem"`
 	MenuRestoredFocus    bool    `json:"menuRestoredFocus"`
+	EditEndpoint         string  `json:"editEndpoint"`
+	EditIcon             string  `json:"editIcon"`
+	EditEmptyIcon        string  `json:"editEmptyIcon"`
 	StatusHasText        bool    `json:"statusHasText"`
 	ListsAreQuiet        bool    `json:"listsAreQuiet"`
 	FocusPreserved       bool    `json:"focusPreserved"`
@@ -383,6 +386,23 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 		chromedp.Poll(`document.querySelector('#context-menu').hidden && document.activeElement === document.querySelector('.service-card[data-service-id^="demo-"] .service-menu-button')`, nil,
 			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Evaluate(`document.querySelector('#context-menu').hidden && document.activeElement === document.querySelector('.service-card[data-service-id^="demo-"] .service-menu-button')`, &report.MenuRestoredFocus),
+		chromedp.Evaluate(`document.querySelector('.service-card[data-service-id="svc_immich"] .service-menu-button').click()`, nil),
+		chromedp.WaitVisible("#context-menu", chromedp.ByQuery),
+		chromedp.Click(`#context-menu [role="menuitem"]:first-child`, chromedp.ByQuery),
+		chromedp.WaitVisible("#service-dialog", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => ({
+          editEndpoint: document.querySelector('#service-form input[name="displayUrl"]').value,
+          editIcon: document.querySelector('#service-form input[name="icon"]').value
+        }))()`, &report),
+		chromedp.KeyEvent("\x1b"),
+		chromedp.Poll(`!document.querySelector('#service-dialog').open`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`document.querySelector('.service-card[data-service-id^="demo-"] .service-menu-button').click()`, nil),
+		chromedp.WaitVisible("#context-menu", chromedp.ByQuery),
+		chromedp.Click(`#context-menu [role="menuitem"]:first-child`, chromedp.ByQuery),
+		chromedp.WaitVisible("#service-dialog", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('#service-form input[name="icon"]').value`, &report.EditEmptyIcon),
+		chromedp.KeyEvent("\x1b"),
+		chromedp.Poll(`!document.querySelector('#service-dialog').open`, nil, chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.ActionFunc(func(context.Context) error { t.Log("before service link focus"); return nil }),
 		chromedp.Focus(".service-link", chromedp.ByQuery),
 		chromedp.ActionFunc(func(context.Context) error { t.Log("after service link focus"); return nil }),
@@ -502,6 +522,12 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 	if strings.TrimSpace(report.MenuInitialItem) != "Edit service" || strings.TrimSpace(report.MenuSecondItem) != "Copy URL" || !report.MenuRestoredFocus {
 		t.Fatalf("service overflow menu keyboard navigation failed: %+v", report)
 	}
+	if report.EditEndpoint != "https://immich.homelab.ts.net" || report.EditIcon != "📸" {
+		t.Fatalf("edit service did not preserve its hidden compatibility fields: %+v", report)
+	}
+	if report.EditEmptyIcon != "" {
+		t.Fatalf("edit service did not preserve an intentionally empty icon: %+v", report)
+	}
 	if !report.StatusHasText || !report.ListsAreQuiet || !report.FocusPreserved {
 		t.Fatalf("status semantics or live-update focus stability failed: %+v", report)
 	}
@@ -522,6 +548,7 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 type offlineReport struct {
 	Offline            bool   `json:"offline"`
 	SystemTitle        string `json:"systemTitle"`
+	SystemHostname     string `json:"systemHostname"`
 	BannerVisible      bool   `json:"bannerVisible"`
 	BannerMessage      string `json:"bannerMessage"`
 	ServiceSkeletons   int    `json:"serviceSkeletons"`
@@ -560,6 +587,7 @@ func TestOfflineDashboardKeepsTruthfulPlaceholders(t *testing.T) {
 		chromedp.Evaluate(`(() => ({
           offline: document.body.classList.contains('is-offline'),
           systemTitle: document.querySelector('#system-title').textContent,
+	          systemHostname: document.querySelector('#system-hostname').textContent,
           bannerVisible: !document.querySelector('#offline-banner').hidden,
           bannerMessage: document.querySelector('#offline-message').textContent,
           serviceSkeletons: document.querySelectorAll('.service-card.skeleton-card').length,
@@ -570,7 +598,7 @@ func TestOfflineDashboardKeepsTruthfulPlaceholders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.Offline || report.SystemTitle != "Unable to reach server" || !report.BannerVisible || !strings.Contains(report.BannerMessage, "Unable to reach") {
+	if !report.Offline || report.SystemTitle != "System health and metrics" || report.SystemHostname != "Unable to reach server" || !report.BannerVisible || !strings.Contains(report.BannerMessage, "Unable to reach") {
 		t.Fatalf("offline state is not explicit: %+v", report)
 	}
 	if report.ServiceSkeletons < 2 || report.ContainerSkeletons < 2 {

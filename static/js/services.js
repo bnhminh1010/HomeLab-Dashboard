@@ -12,7 +12,7 @@ function normalizedService(service = {}, index = 0) {
     key: id || displayUrl || `${name}-${index}`,
     originalIndex: index,
     name,
-    icon: String(service.icon || "◇"),
+    icon: String(service.icon ?? ""),
     displayUrl,
     probeUrl: String(service.probeUrl || service.probeURL || ""),
     status: String(service.status || service.health?.status || "unknown").toLowerCase(),
@@ -88,6 +88,7 @@ export function createServicesController({ api, toast, onChanged }) {
     if (payload.probeUrl && !probeUrl) throw new Error("Probe URL must be an absolute HTTP or HTTPS URL without credentials.");
     return {
       name: payload.name.trim(),
+      icon: String(payload.icon || ""),
       displayUrl: displayUrl.toString(),
       probeUrl: probeUrl?.toString() || "",
     };
@@ -97,6 +98,7 @@ export function createServicesController({ api, toast, onChanged }) {
     const data = new FormData(form);
     return validate({
       name: String(data.get("name") || ""),
+      icon: String(data.get("icon") || ""),
       displayUrl: String(data.get("displayUrl") || ""),
       probeUrl: String(data.get("probeUrl") || ""),
     });
@@ -278,6 +280,7 @@ export function createServicesController({ api, toast, onChanged }) {
   function openCreate(invoker) {
     serviceForm.reset();
     serviceForm.elements.id.value = "";
+    serviceForm.elements.icon.value = "";
     serviceTitle.textContent = "Add service";
     serviceSubmit.textContent = "ADD SERVICE";
     showServiceDialog(invoker);
@@ -286,6 +289,8 @@ export function createServicesController({ api, toast, onChanged }) {
   function openEdit(service, invoker) {
     serviceForm.elements.id.value = service.id;
     serviceForm.elements.name.value = service.name;
+    serviceForm.elements.icon.value = service.icon;
+    serviceForm.elements.displayUrl.value = service.displayUrl;
     serviceForm.elements.probeUrl.value = service.probeUrl;
     serviceTitle.textContent = "Edit service";
     serviceSubmit.textContent = "SAVE CHANGES";

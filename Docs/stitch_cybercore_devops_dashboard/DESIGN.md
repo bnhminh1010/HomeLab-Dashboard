@@ -137,8 +137,8 @@ The layout utilizes a **fluid grid** model optimized for wide-screen monitoring 
 Hierarchy is established through **Glassmorphism and Tonal Layers** rather than traditional shadows.
 
 1.  **Background Layer:** Solid `#0a0e17`.
-2.  **Card Layer:** Semi-transparent base with `backdrop-filter: blur(12px)`. This creates a sense of "suspended" modules.
-3.  **Active/Hover State:** Elements do not lift; instead, they increase the intensity of their cyan border and apply a subtle `box-shadow: 0 0 8px rgba(110, 226, 255, 0.3)` to simulate a neon glow.
+2.  **Card Layer:** Semi-transparent base with `backdrop-filter: blur(4px)`. This creates a subtle sense of "suspended" modules without obscuring dense telemetry.
+3.  **Active/Hover State:** Interactive cards increase the intensity of their cyan border, apply a subtle `box-shadow: 0 0 8px rgba(110, 226, 255, 0.3)`, and may lift 2px to signal keyboard or pointer focus.
 4.  **Overlays/Modals:** Higher transparency with a darker backdrop dimming (scrim) to focus the user on the task.
 
 ## Shapes
