@@ -63,6 +63,9 @@ function toast(message, level = "info") {
   window.setTimeout(() => item.remove(), 4500);
 }
 
+function setStateText(element, value) { setText(element, value, true); }
+function setMetricText(element, value) { setText(element, value, false); }
+
 const terminal = createTerminalController({ api, demo, toast });
 const containersController = createContainersController({ terminal, toast });
 const servicesController = createServicesController({
@@ -102,7 +105,7 @@ function setSystemBadge(label, state) {
 }
 
 function announce(message) {
-  setText(elements["dashboard-status"], message);
+  setMetricText(elements["dashboard-status"], message);
 }
 
 function setOverviewHealth(label, state, detail) {
@@ -111,20 +114,20 @@ function setOverviewHealth(label, state, detail) {
   dot.setAttribute("aria-hidden", "true");
   elements["overview-health"].dataset.state = state;
   elements["overview-health"].replaceChildren(dot, document.createTextNode(label));
-  setText(elements["overview-health-detail"], detail);
+  setMetricText(elements["overview-health-detail"], detail);
 }
 
 function updateOverview() {
   const services = overviewSummary.services;
   const containers = overviewSummary.containers;
   const alerts = overviewSummary.alerts;
-  setText(elements["overview-services"], `${services.up} / ${services.total} UP`);
-  setText(
+  setMetricText(elements["overview-services"], `${services.up} / ${services.total} UP`);
+  setMetricText(
     elements["overview-services-detail"],
     services.down ? `${services.down} need attention` : services.unknown ? `${services.unknown} without a health probe` : services.total ? "All probes responding" : "No services configured",
   );
-  setText(elements["overview-containers"], `${containers.running} / ${containers.total} RUNNING`);
-  setText(
+  setMetricText(elements["overview-containers"], `${containers.running} / ${containers.total} RUNNING`);
+  setMetricText(
     elements["overview-containers-detail"],
     containers.issue ? `${containers.issue} with runtime issues` : containers.stopped ? `${containers.stopped} stopped` : containers.total ? "Podman inventory healthy" : "No containers reported",
   );
@@ -197,16 +200,16 @@ function setConnectionState(state, detail = {}) {
     message.textContent = hasData ? "Connection lost. Retrying in 3 seconds; last snapshot preserved." : "Unable to reach the dashboard server. Retrying…";
     setSystemBadge("OFFLINE", "down");
     if (!hasData) {
-      setText(elements["system-hostname"], "Unable to reach server");
-      setText(elements["cpu-detail"], "Waiting for the dashboard backend");
+      setMetricText(elements["system-hostname"], "Unable to reach server");
+      setMetricText(elements["cpu-detail"], "Waiting for the dashboard backend");
     }
   }
 
   const connectionLabel = state === "online" ? (demo ? "DEMO LIVE" : "LIVE") : state === "connected" ? "SYNCING" : state.toUpperCase();
   chip.setAttribute("aria-label", `Metrics stream: ${connectionLabel.toLowerCase()}`);
   elements["overview-connection"].dataset.state = state;
-  setText(elements["overview-connection"], connectionLabel);
-  setText(elements["overview-updated"], latestCollectedAt ? `Updated ${timeAgo(latestCollectedAt)}` : "No snapshot yet");
+  setStateText(elements["overview-connection"], connectionLabel);
+  setStateText(elements["overview-updated"], latestCollectedAt ? `Updated ${timeAgo(latestCollectedAt)}` : "No snapshot yet");
   if (state !== lastAnnouncedConnection) {
     const messages = {
       online: "Metrics stream is live.",
@@ -281,26 +284,26 @@ function renderUnavailableNode(state) {
   latestCollectedAt = state?.lastSeenAt || state?.node?.lastSeenAt || null;
   setSnapshotCompleteness(null);
   setConnectionState("offline");
-  setText(elements["system-hostname"], name || "Remote node");
-  setText(elements["header-hostname"], state?.node?.hostname || name || "remote");
-  setText(elements["cpu-percent"], "—");
-  setText(elements["cpu-detail"], "No remote metrics snapshot received");
-  setText(elements["ram-percent"], "—");
-  setText(elements["ram-detail"], "Waiting for the node agent");
+  setMetricText(elements["system-hostname"], name || "Remote node");
+  setMetricText(elements["header-hostname"], state?.node?.hostname || name || "remote");
+  setMetricText(elements["cpu-percent"], "—");
+  setMetricText(elements["cpu-detail"], "No remote metrics snapshot received");
+  setMetricText(elements["ram-percent"], "—");
+  setMetricText(elements["ram-detail"], "Waiting for the node agent");
   elements["ram-percent"].classList.remove("is-over-limit");
-  setText(elements["disk-percent"], "—");
-  setText(elements["disk-detail"], "—");
-  setText(elements["disk-device"], "—");
+  setMetricText(elements["disk-percent"], "—");
+  setMetricText(elements["disk-detail"], "—");
+  setMetricText(elements["disk-device"], "—");
   elements["disk-warning"].hidden = true;
   elements["disk-progress"].dataset.level = "";
-  setText(elements["network-interface"], "—");
-  setText(elements["network-down"], "—");
-  setText(elements["network-up"], "—");
-  setText(elements.uptime, "—");
-  setText(elements.processes, "—");
-  setText(elements["load-average"], "—");
-  setText(elements["io-read"], "Idle");
-  setText(elements["io-write"], "Idle");
+  setMetricText(elements["network-interface"], "—");
+  setMetricText(elements["network-down"], "—");
+  setMetricText(elements["network-up"], "—");
+  setMetricText(elements.uptime, "—");
+  setMetricText(elements.processes, "—");
+  setMetricText(elements["load-average"], "—");
+  setMetricText(elements["io-read"], "Idle");
+  setMetricText(elements["io-write"], "Idle");
   setProgress(elements["cpu-progress"], 0);
   setProgress(elements["ram-progress"], 0);
   setProgress(elements["disk-progress"], 0);
@@ -364,38 +367,38 @@ function renderSystem(system, disks, network) {
   const maxIo = Math.max(readRate, writeRate, 1);
 
   elements["system-card"].setAttribute("aria-busy", "false");
-  setText(elements["system-hostname"], hostname);
-  setText(elements["header-hostname"], hostname);
-  setText(elements["cpu-percent"], percent(cpuUsage, 1));
+  setMetricText(elements["system-hostname"], hostname);
+  setMetricText(elements["header-hostname"], hostname);
+  setMetricText(elements["cpu-percent"], percent(cpuUsage, 1));
   const cpuMaximum = cpuUsage > 100 ? Math.max(100, cpuCores * 100, cpuUsage) : 100;
   setProgress(elements["cpu-progress"], cpuUsage, cpuMaximum);
   const temperatureLabel = Number.isFinite(Number(temperature)) ? `${Number(temperature).toFixed(0)}°C${Number(temperature) > 80 ? " 🔥" : ""}` : "temp n/a";
-  setText(elements["cpu-detail"], `${frequency ? `${frequency.toFixed(0)} MHz` : "freq n/a"} · ${cpuCores || "—"} cores · ${temperatureLabel}`);
+  setMetricText(elements["cpu-detail"], `${frequency ? `${frequency.toFixed(0)} MHz` : "freq n/a"} · ${cpuCores || "—"} cores · ${temperatureLabel}`);
 
   const memoryOverLimit = totalMemory > 0 && usedMemory > totalMemory;
-  setText(elements["ram-percent"], `${percent(ramUsage, 1)}${memoryOverLimit ? " ⚠" : ""}`);
+  setMetricText(elements["ram-percent"], `${percent(ramUsage, 1)}${memoryOverLimit ? " ⚠" : ""}`);
   elements["ram-percent"].classList.toggle("is-over-limit", memoryOverLimit);
   setProgress(elements["ram-progress"], ramUsage);
   const swapPercent = swapTotal > 0 ? (swapUsed / swapTotal) * 100 : 0;
-  setText(elements["ram-detail"], `${bytes(usedMemory)} / ${bytes(totalMemory)} · swap ${percent(swapPercent, 0)}`);
+  setMetricText(elements["ram-detail"], `${bytes(usedMemory)} / ${bytes(totalMemory)} · swap ${percent(swapPercent, 0)}`);
 
-  setText(elements["disk-percent"], percent(diskUsage, 1));
+  setMetricText(elements["disk-percent"], percent(diskUsage, 1));
   setProgress(elements["disk-progress"], diskUsage);
   if (diskUsage > 90) elements["disk-progress"].dataset.level = "hot";
-  setText(elements["disk-detail"], `${bytes(diskUsed)} / ${bytes(diskTotal)}`);
-  setText(elements["disk-device"], `${disk.device || "unknown device"} · ${disk.mountPoint || "/"}`);
+  setMetricText(elements["disk-detail"], `${bytes(diskUsed)} / ${bytes(diskTotal)}`);
+  setMetricText(elements["disk-device"], `${disk.device || "unknown device"} · ${disk.mountPoint || "/"}`);
   elements["disk-warning"].hidden = diskUsage <= 90;
 
-  setText(elements["network-interface"], network.interface || network.name || "default");
-  setText(elements["network-down"], rate(network.rxBytesPerSecond ?? network.bytesRecv));
-  setText(elements["network-up"], rate(network.txBytesPerSecond ?? network.bytesSent));
-  setText(elements.uptime, uptime(system.uptimeSeconds ?? system.uptime));
-  setText(elements.processes, number(system.processCount ?? system.processes));
+  setMetricText(elements["network-interface"], network.interface || network.name || "default");
+  setMetricText(elements["network-down"], rate(network.rxBytesPerSecond ?? network.bytesRecv));
+  setMetricText(elements["network-up"], rate(network.txBytesPerSecond ?? network.bytesSent));
+  setMetricText(elements.uptime, uptime(system.uptimeSeconds ?? system.uptime));
+  setMetricText(elements.processes, number(system.processCount ?? system.processes));
   const load = system.loadAverages || system.load || [];
-  setText(elements["load-average"], Array.isArray(load) && load.length ? load.slice(0, 3).map((item) => number(item).toFixed(2)).join(" ") : "—");
+  setMetricText(elements["load-average"], Array.isArray(load) && load.length ? load.slice(0, 3).map((item) => number(item).toFixed(2)).join(" ") : "—");
 
-  setText(elements["io-read"], rate(readRate));
-  setText(elements["io-write"], rate(writeRate));
+  setMetricText(elements["io-read"], rate(readRate));
+  setMetricText(elements["io-write"], rate(writeRate));
   setProgress(elements["io-read-progress"], clamp(readRate / maxIo * 100));
   setProgress(elements["io-write-progress"], clamp(writeRate / maxIo * 100));
   charts.update(cpuUsage, ramUsage);
@@ -478,8 +481,8 @@ function applySession(session = {}) {
   sessionHostShellCapability = session.capabilities?.hostShell === true;
   document.body.classList.toggle("viewer", !admin);
   document.body.classList.toggle("admin", admin);
-  setText(elements["session-user"], login);
-  setText(elements["session-role"], admin ? "ADMIN" : "VIEWER");
+  setMetricText(elements["session-user"], login);
+  setMetricText(elements["session-role"], admin ? "ADMIN" : "VIEWER");
   const identityGroup = document.getElementById("session-identity");
   identityGroup.setAttribute("aria-label", `Signed in as ${login}, role ${admin ? "administrator" : "viewer"}`);
   identityGroup.title = `${login} · ${admin ? "ADMIN" : "VIEWER"}`;

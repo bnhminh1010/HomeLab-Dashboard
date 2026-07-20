@@ -75,12 +75,12 @@ export function displayEndpoint(value) {
   return `${url.host}${url.pathname === "/" ? "" : url.pathname}`;
 }
 
-export function setText(element, value) {
+export function setText(element, value, animate = false) {
   if (!element) return;
   const next = String(value ?? "—");
   if (element.textContent === next) return;
   element.textContent = next;
-  if (element.classList.contains("mono") && !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+  if (animate && element.classList.contains("mono") && !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
     element.animate?.(
       [{ opacity: 0.55, transform: "translateY(1px)" }, { opacity: 1, transform: "translateY(0)" }],
       { duration: 180, easing: "ease-out" },
