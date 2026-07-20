@@ -88,7 +88,6 @@ export function createServicesController({ api, toast, onChanged }) {
     if (payload.probeUrl && !probeUrl) throw new Error("Probe URL must be an absolute HTTP or HTTPS URL without credentials.");
     return {
       name: payload.name.trim(),
-      icon: payload.icon.trim() || "◇",
       displayUrl: displayUrl.toString(),
       probeUrl: probeUrl?.toString() || "",
     };
@@ -98,7 +97,6 @@ export function createServicesController({ api, toast, onChanged }) {
     const data = new FormData(form);
     return validate({
       name: String(data.get("name") || ""),
-      icon: String(data.get("icon") || ""),
       displayUrl: String(data.get("displayUrl") || ""),
       probeUrl: String(data.get("probeUrl") || ""),
     });
@@ -110,9 +108,6 @@ export function createServicesController({ api, toast, onChanged }) {
 
     const heading = document.createElement("div");
     heading.className = "service-main";
-    const icon = document.createElement("span");
-    icon.className = "service-icon";
-    icon.setAttribute("aria-hidden", "true");
     const link = document.createElement("a");
     link.className = "service-link";
     link.target = "_blank";
@@ -122,7 +117,7 @@ export function createServicesController({ api, toast, onChanged }) {
     const endpoint = document.createElement("span");
     endpoint.className = "service-endpoint mono";
     link.append(name, endpoint);
-    heading.append(icon, link);
+    heading.append(link);
 
     const trigger = document.createElement("button");
     trigger.type = "button";
@@ -153,7 +148,7 @@ export function createServicesController({ api, toast, onChanged }) {
     checked.className = "service-meta mono";
 
     article.append(heading, trigger, statusRow, checked);
-    article.refs = { icon, link, name, endpoint, trigger, status, statusText, latency, checked };
+    article.refs = { link, name, endpoint, trigger, status, statusText, latency, checked };
     article.addEventListener("contextmenu", (event) => {
       if (!admin) return;
       event.preventDefault();
@@ -165,8 +160,7 @@ export function createServicesController({ api, toast, onChanged }) {
   function updateCard(article, service) {
     article.service = service;
     article.dataset.serviceId = service.id;
-    const { icon, link, name, endpoint, trigger, status, statusText, latency, checked } = article.refs;
-    icon.textContent = service.icon;
+    const { link, name, endpoint, trigger, status, statusText, latency, checked } = article.refs;
     name.textContent = service.name;
     name.title = service.name;
     endpoint.textContent = `↗ ${displayEndpoint(service.displayUrl)}`;
@@ -292,8 +286,6 @@ export function createServicesController({ api, toast, onChanged }) {
   function openEdit(service, invoker) {
     serviceForm.elements.id.value = service.id;
     serviceForm.elements.name.value = service.name;
-    serviceForm.elements.icon.value = service.icon;
-    serviceForm.elements.displayUrl.value = service.displayUrl;
     serviceForm.elements.probeUrl.value = service.probeUrl;
     serviceTitle.textContent = "Edit service";
     serviceSubmit.textContent = "SAVE CHANGES";

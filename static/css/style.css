@@ -442,7 +442,6 @@ svg { display: block; }
 .service-status[data-status="down"], .service-status[data-status="error"] { color: var(--red); }
 .service-status[data-status="degraded"], .service-status[data-status="warning"] { color: var(--yellow); }
 .service-name { overflow: hidden; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; font: 700 16px/1.25 var(--font-sans); }
-.service-icon { font-size: 17px; line-height: 1; }
 .service-link { display: grid; min-width: 0; gap: 4px; color: var(--text-secondary); text-decoration: none; }
 .service-link:hover { color: var(--cyan); text-decoration: underline; }
 .service-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
