@@ -33,7 +33,11 @@ let preferenceSavePending = {};
 let sessionAdmin = false;
 let sessionHostShellCapability = false;
 let snapshotPartial = false;
+let snapshotPartialSources = [];
 const alertNodes = new Map();
+const WORKSPACE_STORAGE_KEY = "homelab.workspace.active";
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "homelab.sidebar.collapsed";
+const WORKSPACES = new Set(["overview", "services", "containers", "history", "alerts"]);
 const overviewSummary = {
   services: { total: 0, up: 0, down: 0, unknown: 0 },
   containers: { total: 0, running: 0, issue: 0, stopped: 0 },
@@ -46,7 +50,7 @@ const elements = Object.fromEntries([
   "cpu-progress", "cpu-detail", "ram-percent", "ram-progress", "ram-detail", "disk-percent",
   "disk-progress", "disk-detail", "disk-device", "disk-warning", "network-interface", "network-down",
   "network-up", "uptime", "processes", "load-average", "io-read", "io-write", "io-read-progress",
-  "io-write-progress", "alerts-list", "alerts-count",
+  "io-write-progress", "alerts-list", "alerts-count", "alerts-empty", "alerts-partial",
   "services-stale", "alerts-card", "overview-health", "overview-health-detail",
   "overview-connection", "overview-updated", "overview-services", "overview-services-detail",
   "overview-containers", "overview-containers-detail", "dashboard-status",
@@ -95,6 +99,168 @@ const settingsController = createSettingsController({
     await Promise.allSettled([refreshSnapshot(), alertsController.refresh()]);
   },
 });
+
+function storageValue(key) {
+  try { return localStorage.getItem(key) || ""; } catch { return ""; }
+}
+
+function storeValue(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* Storage is optional. */ }
+}
+
+function createWorkspaceNavigation() {
+  const dashboard = document.getElementById("dashboard");
+  const sidebar = document.getElementById("workspace-sidebar");
+  const openButton = document.getElementById("sidebar-open");
+  const collapseButton = document.getElementById("sidebar-collapse");
+  const backdrop = document.getElementById("sidebar-backdrop");
+  const drawerBackground = [
+    document.querySelector(".app-header"),
+    dashboard,
+    document.getElementById("terminal-panel"),
+  ].filter(Boolean);
+  const workspaceButtons = [...document.querySelectorAll("[data-workspace]")];
+  const workspacePanels = [...document.querySelectorAll("[data-workspace-panel]")];
+  const drawerQuery = window.matchMedia("(max-width: 899px)");
+  const storedWorkspace = storageValue(WORKSPACE_STORAGE_KEY);
+  let activeWorkspace = WORKSPACES.has(storedWorkspace)
+    ? storedWorkspace
+    : "overview";
+  let drawerOpener = null;
+
+  function isDrawer() {
+    return drawerQuery.matches;
+  }
+
+  function syncDrawerControls() {
+    const open = isDrawer() && document.body.classList.contains("sidebar-drawer-open");
+    openButton.setAttribute("aria-expanded", String(isDrawer() && open));
+    backdrop.hidden = !open;
+    sidebar.toggleAttribute("inert", isDrawer() && !open);
+    sidebar.setAttribute("aria-hidden", String(isDrawer() && !open));
+    if (open) {
+      sidebar.setAttribute("role", "dialog");
+      sidebar.setAttribute("aria-modal", "true");
+    } else {
+      sidebar.removeAttribute("role");
+      sidebar.removeAttribute("aria-modal");
+    }
+    for (const element of drawerBackground) element.toggleAttribute("inert", open);
+  }
+
+  function setCollapsed(next) {
+    const collapsed = Boolean(next);
+    document.body.classList.toggle("sidebar-collapsed", collapsed);
+    collapseButton.setAttribute("aria-pressed", String(collapsed));
+    collapseButton.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    collapseButton.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+    storeValue(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? "true" : "false");
+  }
+
+  function closeDrawer({ restoreFocus = false } = {}) {
+    if (!document.body.classList.contains("sidebar-drawer-open")) return;
+    document.body.classList.remove("sidebar-drawer-open");
+    syncDrawerControls();
+    if (restoreFocus && drawerOpener?.isConnected) drawerOpener.focus({ preventScroll: true });
+    drawerOpener = null;
+  }
+
+  function openDrawer() {
+    if (!isDrawer()) return;
+    drawerOpener = document.activeElement;
+    document.body.classList.add("sidebar-drawer-open");
+    syncDrawerControls();
+    sidebar.querySelector("[data-workspace]")?.focus({ preventScroll: true });
+  }
+
+  function focusWorkspace(workspace) {
+    const panel = workspacePanels.find((item) => item.dataset.workspacePanel === workspace);
+    const target = panel?.querySelector("[data-workspace-focus], h2[tabindex='-1']");
+    dashboard.scrollTop = 0;
+    window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+  }
+
+  function selectWorkspace(next, { focus = false } = {}) {
+    const workspace = WORKSPACES.has(next) ? next : "overview";
+    activeWorkspace = workspace;
+    for (const panel of workspacePanels) {
+      const active = panel.dataset.workspacePanel === workspace;
+      panel.hidden = !active;
+      panel.dataset.active = String(active);
+    }
+    for (const button of workspaceButtons) {
+      const active = button.dataset.workspace === workspace;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-current", active ? "page" : "false");
+    }
+    storeValue(WORKSPACE_STORAGE_KEY, workspace);
+    if (workspace === "history") window.requestAnimationFrame(() => historyController.activate());
+    if (focus) focusWorkspace(workspace);
+  }
+
+  function focusTerminal() {
+    closeDrawer();
+    const panel = document.getElementById("terminal-panel");
+    if (panel.classList.contains("is-collapsed")) document.getElementById("terminal-toggle").click();
+    window.requestAnimationFrame(() => {
+      terminal.fit();
+      document.querySelector("#terminal .xterm-helper-textarea")?.focus({ preventScroll: true });
+    });
+  }
+
+  function focusableDrawerElements() {
+    return [...sidebar.querySelectorAll("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")]
+      .filter((element) => !element.hidden && element.offsetParent !== null);
+  }
+
+  workspaceButtons.forEach((button) => button.addEventListener("click", () => {
+    selectWorkspace(button.dataset.workspace, { focus: true });
+    closeDrawer();
+  }));
+  sidebar.querySelector("[data-sidebar-action='terminal']")?.addEventListener("click", focusTerminal);
+  collapseButton.addEventListener("click", () => setCollapsed(!document.body.classList.contains("sidebar-collapsed")));
+  openButton.addEventListener("click", () => {
+    if (isDrawer()) {
+      if (document.body.classList.contains("sidebar-drawer-open")) closeDrawer({ restoreFocus: true });
+      else openDrawer();
+      return;
+    }
+    setCollapsed(!document.body.classList.contains("sidebar-collapsed"));
+  });
+  backdrop.addEventListener("click", () => closeDrawer({ restoreFocus: true }));
+  document.addEventListener("keydown", (event) => {
+    if (!isDrawer() || !document.body.classList.contains("sidebar-drawer-open")) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDrawer({ restoreFocus: true });
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = focusableDrawerElements();
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+  const onDrawerChange = () => {
+    if (!isDrawer()) closeDrawer();
+    syncDrawerControls();
+  };
+  if (typeof drawerQuery.addEventListener === "function") drawerQuery.addEventListener("change", onDrawerChange);
+  else drawerQuery.addListener(onDrawerChange);
+
+  setCollapsed(storageValue(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true");
+  selectWorkspace(activeWorkspace);
+  syncDrawerControls();
+}
+
+createWorkspaceNavigation();
 
 function setSystemBadge(label, state) {
   const dot = document.createElement("span");
@@ -150,10 +316,10 @@ function updateOverview() {
 
 function setSnapshotCompleteness(envelope) {
   snapshotPartial = envelope?.truncated === true;
-  const sources = Array.isArray(envelope?.truncatedSources) ? envelope.truncatedSources.map(String) : [];
+  snapshotPartialSources = Array.isArray(envelope?.truncatedSources) ? envelope.truncatedSources.map(String) : [];
   elements["snapshot-partial"].hidden = !snapshotPartial;
   elements["snapshot-partial"].title = snapshotPartial
-    ? `Snapshot was truncated${sources.length ? `: ${sources.join(", ")}` : " to fit the frame limit"}`
+    ? `Snapshot was truncated${snapshotPartialSources.length ? `: ${snapshotPartialSources.join(", ")}` : " to fit the frame limit"}`
     : "";
 }
 
@@ -417,14 +583,46 @@ function createAlertNode() {
   dot.className = "status-dot";
   dot.setAttribute("aria-hidden", "true");
   const content = document.createElement("div");
+  content.className = "alert-content";
   const message = document.createElement("div");
   message.className = "alert-message";
   const meta = document.createElement("div");
   meta.className = "alert-meta";
+  meta.setAttribute("role", "note");
   content.append(message, meta);
   item.append(dot, content);
   item.refs = { message, meta };
   return item;
+}
+
+function abbreviatedIdentifier(value) {
+  const identifier = String(value || "").trim();
+  if (identifier.length <= 20) return identifier;
+  return `${identifier.slice(0, 12)}…${identifier.slice(-6)}`;
+}
+
+function containerForAlertIdentifier(identifier) {
+  const value = String(identifier || "").trim();
+  if (!value) return null;
+  return latestSelectedContainers.find((container) => {
+    const id = String(container?.id || container?.ID || container?.instanceId || container?.InstanceID || "");
+    return id === value || (id.length >= 12 && (id.startsWith(value) || value.startsWith(id)));
+  }) || null;
+}
+
+function compactAlertSource(value) {
+  const source = String(value || "").trim();
+  if (!source) return "";
+  const parts = source.split("/").filter(Boolean);
+  if (parts.length < 3) return `SOURCE · ${abbreviatedIdentifier(source).toUpperCase()}`;
+  const [node, resourceType, ...resourceParts] = parts;
+  const resourceID = resourceParts.join("/");
+  let resource = abbreviatedIdentifier(resourceID);
+  if (resourceType.toLowerCase() === "container") {
+    const container = containerForAlertIdentifier(resourceID);
+    resource = String(container?.name || container?.Name || resource);
+  }
+  return [node.toUpperCase(), resourceType.toUpperCase(), resource].filter(Boolean).join(" · ");
 }
 
 function renderAlerts(alerts) {
@@ -438,7 +636,11 @@ function renderAlerts(alerts) {
     .sort((a, b) => alertSeverity(a.level) - alertSeverity(b.level) || a.index - b.index);
 
   elements["alerts-count"].textContent = String(items.length);
-  elements["alerts-card"].hidden = items.length === 0;
+  elements["alerts-empty"].hidden = items.length > 0;
+  const alertsPartial = snapshotPartialSources.includes("alerts");
+  elements["alerts-partial"].hidden = !alertsPartial;
+  elements["alerts-partial"].title = alertsPartial ? "The latest alert snapshot was truncated." : "";
+  elements["alerts-card"].dataset.empty = String(items.length === 0);
   const nextKeys = new Set(items.map((alert) => alert.key));
   for (const [key, node] of alertNodes) {
     if (nextKeys.has(key)) continue;
@@ -453,7 +655,11 @@ function renderAlerts(alerts) {
     }
     node.dataset.level = alert.level;
     node.refs.message.textContent = String(alert.message || "System alert");
-    node.refs.meta.textContent = [alert.source, alert.occurredAt || alert.timestamp ? timeAgo(alert.occurredAt || alert.timestamp) : ""].filter(Boolean).join(" · ");
+    const rawSource = String(alert.source || "").trim();
+    const source = compactAlertSource(rawSource);
+    node.refs.meta.textContent = [source, alert.occurredAt || alert.timestamp ? timeAgo(alert.occurredAt || alert.timestamp) : ""].filter(Boolean).join(" · ");
+    node.refs.meta.title = rawSource;
+    node.refs.meta.setAttribute("aria-label", rawSource ? `Alert source: ${rawSource}` : "Alert source unavailable");
     elements["alerts-list"].append(node);
   }
   return {

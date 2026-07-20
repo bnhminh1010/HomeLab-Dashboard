@@ -1,5 +1,7 @@
 const nowIso = () => new Date().toISOString();
 const edgeMode = new URLSearchParams(window.location.search).get("edge") === "1";
+const edgeContainerID = "04fe5d1ce9fc995c2f071051aaff95fb94a0fcdc39cfc54cc5cea05d5678edfc";
+const edgeUnknownContainerID = "8d439abf2f349e6c2d35f0df8c139738571c3ba6d7eefcb732c8ee86f67b0a91";
 
 const demoServices = [
   { id: "svc_immich", name: "Immich", icon: "📸", displayUrl: "https://immich.homelab.ts.net", probeUrl: "http://100.64.0.10:2283/api/server/ping", status: "up", latencyMs: 12, lastCheckedAt: nowIso() },
@@ -9,13 +11,33 @@ const demoServices = [
 ];
 
 const demoContainers = [
-  { id: "demo-immich-server", name: "immich_server", image: "ghcr.io/immich-app/immich-server:release", state: "running", health: "healthy", uptimeSeconds: 184320, cpuUsagePercent: 2.1, cpuNormalizedPercent: 2.1, memoryUsageBytes: 471859200, memoryLimitBytes: 8589934592, ports: ["2283→0.0.0.0"], restartCount: 0 },
+  { id: edgeMode ? edgeContainerID : "demo-immich-server", name: "immich_server", image: "ghcr.io/immich-app/immich-server:release", state: "running", health: "healthy", uptimeSeconds: 184320, cpuUsagePercent: 2.1, cpuNormalizedPercent: 2.1, memoryUsageBytes: 471859200, memoryLimitBytes: 8589934592, ports: ["2283→0.0.0.0"], restartCount: 0 },
   { id: "demo-immich-redis", name: "immich_redis", image: "docker.io/valkey/valkey:8", state: "running", health: "healthy", uptimeSeconds: 184300, cpuUsagePercent: 0.1, cpuNormalizedPercent: 0.1, memoryUsageBytes: 33554432, memoryLimitBytes: 1073741824, ports: ["6379/tcp"], restartCount: 4 },
   { id: "demo-fastcrw", name: "crw", image: "localhost/fastcrw:latest", state: "running", health: "healthy", uptimeSeconds: 14800, cpuUsagePercent: 0.8, cpuNormalizedPercent: 0.8, memoryUsageBytes: 125829120, memoryLimitBytes: 536870912, ports: ["3000→host"], restartCount: 1 },
   { id: "demo-worker", name: "ml_worker", image: "localhost/ml-worker:latest", state: "stopped", uptimeSeconds: 0, cpuUsagePercent: 0, memoryUsageBytes: 0, memoryLimitBytes: 2147483648, ports: [], restartCount: 0 },
+  ...(edgeMode ? [{ id: "demo-history-long-resource", name: "transcoding_machine_learning_worker_for_archived_photos_and_videos", image: "localhost/history-fixture:latest", state: "running", health: "healthy", uptimeSeconds: 3200, cpuUsagePercent: 1.2, memoryUsageBytes: 104857600, memoryLimitBytes: 1073741824, ports: [], restartCount: 0 }] : []),
 ];
 
 let sequence = 0;
+
+function demoAlerts() {
+  if (!edgeMode) return [{ id: "demo-ok", level: "info", source: "dashboard", message: "All systems operational", occurredAt: nowIso() }];
+  const occurredAt = nowIso();
+  const alerts = [
+    { id: "edge-matched-container", level: "critical", source: `local/container/${edgeContainerID}`, message: "Container restart loop detected is firing (value 292.00)", occurredAt },
+    { id: "edge-unknown-container", level: "warning", source: `local/container/${edgeUnknownContainerID}`, message: "Container is unhealthy is firing (value 0.00)", occurredAt },
+  ];
+  for (let index = 0; index < 48; index += 1) {
+    alerts.push({
+      id: `edge-alert-${index}`,
+      level: index % 3 === 0 ? "critical" : "warning",
+      source: `local/container/${index % 2 ? edgeContainerID : edgeUnknownContainerID}`,
+      message: `Synthetic alert ${index + 1}: sustained metric threshold exceeded during regression coverage.`,
+      occurredAt,
+    });
+  }
+  return alerts;
+}
 
 function snapshot() {
   const wave = sequence / 5;
@@ -28,7 +50,7 @@ function snapshot() {
     seq: sequence,
     collectedAt: nowIso(),
     truncated: edgeMode,
-    truncatedSources: edgeMode ? ["containers"] : undefined,
+    truncatedSources: edgeMode ? ["containers", "alerts"] : undefined,
     data: {
       system: {
         hostname: "debian-server",
@@ -44,7 +66,7 @@ function snapshot() {
       network: { interface: "tailscale0", rxBytesPerSecond: 12_288 + Math.random() * 6000, txBytesPerSecond: 3420 + Math.random() * 1500 },
       services: demoServices.map((service) => ({ ...service, lastCheckedAt: service.probeUrl ? nowIso() : null })),
       containers: demoContainers.map((container, index) => ({ ...container, cpuUsagePercent: Math.max(0, container.cpuUsagePercent + Math.sin(wave + index) * 0.2) })),
-      alerts: [{ id: "demo-ok", level: "info", source: "dashboard", message: "All systems operational", occurredAt: nowIso() }],
+      alerts: demoAlerts(),
     },
   };
 }

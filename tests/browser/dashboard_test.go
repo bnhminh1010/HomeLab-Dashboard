@@ -4,6 +4,8 @@ package browser_test
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os/exec"
@@ -23,18 +25,8 @@ import (
 type layoutReport struct {
 	ScrollWidth     float64  `json:"scrollWidth"`
 	ViewportWidth   float64  `json:"viewportWidth"`
-	LeftX           float64  `json:"leftX"`
-	LeftY           float64  `json:"leftY"`
-	LeftBottom      float64  `json:"leftBottom"`
-	CenterX         float64  `json:"centerX"`
-	CenterY         float64  `json:"centerY"`
-	CenterBottom    float64  `json:"centerBottom"`
-	RightX          float64  `json:"rightX"`
-	RightY          float64  `json:"rightY"`
-	SystemColumns   int      `json:"systemColumns"`
-	ServicesColumns int      `json:"servicesColumns"`
-	Services        int      `json:"services"`
-	Containers      int      `json:"containers"`
+	ActivePanels    int      `json:"activePanels"`
+	ActiveWorkspace string   `json:"activeWorkspace"`
 	TerminalHeight  float64  `json:"terminalHeight"`
 	ToolbarHeight   float64  `json:"toolbarHeight"`
 	TerminalBody    float64  `json:"terminalBody"`
@@ -65,17 +57,13 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
 		width, height int64
 	}{
 		{"phone-320", 320, 700},
-		{"phone-390", 390, 844},
-		{"mobile-640", 640, 844},
-		{"mobile-max-767", 767, 900},
+		{"phone-375", 375, 812},
+		{"phone-414", 414, 896},
 		{"workbench-768", 768, 900},
 		{"workbench-max-899", 899, 900},
 		{"tablet-min-900", 900, 900},
-		{"tablet-1024", 1024, 900},
-		{"tablet-max-1279", 1279, 900},
 		{"desktop-min-1280", 1280, 900},
-		{"desktop-1440", 1440, 900},
-		{"wide-1920", 1920, 1080},
+		{"wide-2048", 2048, 1080},
 	}
 	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
@@ -116,23 +104,22 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
 				chromedp.EmulateViewport(viewport.width, viewport.height),
 				chromedp.Navigate(server.URL+"/?demo=1"),
 				chromedp.WaitVisible("#dashboard", chromedp.ByQuery),
-				chromedp.WaitReady("#terminal-size-compact", chromedp.ByQuery),
-				chromedp.WaitVisible(".service-card:not(.skeleton-card)", chromedp.ByQuery),
+				chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+				chromedp.WaitReady(".xterm", chromedp.ByQuery),
 				chromedp.Evaluate(`(() => {
           const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
-          const left = rect('.column-left');
-          const center = rect('.column-center');
-          const right = rect('.column-right');
+          const isVisibleInViewport = (node) => {
+            const style = getComputedStyle(node);
+            const bounds = node.getBoundingClientRect();
+            return style.display !== 'none' && style.visibility !== 'hidden' && bounds.width > 0
+              && bounds.right > 0 && bounds.left < window.innerWidth;
+          };
+          const activePanels = [...document.querySelectorAll('[data-workspace-panel]:not([hidden])')];
           return {
             scrollWidth: document.documentElement.scrollWidth,
             viewportWidth: window.innerWidth,
-            leftX: left.x, leftY: left.y, leftBottom: left.bottom,
-            centerX: center.x, centerY: center.y, centerBottom: center.bottom,
-            rightX: right.x, rightY: right.y,
-            systemColumns: getComputedStyle(document.querySelector('.system-panel')).gridTemplateColumns.split(' ').filter(Boolean).length,
-            servicesColumns: getComputedStyle(document.querySelector('.services-grid')).gridTemplateColumns.split(' ').filter(Boolean).length,
-            services: document.querySelectorAll('.service-card:not(.skeleton-card)').length,
-            containers: document.querySelectorAll('.container-item:not(.skeleton-container)').length,
+            activePanels: activePanels.length,
+            activeWorkspace: activePanels[0]?.dataset.workspacePanel || '',
             terminalHeight: rect('#terminal-panel').height,
             toolbarHeight: rect('#terminal-panel .terminal-toolbar').height,
             terminalBody: rect('#terminal-body').height,
@@ -142,18 +129,16 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
             overflow: [...document.querySelectorAll('body *')]
               .filter((node) => {
                 if (node.closest('.xterm')) return false;
-                const style = getComputedStyle(node);
                 const bounds = node.getBoundingClientRect();
-                return style.display !== 'none' && style.visibility !== 'hidden' && bounds.width > 0
+                return isVisibleInViewport(node)
                   && (bounds.right > window.innerWidth + 1 || bounds.left < -1);
               })
               .slice(0, 10)
               .map((node) => node.tagName.toLowerCase() + '#' + node.id + '.' + String(node.className)),
-            touchFailures: [...document.querySelectorAll('#focus-add-service, .service-link, .service-menu-button, .container-action, #terminal-toggle, #terminal-host-shell, .icon-button')]
+            touchFailures: [...document.querySelectorAll('#sidebar-open, #sidebar-collapse, #terminal-toggle, .icon-button')]
               .filter((node) => {
-                const style = getComputedStyle(node);
                 const bounds = node.getBoundingClientRect();
-                return style.display !== 'none' && style.visibility !== 'hidden' && bounds.width > 0
+                return isVisibleInViewport(node)
                   && (bounds.width < 44 || bounds.height < 44);
               })
               .map((node) => node.id || node.className),
@@ -169,7 +154,7 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if viewport.width == 390 {
+			if viewport.width == 375 {
 				var mobileWorkbench struct {
 					Active    bool    `json:"active"`
 					Top       float64 `json:"top"`
@@ -197,7 +182,7 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !mobileWorkbench.Active || mobileWorkbench.Collapsed || mobileWorkbench.Top > 57 || mobileWorkbench.Right < 389 || mobileWorkbench.Bottom < 843 || mobileWorkbench.Body < 700 {
+				if !mobileWorkbench.Active || mobileWorkbench.Collapsed || mobileWorkbench.Top > 57 || mobileWorkbench.Right < 374 || mobileWorkbench.Bottom < 811 || mobileWorkbench.Body < 650 {
 					t.Fatalf("mobile terminal is not a full-screen workbench below the header: %+v", mobileWorkbench)
 				}
 			}
@@ -215,34 +200,382 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
 			if len(report.A11yFailures) > 0 {
 				t.Fatalf("responsive accessibility regression: %+v", report)
 			}
-			if report.Services < 2 || report.Containers < 3 || !report.HasXterm {
-				t.Fatalf("demo acceptance data/xterm missing: %+v", report)
+			if report.ActivePanels != 1 || report.ActiveWorkspace != "overview" || !report.HasXterm {
+				t.Fatalf("cold load did not isolate the Overview workspace or initialize xterm: %+v", report)
 			}
 			if !report.Collapsed || report.ToggleExpanded != "false" || report.TerminalBody != 0 || report.TerminalHeight < 40 || report.TerminalHeight > 52 || report.ToolbarHeight < 40 || report.ToolbarHeight > 52 {
 				t.Fatalf("cold terminal must be a collapsed 44px-ish status bar: %+v", report)
 			}
-			switch {
-			case viewport.width >= 1280:
-				if !(report.LeftX < report.CenterX && report.CenterX < report.RightX && near(report.LeftY, report.CenterY, 4) && near(report.CenterY, report.RightY, 4)) {
-					t.Fatalf("desktop columns are not one ordered row: %+v", report)
-				}
-			case viewport.width >= 900:
-				if !(near(report.LeftY, report.CenterY, 4) && report.LeftX < report.CenterX && report.RightY >= report.LeftBottom-1 && near(report.LeftX, report.RightX, 4)) || report.SystemColumns != 1 {
-					t.Fatalf("tablet layout is not system/services plus a full-width container list: %+v", report)
-				}
-			default:
+			if viewport.width < 900 {
 				if len(report.TouchFailures) > 0 {
 					t.Fatalf("sub-900 touch targets are smaller than 44px: %+v", report)
 				}
-				expectedServiceColumns := 1
-				if viewport.width >= 520 {
-					expectedServiceColumns = 2
-				}
-				if !(report.CenterY >= report.LeftBottom-1 && report.RightY >= report.CenterBottom-1) || report.ServicesColumns != expectedServiceColumns || report.SystemColumns != 2 {
-					t.Fatalf("sub-900 layout is not a one-column stack: %+v", report)
-				}
 			}
 		})
+	}
+}
+
+func TestDemoWorkspaceNavigationAndPersistence(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+	ctx, cancel := chromedp.NewContext(allocator)
+	defer cancel()
+	ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
+	defer timeout()
+
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(1440, 900),
+		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, workspace := range []string{"services", "containers", "history", "alerts", "overview"} {
+		workspace := workspace
+		selector := `[data-workspace="` + workspace + `"]`
+		panelSelector := `#workspace-` + workspace
+		titleSelector := `#` + workspace + `-title`
+		if workspace == "overview" {
+			titleSelector = "#health-overview"
+		}
+		err = chromedp.Run(ctx,
+			chromedp.Click(selector, chromedp.ByQuery),
+			chromedp.WaitVisible(panelSelector, chromedp.ByQuery),
+			chromedp.Poll(`(() => {
+          const active = [...document.querySelectorAll('[data-workspace-panel]:not([hidden])')];
+          const button = document.querySelector('`+selector+`');
+          return active.length === 1 && active[0].id === '`+panelSelector[1:]+`'
+            && button?.getAttribute('aria-current') === 'page'
+            && document.activeElement === document.querySelector('`+titleSelector+`');
+        })()`, nil, chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
+		)
+		if err != nil {
+			t.Fatalf("workspace %s navigation failed: %v", workspace, err)
+		}
+		if workspace == "services" {
+			err = chromedp.Run(ctx, chromedp.WaitVisible(".service-card:not(.skeleton-card)", chromedp.ByQuery))
+			if err != nil {
+				t.Fatalf("services did not render after workspace activation: %v", err)
+			}
+		}
+		if workspace == "containers" {
+			err = chromedp.Run(ctx, chromedp.WaitVisible(".container-item:not(.skeleton-container)", chromedp.ByQuery))
+			if err != nil {
+				t.Fatalf("containers did not render after workspace activation: %v", err)
+			}
+		}
+		if workspace == "history" {
+			err = chromedp.Run(ctx, chromedp.Poll(`(() => {
+            const canvas = document.querySelector('#history-chart');
+            const chart = window.Chart?.getChart(canvas);
+            return canvas?.getBoundingClientRect().width > 100 && (chart?.data?.datasets?.[0]?.data?.length || 0) > 0;
+          })()`, nil, chromedp.WithPollingTimeout(3*time.Second)))
+			if err != nil {
+				t.Fatalf("history chart was not resized after workspace activation: %v", err)
+			}
+		}
+	}
+
+	err = chromedp.Run(ctx,
+		chromedp.Click(`[data-sidebar-action="terminal"]`, chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#terminal-toggle').getAttribute('aria-expanded') === 'true' && document.activeElement?.matches('#terminal .xterm-helper-textarea')`, nil,
+			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Click(`[data-workspace="history"]`, chromedp.ByQuery),
+		chromedp.Click("#sidebar-collapse", chromedp.ByQuery),
+		chromedp.Poll(`document.body.classList.contains('sidebar-collapsed')`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.WaitVisible("#workspace-history", chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted struct {
+		Collapsed   bool `json:"collapsed"`
+		Active      bool `json:"active"`
+		UnnamedNavs int  `json:"unnamedNavs"`
+	}
+	err = chromedp.Run(ctx, chromedp.Evaluate(`(() => ({
+      collapsed: document.body.classList.contains('sidebar-collapsed'),
+      active: !document.querySelector('#workspace-history').hidden,
+      unnamedNavs: [...document.querySelectorAll('#workspace-sidebar [data-workspace], #workspace-sidebar [data-sidebar-action]')]
+        .filter((button) => !button.getAttribute('aria-label'))
+        .length
+    }))()`, &persisted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.Collapsed || !persisted.Active || persisted.UnnamedNavs != 0 {
+		t.Fatalf("workspace/sidebar preferences did not persist across reload: %+v", persisted)
+	}
+}
+
+func TestDemoMobileSidebarDrawer(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+	ctx, cancel := chromedp.NewContext(allocator)
+	defer cancel()
+	ctx, timeout := context.WithTimeout(ctx, 25*time.Second)
+	defer timeout()
+
+	var report struct {
+		DrawerClosedInert bool     `json:"drawerClosedInert"`
+		DrawerOpened      bool     `json:"drawerOpened"`
+		DrawerModal       bool     `json:"drawerModal"`
+		BackgroundInert   bool     `json:"backgroundInert"`
+		FocusInSidebar    bool     `json:"focusInSidebar"`
+		TouchFailures     []string `json:"touchFailures"`
+		TrapWorks         bool     `json:"trapWorks"`
+		EscapeRestored    bool     `json:"escapeRestored"`
+		BackdropRestored  bool     `json:"backdropRestored"`
+		ServicesActive    bool     `json:"servicesActive"`
+		ServicesFocused   bool     `json:"servicesFocused"`
+	}
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(375, 812),
+		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+          const sidebar = document.querySelector('#workspace-sidebar');
+          return sidebar.inert && sidebar.getAttribute('aria-hidden') === 'true';
+        })()`, &report.DrawerClosedInert),
+		chromedp.Click("#sidebar-open", chromedp.ByQuery),
+		chromedp.Poll(`document.body.classList.contains('sidebar-drawer-open') && !document.querySelector('#sidebar-backdrop').hidden && document.querySelector('#sidebar-open').getAttribute('aria-expanded') === 'true'`, nil,
+			chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`(() => {
+          const sidebar = document.querySelector('#workspace-sidebar');
+          const visible = (node) => {
+            const style = getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.right > 0 && rect.left < innerWidth;
+          };
+          return {
+            drawerOpened: document.body.classList.contains('sidebar-drawer-open') && !document.querySelector('#sidebar-backdrop').hidden,
+            drawerModal: sidebar.getAttribute('role') === 'dialog' && sidebar.getAttribute('aria-modal') === 'true',
+            backgroundInert: document.querySelector('.app-header').inert && document.querySelector('#dashboard').inert && document.querySelector('#terminal-panel').inert,
+            focusInSidebar: Boolean(document.activeElement?.closest('#workspace-sidebar')),
+            touchFailures: [...document.querySelectorAll('#sidebar-open, #sidebar-collapse, #workspace-sidebar [data-workspace], #workspace-sidebar [data-sidebar-action]')]
+              .filter((node) => visible(node) && (node.getBoundingClientRect().width < 44 || node.getBoundingClientRect().height < 44))
+              .map((node) => node.id || node.dataset.workspace || node.dataset.sidebarAction || node.className)
+          };
+        })()`, &report),
+		chromedp.Focus(`[data-sidebar-action="terminal"]`, chromedp.ByQuery),
+		chromedp.KeyEvent(kb.Tab),
+		chromedp.Evaluate(`(() => {
+          const sidebar = document.querySelector('#workspace-sidebar');
+          const first = [...sidebar.querySelectorAll("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")]
+            .find((element) => !element.hidden && element.offsetParent !== null);
+          return document.activeElement === first;
+        })()`, &report.TrapWorks),
+		chromedp.KeyEvent(kb.Escape),
+		chromedp.Poll(`!document.body.classList.contains('sidebar-drawer-open') && document.activeElement === document.querySelector('#sidebar-open')`, nil,
+			chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`!document.body.classList.contains('sidebar-drawer-open') && document.activeElement === document.querySelector('#sidebar-open')`, &report.EscapeRestored),
+		chromedp.Click("#sidebar-open", chromedp.ByQuery),
+		chromedp.Click("#sidebar-backdrop", chromedp.ByQuery),
+		chromedp.Poll(`!document.body.classList.contains('sidebar-drawer-open') && document.activeElement === document.querySelector('#sidebar-open')`, nil,
+			chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`!document.body.classList.contains('sidebar-drawer-open') && document.activeElement === document.querySelector('#sidebar-open')`, &report.BackdropRestored),
+		chromedp.Click("#sidebar-open", chromedp.ByQuery),
+		chromedp.Focus(`[data-workspace="services"]`, chromedp.ByQuery),
+		chromedp.KeyEvent(kb.Enter),
+		chromedp.Poll(`!document.querySelector('#workspace-services').hidden && !document.body.classList.contains('sidebar-drawer-open') && document.activeElement === document.querySelector('#services-title')`, nil,
+			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`(() => ({
+          servicesActive: !document.querySelector('#workspace-services').hidden,
+          servicesFocused: document.activeElement === document.querySelector('#services-title')
+        }))()`, &report),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.DrawerClosedInert || !report.DrawerOpened || !report.DrawerModal || !report.BackgroundInert || !report.FocusInSidebar || !report.TrapWorks || !report.EscapeRestored || !report.BackdropRestored || !report.ServicesActive || !report.ServicesFocused || len(report.TouchFailures) > 0 {
+		t.Fatalf("mobile workspace drawer regression: %+v", report)
+	}
+}
+
+func TestDemoEdgeAlertsAndHistoryDoNotOverflow(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+
+	viewports := []struct {
+		name          string
+		width, height int64
+	}{
+		{"phone-375", 375, 812},
+		{"tablet-900", 900, 900},
+		{"desktop-1440", 1440, 900},
+		{"wide-2048", 2048, 1080},
+	}
+	for _, viewport := range viewports {
+		viewport := viewport
+		t.Run(viewport.name, func(t *testing.T) {
+			ctx, cancel := chromedp.NewContext(allocator)
+			defer cancel()
+			ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
+			defer timeout()
+			var report struct {
+				Count             int  `json:"count"`
+				EmptyHidden       bool `json:"emptyHidden"`
+				PartialVisible    bool `json:"partialVisible"`
+				ListScrollable    bool `json:"listScrollable"`
+				SourceCompacted   bool `json:"sourceCompacted"`
+				FallbackCompacted bool `json:"fallbackCompacted"`
+				RawSourceKept     bool `json:"rawSourceKept"`
+				AlertBounds       bool `json:"alertBounds"`
+				FooterBounds      bool `json:"footerBounds"`
+				RefreshTouch      bool `json:"refreshTouch"`
+				ChartReady        bool `json:"chartReady"`
+				PageOverflow      bool `json:"pageOverflow"`
+			}
+			err := chromedp.Run(ctx,
+				chromedp.EmulateViewport(viewport.width, viewport.height),
+				chromedp.Navigate(server.URL+"/?demo=1&edge=1"),
+				chromedp.Evaluate(`document.querySelector('[data-workspace="alerts"]').click()`, nil),
+				chromedp.WaitVisible(".alert-item", chromedp.ByQuery),
+				chromedp.Evaluate(`(() => {
+          const within = (child, parent) => {
+            const c = child.getBoundingClientRect();
+            const p = parent.getBoundingClientRect();
+            return c.left >= p.left - 1 && c.right <= p.right + 1 && c.top >= p.top - 1 && c.bottom <= p.bottom + 1;
+          };
+          const list = document.querySelector('#alerts-list');
+          const items = [...document.querySelectorAll('.alert-item')];
+          const raw = 'local/container/04fe5d1ce9fc995c2f071051aaff95fb94a0fcdc39cfc54cc5cea05d5678edfc';
+          return {
+            count: items.length,
+            emptyHidden: document.querySelector('#alerts-empty').hidden,
+            partialVisible: !document.querySelector('#alerts-partial').hidden,
+            listScrollable: list.scrollHeight > list.clientHeight,
+            sourceCompacted: items.some((item) => item.querySelector('.alert-meta')?.textContent.includes('LOCAL · CONTAINER · immich_server')),
+            fallbackCompacted: items.some((item) => item.querySelector('.alert-meta')?.textContent.includes('8d439abf2f34…7b0a91')),
+            rawSourceKept: items.some((item) => item.querySelector('.alert-meta')?.title === raw && item.querySelector('.alert-meta')?.getAttribute('aria-label') === 'Alert source: ' + raw),
+            alertBounds: items.every((item) => {
+              const content = item.querySelector('.alert-content');
+              const meta = item.querySelector('.alert-meta');
+              return content && meta && within(content, item) && within(meta, item) && meta.scrollWidth <= meta.clientWidth + 1;
+            }),
+            pageOverflow: document.documentElement.scrollWidth > innerWidth + 1
+          };
+        })()`, &report),
+				chromedp.Evaluate(`document.querySelector('[data-workspace="history"]').click()`, nil),
+				chromedp.WaitVisible("#history-panel", chromedp.ByQuery),
+				chromedp.Click(`[data-history-kind="container"]`, chromedp.ByQuery),
+				chromedp.Poll(`document.querySelector('#history-resource').options.length > 0 && document.querySelector('#history-empty').hidden`, nil,
+					chromedp.WithPollingTimeout(3*time.Second)),
+				chromedp.Evaluate(`(() => {
+          const select = document.querySelector('#history-resource');
+          const option = [...select.options].find((item) => item.textContent.includes('transcoding_machine_learning_worker'));
+          if (!option) return false;
+          select.value = option.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        })()`, nil),
+				chromedp.Poll(`document.querySelector('#history-resource-summary').textContent.includes('transcoding_machine_learning_worker') && document.querySelector('#history-empty').hidden`, nil,
+					chromedp.WithPollingTimeout(3*time.Second)),
+				chromedp.Evaluate(`(() => {
+          const body = document.querySelector('.history-body');
+          const footer = document.querySelector('.history-footer');
+          const button = document.querySelector('#history-refresh');
+          const within = (child, parent) => {
+            const c = child.getBoundingClientRect();
+            const p = parent.getBoundingClientRect();
+            return c.left >= p.left - 1 && c.right <= p.right + 1 && c.top >= p.top - 1 && c.bottom <= p.bottom + 1;
+          };
+          const canvas = document.querySelector('#history-chart');
+          const chart = window.Chart?.getChart(canvas);
+          return {
+            footerBounds: [...footer.children].every((item) => within(item, body)) && within(button, body),
+            refreshTouch: innerWidth >= 900 || (button.getBoundingClientRect().width >= 44 && button.getBoundingClientRect().height >= 44),
+            chartReady: canvas.getBoundingClientRect().width > 100 && (chart?.data?.datasets?.[0]?.data?.length || 0) > 0,
+            pageOverflow: document.documentElement.scrollWidth > innerWidth + 1
+          };
+        })()`, &report),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Count < 50 || !report.EmptyHidden || !report.PartialVisible || !report.ListScrollable || !report.SourceCompacted || !report.FallbackCompacted || !report.RawSourceKept || !report.AlertBounds || !report.FooterBounds || !report.RefreshTouch || !report.ChartReady || report.PageOverflow {
+				t.Fatalf("edge alert/history overflow regression: %+v", report)
+			}
+		})
+	}
+}
+
+func TestGraphiteAmberThemeDoesNotRestoreCyanGlass(t *testing.T) {
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	for _, path := range []string{"/css/style.css", "/css/tokens.css", "/js/history.js", "/js/metrics.js", "/js/terminal.js", "/"} {
+		response, err := http.Get(server.URL + path)
+		if err != nil {
+			t.Fatalf("load %s: %v", path, err)
+		}
+		body, readErr := io.ReadAll(response.Body)
+		response.Body.Close()
+		if readErr != nil {
+			t.Fatalf("read %s: %v", path, readErr)
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("load %s returned %s", path, response.Status)
+		}
+		content := strings.ToLower(string(body))
+		for _, forbidden := range []string{"#6ee2ff", "--cyan", "cyan-glow", "backdrop-filter"} {
+			if strings.Contains(content, forbidden) {
+				t.Fatalf("%s still contains removed cyan/glass token %q", path, forbidden)
+			}
+		}
 	}
 }
 
@@ -334,6 +667,7 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 	err = chromedp.Run(ctx,
 		chromedp.EmulateViewport(1440, 900),
 		chromedp.Navigate(server.URL+"/?demo=1&edge=1"),
+		chromedp.Click(`[data-workspace="services"]`, chromedp.ByQuery),
 		chromedp.WaitVisible(".service-card:not(.skeleton-card)", chromedp.ByQuery),
 		chromedp.WaitReady(".xterm", chromedp.ByQuery),
 		chromedp.Click("#focus-add-service", chromedp.ByQuery),
@@ -361,7 +695,6 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
           link.focus();
         })()`, nil),
 		chromedp.KeyEvent("\r"),
-		chromedp.ActionFunc(func(context.Context) error { t.Log("before service menu focus"); return nil }),
 		chromedp.Poll(`(() => {
           const trigger = document.querySelector('.service-card[data-service-id^="demo-"] .service-menu-button');
           if (!trigger || trigger.hidden || trigger.disabled || trigger.getClientRects().length === 0) return false;
@@ -369,7 +702,6 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
           trigger.focus({ preventScroll: true });
           return document.activeElement === trigger;
 		})()`, nil, chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(3*time.Second)),
-		chromedp.ActionFunc(func(context.Context) error { t.Log("after service menu focus"); return nil }),
 		chromedp.SendKeys(`.service-card[data-service-id^="demo-"] .service-menu-button`, kb.Enter, chromedp.ByQuery),
 		chromedp.Poll(`(() => {
           const menu = document.querySelector('#context-menu');
@@ -403,9 +735,7 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 		chromedp.Evaluate(`document.querySelector('#service-form input[name="icon"]').value`, &report.EditEmptyIcon),
 		chromedp.KeyEvent("\x1b"),
 		chromedp.Poll(`!document.querySelector('#service-dialog').open`, nil, chromedp.WithPollingTimeout(2*time.Second)),
-		chromedp.ActionFunc(func(context.Context) error { t.Log("before service link focus"); return nil }),
 		chromedp.Focus(".service-link", chromedp.ByQuery),
-		chromedp.ActionFunc(func(context.Context) error { t.Log("after service link focus"); return nil }),
 		chromedp.Poll(`document.activeElement?.classList.contains('service-link') === true`, nil, chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Sleep(2200*time.Millisecond),
 		chromedp.Evaluate(`document.activeElement?.classList.contains('service-link') === true && document.activeElement?.isConnected === true`, &report.FocusPreserved),
@@ -419,11 +749,10 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 		chromedp.Evaluate(`document.querySelector('#terminal-maximize').getAttribute('aria-pressed')`, &report.MaximizePressed),
 		chromedp.Click("#terminal-maximize", chromedp.ByQuery),
 		chromedp.Click("#terminal-toggle", chromedp.ByQuery),
-		chromedp.ActionFunc(func(context.Context) error { t.Log("before container action focus"); return nil }),
+		chromedp.Click(`[data-workspace="containers"]`, chromedp.ByQuery),
 		chromedp.WaitVisible(".container-item .container-action:not(:disabled)", chromedp.ByQuery),
 		chromedp.Evaluate(`document.querySelector('.container-item .container-action:not(:disabled)').focus()`, nil),
 		chromedp.Poll(`document.activeElement?.matches('.container-item .container-action:not(:disabled)') === true`, nil, chromedp.WithPollingTimeout(2*time.Second)),
-		chromedp.ActionFunc(func(context.Context) error { t.Log("after container action focus"); return nil }),
 		chromedp.Evaluate(`window.__terminalInvoker = document.activeElement`, nil),
 		chromedp.KeyEvent("\r"),
 		chromedp.WaitVisible("#terminal-disconnect", chromedp.ByQuery),
@@ -811,6 +1140,7 @@ func TestDemoMonitoringWorkbench(t *testing.T) {
 	err = chromedp.Run(ctx,
 		chromedp.EmulateViewport(1440, 900),
 		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.Click(`[data-workspace="history"]`, chromedp.ByQuery),
 		chromedp.WaitVisible("#history-panel", chromedp.ByQuery),
 		chromedp.Poll(`document.querySelector('#history-empty').hidden`, nil, chromedp.WithPollingTimeout(3*time.Second)),
 		chromedp.Evaluate(`(() => ({

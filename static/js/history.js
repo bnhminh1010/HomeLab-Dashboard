@@ -57,13 +57,29 @@ function formatBytes(value) {
   return `${amount.toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
 }
 
+function colorToken(name, fallback = "transparent") {
+  return globalThis.getComputedStyle?.(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
 function createChart(canvas) {
   if (!canvas || typeof globalThis.Chart !== "function") return null;
+  const colors = {
+    accent: colorToken("--accent"),
+    accentSoft: colorToken("--accent-soft"),
+    green: colorToken("--green"),
+    greenSoft: colorToken("--green-soft"),
+    dim: colorToken("--text-dim"),
+    secondary: colorToken("--text-secondary"),
+    primary: colorToken("--text-primary"),
+    overlay: colorToken("--bg-overlay"),
+    grid: colorToken("--border-subtle"),
+    tooltipBorder: colorToken("--accent-muted"),
+  };
   return new globalThis.Chart(canvas.getContext("2d"), {
     type: "line",
     data: { labels: [], datasets: [
-      { label: "CPU", data: [], borderColor: "#6ee2ff", backgroundColor: "rgba(110,226,255,.08)", fill: true },
-      { label: "RAM", data: [], borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,.04)", fill: false },
+      { label: "CPU", data: [], borderColor: colors.accent, backgroundColor: colors.accentSoft, fill: true },
+      { label: "RAM", data: [], borderColor: colors.green, backgroundColor: colors.greenSoft, fill: false },
     ] },
     options: {
       responsive: true,
@@ -72,12 +88,12 @@ function createChart(canvas) {
       normalized: true,
       interaction: { intersect: false, mode: "index" },
       scales: {
-        x: { grid: { display: false }, ticks: { color: "#64748b", maxTicksLimit: 8, maxRotation: 0, font: { family: "monospace", size: 9 } } },
-        y: { min: 0, max: 100, grid: { color: "rgba(110,226,255,.07)" }, ticks: { color: "#64748b", callback: (value) => `${value}%`, font: { family: "monospace", size: 9 } } },
+        x: { grid: { display: false }, ticks: { color: colors.dim, maxTicksLimit: 8, maxRotation: 0, font: { family: "monospace", size: 9 } } },
+        y: { min: 0, max: 100, grid: { color: colors.grid }, ticks: { color: colors.dim, callback: (value) => `${value}%`, font: { family: "monospace", size: 9 } } },
       },
       plugins: {
-        legend: { display: true, align: "end", labels: { color: "#94a3b8", usePointStyle: true, boxWidth: 7, font: { family: "monospace", size: 9 } } },
-        tooltip: { backgroundColor: "rgba(8,12,19,.96)", borderColor: "rgba(110,226,255,.25)", borderWidth: 1, titleColor: "#e2e8f0", bodyColor: "#94a3b8", callbacks: { label: (context) => `${context.dataset.label}: ${Number(context.raw).toFixed(1)}%` } },
+        legend: { display: true, align: "end", labels: { color: colors.secondary, usePointStyle: true, boxWidth: 7, font: { family: "monospace", size: 9 } } },
+        tooltip: { backgroundColor: colors.overlay, borderColor: colors.tooltipBorder, borderWidth: 1, titleColor: colors.primary, bodyColor: colors.secondary, callbacks: { label: (context) => `${context.dataset.label}: ${Number(context.raw).toFixed(1)}%` } },
       },
       elements: { point: { radius: 0, hoverRadius: 3 }, line: { borderWidth: 1.5, tension: 0.18 } },
     },
@@ -357,6 +373,9 @@ export function createHistoryController({ api, demo = false, toast }) {
       };
       liveResources = nextLive;
       applyResources();
+    },
+    activate() {
+      window.requestAnimationFrame(() => chart?.resize());
     },
     refresh,
     setRange(nextRange, shouldRefresh = true) {

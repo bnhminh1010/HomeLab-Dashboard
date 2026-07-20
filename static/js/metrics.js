@@ -2,6 +2,10 @@ import { clamp } from "./format.js";
 
 const MAX_POINTS = 60;
 
+function colorToken(name) {
+  return globalThis.getComputedStyle?.(document.documentElement).getPropertyValue(name).trim() || "transparent";
+}
+
 function chartOptions() {
   return {
     // Fixed backing dimensions avoid Chart.js using the whole metrics card as
@@ -48,8 +52,8 @@ function append(chart, value, fallbackHistory) {
 export function createMetricCharts() {
   const cpuCanvas = document.getElementById("cpu-chart");
   const ramCanvas = document.getElementById("ram-chart");
-  const cpuChart = createChart(cpuCanvas, "#6ee2ff", "rgba(110,226,255,.08)");
-  const ramChart = createChart(ramCanvas, "#22c55e", "rgba(34,197,94,.07)");
+  const cpuChart = createChart(cpuCanvas, colorToken("--accent"), colorToken("--accent-soft"));
+  const ramChart = createChart(ramCanvas, colorToken("--green"), colorToken("--green-soft"));
   const cpuFallback = [];
   const ramFallback = [];
 

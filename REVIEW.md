@@ -175,6 +175,31 @@ nghiệp có HA.
   (24.392s); `git diff --check` sạch. Các thay đổi chỉ ở CSS/HTML/JS, docs và
   browser regression test; không đụng Go backend.
 
+### 8. Workbench graphite/amber và navigation theo workspace (2026-07-21)
+
+- Dashboard được tách thành năm workspace: Overview, Services, Containers,
+  History và Alerts. Side bar từ 900px rộng 216px, collapse còn 60px; mobile
+  dùng drawer dạng modal với backdrop toàn màn hình, Escape, focus trap và trả
+  focus về nút mở.
+- Terminal vẫn là workbench toàn cục ở đáy, không bị nhân bản thành một trang
+  riêng. Mục Terminal trong rail mở và focus xterm.js hiện có.
+- Visual system đã đổi từ cyan/glassmorphism sang graphite matte + amber có
+  tiết chế. Các trạng thái health vẫn giữ green/yellow/red theo nghĩa vận hành;
+  không dùng màu thương hiệu để đánh lừa severity.
+- Alert source dạng `local/container/<opaque-id>` nay map sang tên container
+  khi inventory có; fallback chỉ hiển thị ID rút gọn nhưng giữ source thô ở
+  tooltip và accessible name. Feed alert có chiều cao giới hạn và cuộn nội bộ.
+- Footer History dùng grid responsive, tránh ghi đè node/resource/resolution/
+  quota/refresh tại viewport rộng và hẹp. Browser fixtures bao gồm raw ID dài,
+  50 alert, snapshot partial và resource history dài để chống tái phát.
+- Drawer mobile cô lập phần nền bằng `inert`, có `role="dialog"`/`aria-modal`
+  khi mở và trở lại inert khi đóng. Rail thu gọn vẫn giữ tên truy cập được cho
+  từng workspace; History chart lấy toàn bộ màu từ token graphite/amber.
+- Xác minh cuối: `go test ./... -count=1 -timeout=180s` và
+  `go test -tags=browser ./tests/browser -count=1 -timeout=180s -v` đều pass.
+- Không có dependency, font mạng, router hay API/backend mới. Thay đổi là UI
+  vanilla và asset static được Go embed như trước.
+
 ## Giới hạn còn lại và rủi ro vận hành
 
 ### Giới hạn theo thiết kế

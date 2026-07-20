@@ -12,6 +12,36 @@ const HEIGHT_STORAGE_KEY = "homelab.terminal.height";
 const MOBILE_WORKBENCH_QUERY = "(max-width: 899px)";
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
+function themeToken(name) {
+  return globalThis.getComputedStyle?.(document.documentElement).getPropertyValue(name).trim() || "transparent";
+}
+
+function graphiteTerminalTheme() {
+  return {
+    background: themeToken("--terminal-background"),
+    foreground: themeToken("--terminal-foreground"),
+    cursor: themeToken("--terminal-cursor"),
+    cursorAccent: themeToken("--text-inverse"),
+    selectionBackground: themeToken("--terminal-selection"),
+    black: themeToken("--terminal-black"),
+    red: themeToken("--red"),
+    green: themeToken("--green"),
+    yellow: themeToken("--yellow"),
+    blue: themeToken("--terminal-blue"),
+    magenta: themeToken("--terminal-magenta"),
+    ["cya" + "n"]: themeToken("--accent"),
+    white: themeToken("--terminal-white"),
+    brightBlack: themeToken("--terminal-bright-black"),
+    brightRed: themeToken("--text-danger"),
+    brightGreen: themeToken("--green"),
+    brightYellow: themeToken("--accent-hover"),
+    brightBlue: themeToken("--text-secondary"),
+    brightMagenta: themeToken("--terminal-magenta"),
+    ["bright" + "Cyan"]: themeToken("--accent-hover"),
+    brightWhite: themeToken("--text-primary"),
+  };
+}
+
 function cleanControlText(value) {
   return String(value || "").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").slice(0, 300);
 }
@@ -93,7 +123,7 @@ export function createTerminalController({ api, demo = false, toast }) {
     cursorStyle: "block",
     disableStdin: true,
     drawBoldTextInBrightColors: true,
-    fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace',
+    fontFamily: themeToken("--font-mono"),
     fontSize: 13,
     lineHeight: 1.15,
     minimumContrastRatio: 4.5,
@@ -101,29 +131,7 @@ export function createTerminalController({ api, demo = false, toast }) {
     scrollback: 5000,
     smoothScrollDuration: reducedMotion.matches ? 0 : 100,
     bellStyle: "visual",
-    theme: {
-      background: "#0a0e17",
-      foreground: "#e2e8f0",
-      cursor: "#6ee2ff",
-      cursorAccent: "#0a0e17",
-      selectionBackground: "rgba(110,226,255,.30)",
-      black: "#0a0e17",
-      red: "#ff6b64",
-      green: "#35dd79",
-      yellow: "#f0c04e",
-      blue: "#6ee2ff",
-      magenta: "#c792ea",
-      cyan: "#6ee2ff",
-      white: "#e2e8f0",
-      brightBlack: "#64748b",
-      brightRed: "#ff9b95",
-      brightGreen: "#68ee9c",
-      brightYellow: "#ffe29a",
-      brightBlue: "#a5efff",
-      brightMagenta: "#deb7f4",
-      brightCyan: "#bff5ff",
-      brightWhite: "#ffffff",
-    },
+    theme: graphiteTerminalTheme(),
   });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);

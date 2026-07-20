@@ -1,171 +1,101 @@
 ---
-name: Neon Terminal
+name: Graphite Workbench
 colors:
-  surface: '#0f1416'
-  surface-dim: '#0f1416'
-  surface-bright: '#353a3c'
-  surface-container-lowest: '#0a0f11'
-  surface-container-low: '#171c1e'
-  surface-container: '#1b2022'
-  surface-container-high: '#252b2d'
-  surface-container-highest: '#303637'
-  on-surface: '#dee3e5'
-  on-surface-variant: '#bcc9cd'
-  inverse-surface: '#dee3e5'
-  inverse-on-surface: '#2c3133'
-  outline: '#879397'
-  outline-variant: '#3d494c'
-  surface-tint: '#60d5f2'
-  primary: '#d4f5ff'
-  on-primary: '#003640'
-  primary-container: '#6ee2ff'
-  on-primary-container: '#006475'
-  inverse-primary: '#00687a'
-  secondary: '#c3c6d3'
-  on-secondary: '#2c303a'
-  secondary-container: '#454954'
-  on-secondary-container: '#b5b8c5'
-  tertiary: '#ffedce'
-  on-tertiary: '#3f2e00'
-  tertiary-container: '#fecc59'
-  on-tertiary-container: '#745600'
-  error: '#ffb4ab'
-  on-error: '#690005'
-  error-container: '#93000a'
-  on-error-container: '#ffdad6'
-  primary-fixed: '#acecff'
-  primary-fixed-dim: '#60d5f2'
-  on-primary-fixed: '#001f26'
-  on-primary-fixed-variant: '#004e5c'
-  secondary-fixed: '#dfe2ef'
-  secondary-fixed-dim: '#c3c6d3'
-  on-secondary-fixed: '#181b25'
-  on-secondary-fixed-variant: '#434751'
-  tertiary-fixed: '#ffdf9d'
-  tertiary-fixed-dim: '#f0c04e'
-  on-tertiary-fixed: '#251a00'
-  on-tertiary-fixed-variant: '#5b4300'
-  background: '#0f1416'
-  on-background: '#dee3e5'
-  surface-variant: '#303637'
+  base: '#101010'
+  deep: '#090909'
+  surface: '#151515'
+  card: '#191919'
+  border: '#303030'
+  text: '#e5e1d9'
+  text-muted: '#7e7a73'
+  accent: '#d99a3d'
+  accent-hover: '#efb35a'
+  healthy: '#55bf78'
+  warning: '#d7ad45'
+  critical: '#e15f59'
 typography:
-  headline-lg:
-    fontFamily: Inter
-    fontSize: 24px
-    fontWeight: '700'
-    lineHeight: 32px
-    letterSpacing: -0.02em
-  headline-md:
-    fontFamily: Inter
-    fontSize: 18px
-    fontWeight: '600'
-    lineHeight: 24px
-    letterSpacing: -0.01em
-  body-md:
-    fontFamily: Inter
-    fontSize: 14px
-    fontWeight: '400'
-    lineHeight: 20px
-  code-lg:
-    fontFamily: jetbrainsMono
-    fontSize: 16px
-    fontWeight: '500'
-    lineHeight: 24px
-  code-md:
-    fontFamily: jetbrainsMono
-    fontSize: 13px
-    fontWeight: '400'
-    lineHeight: 18px
-  label-caps:
-    fontFamily: jetbrainsMono
-    fontSize: 11px
-    fontWeight: '700'
-    lineHeight: 16px
-    letterSpacing: 0.05em
-rounded:
-  sm: 0.125rem
-  DEFAULT: 0.25rem
-  md: 0.375rem
-  lg: 0.5rem
-  xl: 0.75rem
-  full: 9999px
+  ui: system sans-serif stack
+  mono: JetBrains Mono / Fira Code / Cascadia Code fallback stack
 spacing:
   unit: 4px
-  container-padding: 16px
-  gutter: 12px
-  card-gap: 8px
+  page-gutter: 16px
+  module-gap: 12px
+shape:
+  control-radius: 4px
+  panel-radius: 6px
 ---
 
-## Brand & Style
+## Brand and style
 
-This design system targets high-performance DevOps environments where information density and rapid error detection are critical. The visual narrative combines a "Cyberpunk Terminal" aesthetic with modern Glassmorphism.
+Graphite Workbench is an austere operational interface for a private homelab.
+It is designed for scanning live status, narrowing the current task through a
+workspace rail, and acting without ornamental visual noise. The design rejects
+cyberpunk neon, glassmorphism, ambient gradients, decorative glow, and card
+lift effects.
 
-The personality is technical, high-fidelity, and authoritative. It utilizes deep layering to separate system background from interactive modules. The style is defined by:
-- **Glassmorphism:** Modules use semi-transparent backgrounds with backdrop-blur(4px) to maintain legibility over ambient glow effects.
-- **Cybernetic Accents:** Thin, high-contrast borders and neon "glow" states indicate health and activity.
-- **High-Density:** Minimal whitespace between functional elements to maximize data visualization real-estate.
+The visual reference is a dark operations workbench: graphite layers, tight
+rules, restrained amber navigation signals, and semantic health colours. The
+reference informs hierarchy and density only; no source branding, copy, or
+pixel layout is reproduced.
 
-## Colors
+## Colour system
 
-The palette is rooted in a deep navy/cyan base to reduce eye strain during long-duration monitoring.
-
-- **Primary Accent:** Cyan (#6EE2FF) is used for active states, primary actions, and "Healthy" system pulses.
-- **Status Semantic Palette:** Standardized green, yellow, orange, and red are used for log severity and pipeline health.
-- **Glass Surfaces:** Containers use a translucent version of the secondary color with an additive 1px border using the primary color at low opacity.
+- **Graphite surfaces:** Base, recess, card, and raised layers use neutral
+  graphite steps. A panel is separated by a visible low-contrast rule, not
+  blur or shadow.
+- **Amber:** Used only for active workspace navigation, keyboard focus,
+  primary actions, and intentionally selected controls. It must not colour
+  every icon, border, or metric.
+- **Semantic status:** Green means healthy, yellow/orange warns, red requires
+  action, and neutral grey means unknown or stopped. Semantic colours never
+  replace the amber interaction hierarchy.
+- **Tokens:** Every application colour is declared in `static/css/tokens.css`.
+  Component CSS and JavaScript theme configuration reference those named roles;
+  no cyan token or hard-coded neon accent is allowed.
 
 ## Typography
 
-This design system uses a dual-font strategy to balance readability with technical flavor.
+- UI headings use a compact system sans-serif role with modest weight and
+  uppercase labels only where they improve scanability.
+- Metrics, timestamps, resource identifiers, terminal output, and dense
+  controls use the monospace role with tabular numerals.
+- The application loads no web font. The two roles are defined as resilient
+  local/system stacks so the dashboard remains self-hosted and offline-safe.
 
-- **Inter (Sans-Serif):** Used for all UI labels, navigation, and structural headers. It provides a clean, neutral balance to the complex data visualization.
-- **JetBrains Mono (Monospace):** Reserved for metrics, timestamps, logs, and terminal outputs. The monospaced nature ensures that columns of numbers remain perfectly aligned for quick scanning.
-- **Scaling:** On mobile devices, `headline-lg` should scale down to 20px. Data density is prioritized over large display type.
+## Navigation and layout
 
-## Layout & Spacing
+- **Desktop:** A 216px workspace rail can collapse to a 60px icon rail.
+- **Desktop and tablet from 900px:** The 216px rail can collapse to a 60px
+  icon rail. Each icon retains an accessible name and a native tooltip.
+- **Mobile below 900px:** The rail becomes a keyboard-accessible drawer with a
+  backdrop and Escape handling.
+- **Workspaces:** Overview, Services, Containers, History, and Alerts are
+  distinct views. Terminal remains a global bottom workbench and the rail
+  action expands/focuses it rather than creating a duplicate terminal page.
+- **Information density:** Use 4px-based spacing, 12px module gaps, and a
+  single internal dashboard scroller. Dense data may truncate safely, but raw
+  identifiers remain available through accessible labels and tooltips.
 
-The layout utilizes a **fluid grid** model optimized for wide-screen monitoring setups.
+## Components and interactions
 
-- **Grid:** A 12-column grid system is used for the desktop dashboard.
-- **Density:** Elements use a strict 4px baseline grid. Padding within cards is kept at a tight 12px or 16px to ensure the maximum number of data points are visible above the fold.
-- **Breakpoints:**
-  - **Desktop (1280px+):** 12 columns, 16px margins.
-  - **Tablet (768px - 1279px):** 6 columns, 12px margins.
-  - **Mobile (<767px):** 2 columns or single column stack, 8px margins.
+- Panels have matte graphite backgrounds, 1px rules, and 4–6px radii.
+- Hover uses only a subtle surface/border change. Never add glow, blur, or
+  vertical card movement.
+- Every keyboard focusable control has a clear amber `:focus-visible` ring;
+  touch layouts provide 44px targets for reachable controls.
+- Progress bars, charts, xterm.js, dialogs, menus, and logs use the same
+  graphite/amber token family. Health colours remain semantic inside charts
+  and progress states.
+- Motion is functional only: short opacity or colour feedback for a state
+  change, disabled under `prefers-reduced-motion`.
 
-## Elevation & Depth
+## Responsive and overflow rules
 
-Hierarchy is established through **Glassmorphism and Tonal Layers** rather than traditional shadows.
-
-1.  **Background Layer:** Solid `#0a0e17`.
-2.  **Card Layer:** Semi-transparent base with `backdrop-filter: blur(4px)`. This creates a subtle sense of "suspended" modules without obscuring dense telemetry.
-3.  **Active/Hover State:** Interactive cards increase the intensity of their cyan border, apply a subtle `box-shadow: 0 0 8px rgba(110, 226, 255, 0.3)`, and may lift 2px to signal keyboard or pointer focus.
-4.  **Overlays/Modals:** Higher transparency with a darker backdrop dimming (scrim) to focus the user on the task.
-
-## Shapes
-
-The shape language is "Soft-Industrial."
-
-- **Radius:** A consistent 0.25rem (4px) radius is applied to cards, buttons, and input fields. This prevents the UI from feeling too sharp/aggressive while maintaining a precise, engineered appearance.
-- **Interactive Elements:** Buttons and tags may use a slightly more aggressive rounding for distinction, but the primary structural units (containers) must remain at the `Soft` level.
-
-## Components
-
-### Buttons
-- **Primary:** Solid Cyan (#6EE2FF) with dark text. No border. On hover, apply an external glow.
-- **Ghost:** Transparent background, 1px cyan border. Used for secondary dashboard actions.
-
-### Cards & Modules
-- **Base:** Glassmorphic background with a 1px border (`rgba(110, 226, 255, 0.1)`).
-- **Header:** Integrated into the card with a bottom 1px divider.
-
-### Input Fields
-- **Style:** Dark backgrounds with a bottom-only 1px cyan border that expands to a full border on focus.
-- **Font:** Use Monospace for values, Sans-Serif for placeholders.
-
-### Chips / Status Badges
-- **Indicator:** Small circular "pulse" dot next to the label.
-- **Background:** Low-opacity version of the status color (e.g., Green at 10% alpha).
-
-### Data Visualizations
-- **Charts:** Use thin 1.5px lines for line charts. Use a vertical gradient fill (status color to transparent) for area charts.
-- **Grids:** Monospaced numbers, tight row heights (32px), alternate row shading for readability.
+- `html` and `body` clip horizontal overflow while the dashboard owns vertical
+  scrolling. No layout uses `100vw` for content width.
+- Long resource IDs are contextualised (node, type, resolved name or shortened
+  ID), wrapped safely, and expose their complete raw source on focus/hover.
+- History metadata uses a responsive grid so node, resource, resolution,
+  storage, and refresh controls cannot overlap or escape the panel.
+- Validate the interface at 320, 375, 414, 768, 900, 1280, and wide desktop
+  widths before release.
