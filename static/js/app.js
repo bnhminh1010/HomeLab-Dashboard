@@ -43,7 +43,6 @@ const WORKSPACES = new Set(["overview", "services", "containers", "history", "al
 const overviewSummary = {
   services: { total: 0, up: 0, down: 0, unknown: 0 },
   containers: { total: 0, running: 0, issue: 0, stopped: 0 },
-  alerts: { total: 0, critical: 0, warning: 0 },
 };
 
 const elements = Object.fromEntries([
@@ -297,8 +296,21 @@ function setOverviewHealth(label, state, detail) {
 function updateOverview() {
   const services = overviewSummary.services;
   const containers = overviewSummary.containers;
-  const alerts = overviewSummary.alerts;
-  setMetricText(elements["overview-services"], `${services.up} / ${services.total} UP`);
+  const attention = overviewController.update({
+    ...latestOverviewData,
+    services: latestOverviewData.services,
+    containers: latestOverviewData.containers,
+    alerts: latestOverviewData.alerts,
+    remote: selectedNodeId !== "local",
+    admin: sessionAdmin,
+    partial: snapshotPartial,
+    connection: connectionState,
+  });
+  const monitoredServices = Math.max(0, services.total - services.unknown);
+  setMetricText(
+    elements["overview-services"],
+    services.total && monitoredServices === 0 ? `${services.total} UNMONITORED` : `${services.up} / ${monitoredServices} UP`,
+  );
   setMetricText(
     elements["overview-services-detail"],
     services.down ? `${services.down} need attention` : services.unknown ? `${services.unknown} without a health probe` : services.total ? "All probes responding" : "No services configured",
@@ -315,24 +327,13 @@ function updateOverview() {
     setOverviewHealth("WAITING", "waiting", "Connecting to the dashboard");
   } else if (snapshotPartial) {
     setOverviewHealth("PARTIAL", "degraded", "The latest frame was size-limited; omitted inventory is not treated as healthy");
-  } else if (alerts.critical || services.down || containers.issue) {
-    const issueCount = alerts.critical + services.down + containers.issue;
-    setOverviewHealth("ACTION NEEDED", "down", `${issueCount} monitored ${issueCount === 1 ? "issue needs" : "issues need"} attention`);
-  } else if (alerts.warning) {
-    setOverviewHealth("DEGRADED", "degraded", `${alerts.warning} warning${alerts.warning === 1 ? "" : "s"} active`);
+  } else if (attention.critical) {
+    setOverviewHealth("ACTION NEEDED", "down", `${attention.total} monitored ${attention.total === 1 ? "issue needs" : "issues need"} attention`);
+  } else if (attention.warning) {
+    setOverviewHealth("DEGRADED", "degraded", `${attention.warning} warning${attention.warning === 1 ? "" : "s"} active`);
   } else {
     setOverviewHealth("HEALTHY", "up", services.unknown ? `${services.unknown} service${services.unknown === 1 ? " has" : "s have"} no health probe` : "All monitored systems operational");
   }
-  overviewController.update({
-    ...latestOverviewData,
-    services: latestOverviewData.services,
-    containers: latestOverviewData.containers,
-    alerts: latestOverviewData.alerts,
-    remote: selectedNodeId !== "local",
-    admin: sessionAdmin,
-    partial: snapshotPartial,
-    connection: connectionState,
-  });
 }
 
 function setSnapshotCompleteness(envelope) {
@@ -453,7 +454,7 @@ function renderSelectedSnapshot(payload, state = "online") {
   overviewSummary.services = servicesController.render(selectedServices);
   overviewSummary.containers = containersController.render(data.containers);
   historyController.setResources(data.containers, data.services);
-  overviewSummary.alerts = renderAlerts(data.alerts);
+  renderAlerts(data.alerts);
   setConnectionState(state, { collectedAt: latestCollectedAt });
 }
 
@@ -504,7 +505,7 @@ function renderUnavailableNode(state) {
   latestSelectedContainers = [];
   latestOverviewData = { system: {}, disks: [], services: latestServices, containers: [], alerts: [] };
   historyController.setResources([], []);
-  overviewSummary.alerts = renderAlerts([]);
+  renderAlerts([]);
   updateOverview();
 }
 

@@ -28,6 +28,10 @@ function containerState(container = {}) {
   return ["unhealthy", "crashed", "dead"].includes(health) ? health : state;
 }
 
+function serviceState(service = {}) {
+  return String(service?.status || service?.health?.status || "unknown").toLowerCase();
+}
+
 function incidentLevel(value) {
   const level = String(value || "").toLowerCase();
   if (["critical", "error", "crashed", "down"].includes(level)) return "critical";
@@ -105,10 +109,57 @@ function compactSource(source) {
   return value.length > 42 ? `${value.slice(0, 32)}…${value.slice(-7)}` : value;
 }
 
+function containerForSource(source, containers) {
+  const parts = String(source || "").split("/").filter(Boolean);
+  if (parts.length < 3 || parts[1]?.toLowerCase() !== "container") return null;
+  const target = parts.slice(2).join("/");
+  return containers.find((container) => {
+    const id = String(container?.id || container?.ID || "");
+    return id === target || (id.length >= 12 && (id.startsWith(target) || target.startsWith(id)));
+  }) || null;
+}
+
+export function collectOverviewIncidents({ alerts = [], services = [], containers = [], partial = false } = {}) {
+  const incidents = [];
+  if (partial) incidents.push({ kind: "frame", level: "warning", title: "Latest snapshot is partial", detail: "Some alert or inventory data was omitted; inspect the full alert workspace." });
+
+  for (const alert of Array.isArray(alerts) ? alerts : []) {
+    const alertLevel = String(alert?.level ?? alert?.severity ?? alert?.status ?? "").toLowerCase();
+    if (!ACTIONABLE_ALERTS.has(alertLevel)) continue;
+    const occurred = alert.occurredAt || alert.timestamp;
+    const container = containerForSource(alert.source, containers);
+    incidents.push({
+      kind: "alert",
+      level: incidentLevel(alertLevel),
+      title: String(alert.message || "System alert"),
+      detail: [container?.name || compactSource(alert.source), occurred ? timeAgo(occurred) : ""].filter(Boolean).join(" · "),
+      detailTitle: String(alert.source || "").trim(),
+      container,
+    });
+  }
+
+  for (const service of Array.isArray(services) ? services : []) {
+    const status = serviceState(service);
+    if (!PROBLEM_SERVICES.has(status)) continue;
+    incidents.push({ kind: "service", level: incidentLevel(status), title: `${service.name || "Service"} is ${status}`, detail: Number.isFinite(Number(service.latencyMs)) ? `${Math.round(Number(service.latencyMs))} ms · endpoint probe` : "Endpoint probe needs attention", service });
+  }
+
+  for (const container of Array.isArray(containers) ? containers : []) {
+    const state = containerState(container);
+    if (!PROBLEM_CONTAINERS.has(state)) continue;
+    incidents.push({ kind: "container", level: incidentLevel(state), title: `${container.name || "Container"} is ${state}`, detail: numeric(container.restartCount ?? container.restarts) ? `${numeric(container.restartCount ?? container.restarts)} restarts` : String(container.image || "Container runtime issue"), container });
+  }
+
+  return incidents.sort((left, right) => incidentPriority(left) - incidentPriority(right));
+}
+
 export function createOverviewController({ api, toast, onOpenAlerts, onOpenContainerTerminal }) {
+  const attentionPanel = document.getElementById("overview-attention");
+  const attentionTitle = document.getElementById("overview-attention-title");
   const attentionList = document.getElementById("overview-attention-list");
   const attentionEmpty = document.getElementById("overview-attention-empty");
   const attentionCount = document.getElementById("overview-attention-count");
+  const servicePanel = document.getElementById("overview-service-pulse");
   const serviceList = document.getElementById("overview-service-pulse-list");
   const serviceEmpty = document.getElementById("overview-service-pulse-empty");
   const serviceCount = document.getElementById("overview-service-pulse-count");
@@ -150,16 +201,6 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
       chart.update("none");
     }
     resolutionLabel.textContent = "24H · WAITING";
-  }
-
-  function containerForSource(source, containers) {
-    const parts = String(source || "").split("/").filter(Boolean);
-    if (parts.length < 3 || parts[1]?.toLowerCase() !== "container") return null;
-    const target = parts.slice(2).join("/");
-    return containers.find((container) => {
-      const id = String(container?.id || container?.ID || "");
-      return id === target || (id.length >= 12 && (id.startsWith(target) || target.startsWith(id)));
-    }) || null;
   }
 
   function actionButton(label, handler, disabled = false) {
@@ -221,40 +262,18 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
   }
 
   function renderAttention() {
-    const alerts = Array.isArray(latest.alerts) ? latest.alerts : [];
-    const containers = Array.isArray(latest.containers) ? latest.containers : [];
-    const services = Array.isArray(latest.services) ? latest.services : [];
-    const incidents = [];
-    if (latest.partial) incidents.push({ kind: "frame", level: "warning", title: "Latest snapshot is partial", detail: "Some alert or inventory data was omitted; inspect the full alert workspace." });
-    for (const alert of alerts) {
-      if (!ACTIONABLE_ALERTS.has(String(alert?.level || "").toLowerCase())) continue;
-      const level = incidentLevel(alert.level);
-      const occurred = alert.occurredAt || alert.timestamp;
-      const container = containerForSource(alert.source, containers);
-      incidents.push({
-        kind: "alert",
-        level,
-        title: String(alert.message || "System alert"),
-        detail: [container?.name || compactSource(alert.source), occurred ? timeAgo(occurred) : ""].filter(Boolean).join(" · "),
-        detailTitle: String(alert.source || "").trim(),
-        container,
-      });
-    }
-    for (const service of services) {
-      const status = String(service?.status || "unknown").toLowerCase();
-      if (!PROBLEM_SERVICES.has(status)) continue;
-      incidents.push({ kind: "service", level: incidentLevel(status), title: `${service.name || "Service"} is ${status}`, detail: Number.isFinite(Number(service.latencyMs)) ? `${Math.round(Number(service.latencyMs))} ms · endpoint probe` : "Endpoint probe needs attention", service });
-    }
-    for (const container of containers) {
-      const state = containerState(container);
-      if (!PROBLEM_CONTAINERS.has(state)) continue;
-      incidents.push({ kind: "container", level: incidentLevel(state), title: `${container.name || "Container"} is ${state}`, detail: numeric(container.restartCount ?? container.restarts) ? `${numeric(container.restartCount ?? container.restarts)} restarts` : String(container.image || "Container runtime issue"), container });
-    }
-    incidents.sort((left, right) => incidentPriority(left) - incidentPriority(right));
+    const incidents = collectOverviewIncidents(latest);
     const visible = incidents.slice(0, MAX_ATTENTION);
     attentionList.replaceChildren(...visible.map(createIncident));
     attentionCount.textContent = String(incidents.length);
     attentionEmpty.hidden = visible.length > 0;
+    attentionPanel?.classList.toggle("is-empty", visible.length === 0);
+    if (attentionTitle) attentionTitle.textContent = visible.length ? "NEEDS ATTENTION" : "ALL CLEAR";
+    return {
+      total: incidents.length,
+      critical: incidents.filter((incident) => incident.level === "critical").length,
+      warning: incidents.filter((incident) => incident.level === "warning").length,
+    };
   }
 
   function renderServicePulse() {
@@ -263,21 +282,25 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
     const probed = services
       .filter((service) => String(service?.probeUrl || service?.probeURL || "").trim())
       .sort((left, right) => {
-        const leftProblem = PROBLEM_SERVICES.has(String(left?.status || "").toLowerCase()) ? 0 : 1;
-        const rightProblem = PROBLEM_SERVICES.has(String(right?.status || "").toLowerCase()) ? 0 : 1;
+        const leftProblem = PROBLEM_SERVICES.has(serviceState(left)) ? 0 : 1;
+        const rightProblem = PROBLEM_SERVICES.has(serviceState(right)) ? 0 : 1;
         return leftProblem - rightProblem || numeric(right?.latencyMs) - numeric(left?.latencyMs);
       })
       .slice(0, MAX_ATTENTION);
-    const rows = probed.map((service) => ({
-      kind: "service",
-      level: PROBLEM_SERVICES.has(String(service?.status || "").toLowerCase()) ? incidentLevel(service.status) : "healthy",
-      title: String(service?.name || "Service"),
-      detail: `${String(service?.status || "unknown").toUpperCase()} · ${Number.isFinite(Number(service?.latencyMs)) ? `${Math.round(Number(service.latencyMs))} ms` : "latency unavailable"}`,
-      service,
-    }));
+    const rows = probed.map((service) => {
+      const status = serviceState(service);
+      return {
+        kind: "service",
+        level: PROBLEM_SERVICES.has(status) ? incidentLevel(status) : "healthy",
+        title: String(service?.name || "Service"),
+        detail: `${status.toUpperCase()} · ${Number.isFinite(Number(service?.latencyMs)) ? `${Math.round(Number(service.latencyMs))} ms` : "latency unavailable"}`,
+        service,
+      };
+    });
     serviceList.replaceChildren(...rows.map(createIncident));
     serviceCount.textContent = String(probed.length);
     serviceEmpty.hidden = rows.length > 0;
+    if (servicePanel) servicePanel.hidden = rows.length === 0;
     if (latest.remote && !rows.length) serviceEmpty.textContent = "Service probes are managed from the Local node.";
     else serviceEmpty.textContent = "No services with a configured probe.";
   }
@@ -348,9 +371,10 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
   return {
     update(next) {
       latest = { ...latest, ...next };
-      renderAttention();
+      const attention = renderAttention();
       renderServicePulse();
       if (active) loadTrend();
+      return attention;
     },
     setNode(nextNode, label = "") {
       const next = nextNode || "local";

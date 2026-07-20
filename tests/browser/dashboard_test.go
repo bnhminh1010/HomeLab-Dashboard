@@ -23,19 +23,24 @@ import (
 )
 
 type layoutReport struct {
-	ScrollWidth     float64  `json:"scrollWidth"`
-	ViewportWidth   float64  `json:"viewportWidth"`
-	ActivePanels    int      `json:"activePanels"`
-	ActiveWorkspace string   `json:"activeWorkspace"`
-	TerminalHeight  float64  `json:"terminalHeight"`
-	ToolbarHeight   float64  `json:"toolbarHeight"`
-	TerminalBody    float64  `json:"terminalBody"`
-	Collapsed       bool     `json:"collapsed"`
-	ToggleExpanded  string   `json:"toggleExpanded"`
-	HasXterm        bool     `json:"hasXterm"`
-	Overflow        []string `json:"overflow"`
-	TouchFailures   []string `json:"touchFailures"`
-	A11yFailures    []string `json:"a11yFailures"`
+	ScrollWidth           float64  `json:"scrollWidth"`
+	ViewportWidth         float64  `json:"viewportWidth"`
+	ActivePanels          int      `json:"activePanels"`
+	ActiveWorkspace       string   `json:"activeWorkspace"`
+	TerminalHeight        float64  `json:"terminalHeight"`
+	ToolbarHeight         float64  `json:"toolbarHeight"`
+	TerminalBody          float64  `json:"terminalBody"`
+	Collapsed             bool     `json:"collapsed"`
+	ToggleExpanded        string   `json:"toggleExpanded"`
+	HasXterm              bool     `json:"hasXterm"`
+	Overflow              []string `json:"overflow"`
+	TouchFailures         []string `json:"touchFailures"`
+	A11yFailures          []string `json:"a11yFailures"`
+	OverviewOuterColumns  int      `json:"overviewOuterColumns"`
+	OverviewLayoutColumns int      `json:"overviewLayoutColumns"`
+	SystemMetricColumns   int      `json:"systemMetricColumns"`
+	SystemSparklines      int      `json:"systemSparklines"`
+	BrandTruncated        bool     `json:"brandTruncated"`
 }
 
 func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
@@ -108,6 +113,10 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
 				chromedp.WaitReady(".xterm", chromedp.ByQuery),
 				chromedp.Evaluate(`(() => {
           const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+          const gridColumns = (selector) => {
+            const value = getComputedStyle(document.querySelector(selector)).gridTemplateColumns.trim();
+            return value && value !== 'none' ? value.split(/\s+/).length : 0;
+          };
           const isVisibleInViewport = (node) => {
             const style = getComputedStyle(node);
             const bounds = node.getBoundingClientRect();
@@ -120,6 +129,15 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
             viewportWidth: window.innerWidth,
             activePanels: activePanels.length,
             activeWorkspace: activePanels[0]?.dataset.workspacePanel || '',
+            overviewOuterColumns: gridColumns('#workspace-overview'),
+            overviewLayoutColumns: gridColumns('.overview-layout'),
+            systemMetricColumns: gridColumns('#system-card'),
+            systemSparklines: [...document.querySelectorAll('#system-card .sparkline')]
+              .filter((node) => getComputedStyle(node).display !== 'none').length,
+			brandTruncated: (() => {
+			  const brand = document.querySelector('.brand-name');
+			  return brand.scrollWidth > brand.clientWidth + 1;
+			})(),
             terminalHeight: rect('#terminal-panel').height,
             toolbarHeight: rect('#terminal-panel .terminal-toolbar').height,
             terminalBody: rect('#terminal-body').height,
@@ -135,7 +153,7 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
               })
               .slice(0, 10)
               .map((node) => node.tagName.toLowerCase() + '#' + node.id + '.' + String(node.className)),
-            touchFailures: [...document.querySelectorAll('#sidebar-open, #sidebar-collapse, #terminal-toggle, .icon-button')]
+            touchFailures: [...document.querySelectorAll('#sidebar-open, #sidebar-collapse, #terminal-toggle, .icon-button, #overview-alerts-open, #overview-trend-refresh')]
               .filter((node) => {
                 const bounds = node.getBoundingClientRect();
                 return isVisibleInViewport(node)
@@ -202,6 +220,27 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
 			}
 			if report.ActivePanels != 1 || report.ActiveWorkspace != "overview" || !report.HasXterm {
 				t.Fatalf("cold load did not isolate the Overview workspace or initialize xterm: %+v", report)
+			}
+			if report.OverviewOuterColumns != 1 {
+				t.Fatalf("overview outer workspace must always occupy one grid column: %+v", report)
+			}
+			if viewport.width >= 900 && report.OverviewLayoutColumns != 2 {
+				t.Fatalf("overview must retain its two-pane workbench layout from 900px upward: %+v", report)
+			}
+			if viewport.width < 900 && report.OverviewLayoutColumns != 1 {
+				t.Fatalf("overview must collapse to one content column below 900px: %+v", report)
+			}
+			if report.SystemSparklines != 0 {
+				t.Fatalf("overview system snapshot must not duplicate the dedicated resource trend with sparklines: %+v", report)
+			}
+			if viewport.width >= 1280 && report.SystemMetricColumns != 3 {
+				t.Fatalf("wide overview system snapshot must use the compact three-column metric grid: %+v", report)
+			}
+			if viewport.width >= 560 && viewport.width < 900 && report.SystemMetricColumns != 3 {
+				t.Fatalf("tablet overview system snapshot must use the compact three-column metric grid: %+v", report)
+			}
+			if viewport.width >= 600 && report.BrandTruncated {
+				t.Fatalf("tablet and desktop headers must retain the full dashboard name: %+v", report)
 			}
 			if !report.Collapsed || report.ToggleExpanded != "false" || report.TerminalBody != 0 || report.TerminalHeight < 40 || report.TerminalHeight > 52 || report.ToolbarHeight < 40 || report.ToolbarHeight > 52 {
 				t.Fatalf("cold terminal must be a collapsed 44px-ish status bar: %+v", report)
@@ -569,23 +608,34 @@ func TestDemoOverviewTriageActionsAndTrend(t *testing.T) {
 	defer timeout()
 
 	var report struct {
-		Brand              string `json:"brand"`
-		HasRocket          bool   `json:"hasRocket"`
-		AttentionTotal     int    `json:"attentionTotal"`
-		AttentionVisible   int    `json:"attentionVisible"`
-		FirstIsCritical    bool   `json:"firstIsCritical"`
-		HasLogsAction      bool   `json:"hasLogsAction"`
-		PulseRows          int    `json:"pulseRows"`
-		TrendPoints        int    `json:"trendPoints"`
-		TrendSeries        int    `json:"trendSeries"`
-		AttentionIsQuiet   bool   `json:"attentionIsQuiet"`
-		SourceCompacted    bool   `json:"sourceCompacted"`
-		AlertWorkspaceOpen bool   `json:"alertWorkspaceOpen"`
+		Brand               string `json:"brand"`
+		HasRocket           bool   `json:"hasRocket"`
+		AttentionTotal      int    `json:"attentionTotal"`
+		AttentionVisible    int    `json:"attentionVisible"`
+		FirstIsCritical     bool   `json:"firstIsCritical"`
+		HasLogsAction       bool   `json:"hasLogsAction"`
+		PulseRows           int    `json:"pulseRows"`
+		TrendPoints         int    `json:"trendPoints"`
+		TrendSeries         int    `json:"trendSeries"`
+		AttentionIsQuiet    bool   `json:"attentionIsQuiet"`
+		SourceCompacted     bool   `json:"sourceCompacted"`
+		AlertWorkspaceOpen  bool   `json:"alertWorkspaceOpen"`
+		HealthMatchesTriage bool   `json:"healthMatchesTriage"`
+		NestedServiceHealth bool   `json:"nestedServiceHealth"`
 	}
 	err = chromedp.Run(ctx,
 		chromedp.EmulateViewport(1440, 900),
 		chromedp.Navigate(server.URL+"/?demo=1&edge=1"),
 		chromedp.WaitVisible("#overview-attention-list .overview-action-item", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+          import('/js/overview.js').then(({ collectOverviewIncidents }) => {
+            window.__nestedServiceHealthIncident = collectOverviewIncidents({
+              services: [{ name: 'Nested service fixture', health: { status: 'down' } }],
+            }).some((incident) => incident.kind === 'service' && incident.title === 'Nested service fixture is down');
+          });
+        })()`, nil),
+		chromedp.Poll(`typeof window.__nestedServiceHealthIncident === 'boolean'`, nil,
+			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Poll(`(() => {
           const chart = window.Chart?.getChart(document.querySelector('#overview-trend-chart'));
           return (chart?.data?.datasets?.length || 0) === 3 && (chart?.data?.datasets?.[0]?.data?.length || 0) > 0;
@@ -608,7 +658,14 @@ func TestDemoOverviewTriageActionsAndTrend(t *testing.T) {
               const detail = item.querySelector('.overview-action-detail');
               return detail?.title?.includes('8d439abf2f349e6c2d35f0df8c139738571c3ba6d7eefcb732c8ee86f67b0a91')
                 && !detail.textContent.includes('8d439abf2f349e6c2d35f0df8c139738571c3ba6d7eefcb732c8ee86f67b0a91');
-            })
+            }),
+            healthMatchesTriage: (() => {
+              const count = Number(document.querySelector('#overview-attention-count')?.textContent || 0);
+              const health = document.querySelector('#overview-health')?.textContent.trim() || '';
+              const detail = document.querySelector('#overview-health-detail')?.textContent.trim() || '';
+              return health !== 'ACTION NEEDED' || detail.startsWith(String(count) + ' monitored');
+            })(),
+            nestedServiceHealth: window.__nestedServiceHealthIncident === true,
           };
         })()`, &report),
 		chromedp.Poll(`(() => [...document.querySelectorAll('#overview-attention-list button')]
@@ -624,7 +681,7 @@ func TestDemoOverviewTriageActionsAndTrend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Brand != "HOMELAB DASHBOARD" || report.HasRocket || report.AttentionTotal < 50 || report.AttentionVisible == 0 || report.AttentionVisible > 5 || !report.FirstIsCritical || !report.HasLogsAction || report.PulseRows == 0 || report.TrendPoints == 0 || report.TrendSeries != 3 || !report.AttentionIsQuiet || !report.SourceCompacted || !report.AlertWorkspaceOpen {
+	if report.Brand != "HOMELAB DASHBOARD" || report.HasRocket || report.AttentionTotal < 50 || report.AttentionVisible == 0 || report.AttentionVisible > 5 || !report.FirstIsCritical || !report.HasLogsAction || report.PulseRows == 0 || report.TrendPoints == 0 || report.TrendSeries != 3 || !report.AttentionIsQuiet || !report.SourceCompacted || !report.AlertWorkspaceOpen || !report.HealthMatchesTriage || !report.NestedServiceHealth {
 		t.Fatalf("overview triage/trend regression: %+v", report)
 	}
 
