@@ -149,7 +149,7 @@ svg { display: block; }
   gap: 10px;
   text-decoration: none;
 }
-.brand-mark { width: 24px; height: 24px; color: var(--cyan); filter: drop-shadow(0 0 8px rgba(110, 226, 255, 0.45)); }
+.brand-mark { width: 24px; height: 24px; color: var(--cyan); }
 .brand-name {
   overflow: hidden;
   color: #d7f7ff;
