@@ -41,7 +41,7 @@ const overviewSummary = {
 };
 
 const elements = Object.fromEntries([
-  "system-card", "system-title", "system-status", "header-hostname", "freshness", "freshness-text",
+  "system-card", "system-title", "system-hostname", "system-status", "header-hostname", "freshness", "freshness-text",
   "offline-banner", "offline-message", "session-user", "session-role", "demo-badge", "cpu-percent",
   "cpu-progress", "cpu-detail", "ram-percent", "ram-progress", "ram-detail", "disk-percent",
   "disk-progress", "disk-detail", "disk-device", "disk-warning", "network-interface", "network-down",
@@ -197,7 +197,7 @@ function setConnectionState(state, detail = {}) {
     message.textContent = hasData ? "Connection lost. Retrying in 3 seconds; last snapshot preserved." : "Unable to reach the dashboard server. Retrying…";
     setSystemBadge("OFFLINE", "down");
     if (!hasData) {
-      setText(elements["system-title"], "Unable to reach server");
+      setText(elements["system-hostname"], "Unable to reach server");
       setText(elements["cpu-detail"], "Waiting for the dashboard backend");
     }
   }
@@ -281,7 +281,7 @@ function renderUnavailableNode(state) {
   latestCollectedAt = state?.lastSeenAt || state?.node?.lastSeenAt || null;
   setSnapshotCompleteness(null);
   setConnectionState("offline");
-  setText(elements["system-title"], name || "Remote node");
+  setText(elements["system-hostname"], name || "Remote node");
   setText(elements["header-hostname"], state?.node?.hostname || name || "remote");
   setText(elements["cpu-percent"], "—");
   setText(elements["cpu-detail"], "No remote metrics snapshot received");
@@ -364,7 +364,7 @@ function renderSystem(system, disks, network) {
   const maxIo = Math.max(readRate, writeRate, 1);
 
   elements["system-card"].setAttribute("aria-busy", "false");
-  setText(elements["system-title"], hostname);
+  setText(elements["system-hostname"], hostname);
   setText(elements["header-hostname"], hostname);
   setText(elements["cpu-percent"], percent(cpuUsage, 1));
   const cpuMaximum = cpuUsage > 100 ? Math.max(100, cpuCores * 100, cpuUsage) : 100;
