@@ -12,7 +12,7 @@
   --text-inverse: #0a0e17;
   --cyan: #6ee2ff;
   --cyan-soft: rgba(110, 226, 255, 0.1);
-  --cyan-glow: 0 0 20px rgba(110, 226, 255, 0.15);
+  --cyan-glow: 0 0 8px rgba(110, 226, 255, 0.15);
   --green: #22c55e;
   --yellow: #eab308;
   --orange: #f97316;
