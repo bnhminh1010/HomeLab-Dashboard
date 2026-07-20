@@ -267,7 +267,7 @@ svg { display: block; }
 .health-overview {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr));
   min-height: 78px;
   overflow: hidden;
 }
@@ -280,7 +280,7 @@ svg { display: block; }
   border-left: 1px solid var(--border);
 }
 .health-cell:first-of-type { border-left: 0; }
-.health-cell-primary { background: linear-gradient(110deg, rgba(110, 226, 255, 0.06), transparent); }
+.health-cell-primary { grid-column: auto; background: linear-gradient(110deg, rgba(110, 226, 255, 0.06), transparent); }
 .health-label { color: var(--text-dim); font: 11px/1.2 var(--font-mono); letter-spacing: 0.1em; }
 .health-value { display: inline-flex; min-width: 0; align-items: center; gap: 7px; color: var(--text-primary); font-size: 14px; letter-spacing: 0.02em; }
 .health-value[data-state="up"], .health-value[data-state="online"] { color: var(--green); }
