@@ -101,7 +101,7 @@ spacing:
 This design system targets high-performance DevOps environments where information density and rapid error detection are critical. The visual narrative combines a "Cyberpunk Terminal" aesthetic with modern Glassmorphism.
 
 The personality is technical, high-fidelity, and authoritative. It utilizes deep layering to separate system background from interactive modules. The style is defined by:
-- **Glassmorphism:** Modules use semi-transparent backgrounds with high backdrop-blur values to maintain legibility over ambient glow effects.
+- **Glassmorphism:** Modules use semi-transparent backgrounds with backdrop-blur(4px) to maintain legibility over ambient glow effects.
 - **Cybernetic Accents:** Thin, high-contrast borders and neon "glow" states indicate health and activity.
 - **High-Density:** Minimal whitespace between functional elements to maximize data visualization real-estate.
 

@@ -334,8 +334,8 @@ svg { display: block; }
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-card);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.015), 0 10px 28px rgba(0, 0, 0, 0.12);
 }
 
