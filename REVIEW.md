@@ -200,6 +200,28 @@ nghiệp có HA.
 - Không có dependency, font mạng, router hay API/backend mới. Thay đổi là UI
   vanilla và asset static được Go embed như trước.
 
+### 9. Overview vận hành: triage, pulse và trend ngắn hạn (2026-07-21)
+
+- Brand header dùng text-only **HOMELAB DASHBOARD**; rocket/brand mark cũ đã
+  được bỏ để giữ header trung tính và nhất quán với graphite workspace.
+- Overview giữ health strip, nhưng ưu tiên một hàng đợi **Needs attention** có
+  tối đa năm mục. Hàng đợi chỉ nhận alert warning/critical/error, service probe
+  lỗi và container runtime bất thường; alert `info` không bị trình bày sai như
+  một incident. Mỗi dòng tái sử dụng action an toàn đã có: mở Alerts, Logs,
+  Container Shell (chỉ admin, container đang chạy và không protected), hoặc mở
+  URL service hợp lệ.
+- **Service pulse** chỉ hiển thị service có probe, xếp service lỗi trước rồi
+  theo latency. Khi đang xem remote node, nhãn nói rõ đây là local endpoint
+  probes, tránh ngụ ý sai rằng agent remote cung cấp inventory service.
+- **Resource trend** dùng endpoint history 24 giờ hiện hữu với giới hạn 60
+  điểm. Nó chỉ request khi Overview active, hủy request khi rời view/đổi node,
+  cache theo node năm phút và có refresh thủ công. Không có API, schema,
+  storage hay dependency mới.
+- Browser regression bổ sung kiểm tra brand text-only, queue tối đa năm dòng,
+  action Logs từ Overview, chuyển sang Alerts, ba chuỗi trend và touch target /
+  overflow ở 375px. List triage không dùng `aria-live`, nên snapshot định kỳ
+  không tạo thông báo screen reader liên tục.
+
 ## Giới hạn còn lại và rủi ro vận hành
 
 ### Giới hạn theo thiết kế

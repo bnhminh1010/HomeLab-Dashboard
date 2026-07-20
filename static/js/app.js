@@ -6,6 +6,7 @@ import { bytes, clamp, number, percent, rate, setProgress, setText, timeAgo, upt
 import { createHistoryController } from "./history.js";
 import { createMetricCharts } from "./metrics.js";
 import { createNodesController } from "./nodes.js";
+import { createOverviewController } from "./overview.js";
 import { createServicesController } from "./services.js";
 import { createSettingsController } from "./settings.js";
 import { MetricsStream } from "./socket.js";
@@ -34,6 +35,7 @@ let sessionAdmin = false;
 let sessionHostShellCapability = false;
 let snapshotPartial = false;
 let snapshotPartialSources = [];
+let latestOverviewData = { system: {}, disks: [], services: [], containers: [], alerts: [] };
 const alertNodes = new Map();
 const WORKSPACE_STORAGE_KEY = "homelab.workspace.active";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "homelab.sidebar.collapsed";
@@ -77,12 +79,19 @@ const servicesController = createServicesController({
   toast,
   onChanged: (services, summary) => {
     latestServices = services;
+    latestOverviewData = { ...latestOverviewData, services };
     overviewSummary.services = summary;
     if (selectedNodeId === "local") historyController.setResources(latestSelectedContainers, latestServices);
     updateOverview();
   },
 });
 const historyController = createHistoryController({ api, demo, toast });
+const overviewController = createOverviewController({
+  api,
+  toast,
+  onOpenAlerts: () => document.querySelector("[data-workspace='alerts']")?.click(),
+  onOpenContainerTerminal: (container, mode, invoker) => containersController.open(container, mode, invoker),
+});
 const alertsController = createAlertsController({ api, demo, toast });
 const nodesController = createNodesController({
   api,
@@ -195,6 +204,8 @@ function createWorkspaceNavigation() {
     }
     storeValue(WORKSPACE_STORAGE_KEY, workspace);
     if (workspace === "history") window.requestAnimationFrame(() => historyController.activate());
+    if (workspace === "overview") window.requestAnimationFrame(() => overviewController.activate());
+    else overviewController.deactivate();
     if (focus) focusWorkspace(workspace);
   }
 
@@ -312,6 +323,16 @@ function updateOverview() {
   } else {
     setOverviewHealth("HEALTHY", "up", services.unknown ? `${services.unknown} service${services.unknown === 1 ? " has" : "s have"} no health probe` : "All monitored systems operational");
   }
+  overviewController.update({
+    ...latestOverviewData,
+    services: latestOverviewData.services,
+    containers: latestOverviewData.containers,
+    alerts: latestOverviewData.alerts,
+    remote: selectedNodeId !== "local",
+    admin: sessionAdmin,
+    partial: snapshotPartial,
+    connection: connectionState,
+  });
 }
 
 function setSnapshotCompleteness(envelope) {
@@ -427,7 +448,9 @@ function renderSelectedSnapshot(payload, state = "online") {
   renderSystem(data.system, data.disks, data.network);
   if (selectedNodeId === "local") latestServices = data.services;
   latestSelectedContainers = data.containers;
-  overviewSummary.services = servicesController.render(selectedNodeId === "local" ? data.services : latestServices);
+  const selectedServices = selectedNodeId === "local" ? data.services : latestServices;
+  latestOverviewData = { system: data.system, disks: data.disks, services: selectedServices, containers: data.containers, alerts: data.alerts };
+  overviewSummary.services = servicesController.render(selectedServices);
   overviewSummary.containers = containersController.render(data.containers);
   historyController.setResources(data.containers, data.services);
   overviewSummary.alerts = renderAlerts(data.alerts);
@@ -441,6 +464,7 @@ function renderLocalSnapshot(payload) {
   if (selectedNodeId === "local") renderSelectedSnapshot(payload, "online");
   else {
     overviewSummary.services = servicesController.render(latestServices);
+    latestOverviewData = { ...latestOverviewData, services: latestServices };
     updateOverview();
   }
 }
@@ -478,6 +502,7 @@ function renderUnavailableNode(state) {
   overviewSummary.services = servicesController.render(latestServices);
   overviewSummary.containers = containersController.render([]);
   latestSelectedContainers = [];
+  latestOverviewData = { system: {}, disks: [], services: latestServices, containers: [], alerts: [] };
   historyController.setResources([], []);
   overviewSummary.alerts = renderAlerts([]);
   updateOverview();
@@ -492,6 +517,7 @@ function selectNode({ id, state }) {
   document.body.classList.toggle("remote-node", remote);
   const nodeLabel = state?.node?.displayName || state?.node?.hostname || selectedNodeId;
   containersController.setNode(selectedNodeId);
+  overviewController.setNode(selectedNodeId, nodeLabel);
   terminal.setNode?.(selectedNodeId, nodeLabel);
   if (nodeChanged) {
     charts.reset();
@@ -698,6 +724,7 @@ function applySession(session = {}) {
   nodesController.setAdmin(admin);
   settingsController.setAdmin(admin);
   terminal.setHostShellCapability(sessionHostShellCapability);
+  updateOverview();
 }
 
 function handleLocalConnectionState(state, detail = {}) {
@@ -804,6 +831,7 @@ window.addEventListener("beforeunload", () => {
   stopDemoFeed?.();
   terminal.disconnect(false);
   charts.destroy();
+  overviewController.destroy();
   historyController.destroy();
   nodesController.destroy();
   window.clearInterval(sessionKeepalive);

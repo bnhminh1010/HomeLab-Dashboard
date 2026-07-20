@@ -72,6 +72,19 @@ pixel layout is reproduced.
 - **Workspaces:** Overview, Services, Containers, History, and Alerts are
   distinct views. Terminal remains a global bottom workbench and the rail
   action expands/focuses it rather than creating a duplicate terminal page.
+- **Overview triage:** Overview starts with the existing health strip, then
+  places a bounded **Needs attention** queue and **Service pulse** ahead of the
+  host snapshot. The queue orders alert severity, failed service probes, then
+  container runtime issues, so operators see the next useful action before
+  dense telemetry. It shows at most five rows while retaining the full Alerts
+  workspace as the source of record.
+- **History preview:** The Overview resource trend requests the existing
+  24-hour system history only when that workspace becomes active. Results are
+  cached for five minutes per node, refreshed explicitly when needed, and show
+  CPU, RAM, and disk utilisation without creating a second storage/API path.
+- **Remote context:** A remote host changes the host snapshot and resource
+  trend only. Service probes remain dashboard-local and are labelled as such;
+  the UI must not imply remote service inventory where none exists.
 - **Information density:** Use 4px-based spacing, 12px module gaps, and a
   single internal dashboard scroller. Dense data may truncate safely, but raw
   identifiers remain available through accessible labels and tooltips.
@@ -83,6 +96,9 @@ pixel layout is reproduced.
   vertical card movement.
 - Every keyboard focusable control has a clear amber `:focus-visible` ring;
   touch layouts provide 44px targets for reachable controls.
+- Triage actions reuse the established service URL validation and the existing
+  container Logs/Shell terminal path. Shell remains unavailable to viewers,
+  protected containers, and non-running containers.
 - Progress bars, charts, xterm.js, dialogs, menus, and logs use the same
   graphite/amber token family. Health colours remain semantic inside charts
   and progress states.

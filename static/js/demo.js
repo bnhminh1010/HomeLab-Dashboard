@@ -85,6 +85,25 @@ export class DemoApi {
 
   async snapshot() { return snapshot(); }
 
+  async systemHistory(node, range) {
+    const count = 60;
+    const span = 24 * 60 * 60 * 1000;
+    const points = Array.from({ length: count }, (_, index) => {
+      const angle = index / 6;
+      const memoryPercent = 38 + Math.sin(index / 11) * 5;
+      const diskPercent = edgeMode ? 93 : 82;
+      return {
+        at: new Date(Date.now() - span + index * span / (count - 1)).toISOString(),
+        cpuPercent: edgeMode ? 74 + Math.sin(angle) * 18 : 24 + Math.sin(angle) * 12,
+        memoryUsedBytes: memoryPercent / 100 * 17_179_869_184,
+        memoryTotalBytes: 17_179_869_184,
+        diskUsedBytes: diskPercent / 100 * 493_921_239_040,
+        diskTotalBytes: 493_921_239_040,
+      };
+    });
+    return { resolution: "raw", sourcePointCount: points.length, points, node: node || "local", range: range || "24h" };
+  }
+
   async createService(service) {
     const created = { ...service, id: `demo-${crypto.randomUUID()}`, status: service.probeUrl ? "up" : "unknown", lastCheckedAt: service.probeUrl ? nowIso() : null, latencyMs: service.probeUrl ? 9 : null };
     demoServices.push(created);

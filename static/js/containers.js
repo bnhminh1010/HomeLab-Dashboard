@@ -193,14 +193,15 @@ export function createContainersController({ terminal, toast }) {
   }
 
   async function openTerminal(control, container, mode) {
-    if (!container) return;
+    if (!control || !container) return;
     control.disabled = true;
     try {
       await terminal.open({ mode, containerId: container.id, containerName: container.name, nodeId, invoker: control });
     } catch (error) {
       toast(error?.message || `Unable to open ${mode}.`, "error");
     } finally {
-      updateItem(control.closest(".container-item"), control.closest(".container-item").container);
+      const item = control.closest(".container-item");
+      if (item?.container) updateItem(item, item.container);
     }
   }
 
@@ -213,6 +214,9 @@ export function createContainersController({ terminal, toast }) {
     },
     setNode(value) {
       nodeId = value || "local";
+    },
+    open(container, mode, invoker) {
+      return openTerminal(invoker, container, mode);
     },
   };
 }

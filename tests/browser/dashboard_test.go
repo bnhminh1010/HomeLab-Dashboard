@@ -545,6 +545,120 @@ func TestDemoEdgeAlertsAndHistoryDoNotOverflow(t *testing.T) {
 	}
 }
 
+func TestDemoOverviewTriageActionsAndTrend(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+
+	ctx, cancel := chromedp.NewContext(allocator)
+	defer cancel()
+	ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
+	defer timeout()
+
+	var report struct {
+		Brand              string `json:"brand"`
+		HasRocket          bool   `json:"hasRocket"`
+		AttentionTotal     int    `json:"attentionTotal"`
+		AttentionVisible   int    `json:"attentionVisible"`
+		FirstIsCritical    bool   `json:"firstIsCritical"`
+		HasLogsAction      bool   `json:"hasLogsAction"`
+		PulseRows          int    `json:"pulseRows"`
+		TrendPoints        int    `json:"trendPoints"`
+		TrendSeries        int    `json:"trendSeries"`
+		AttentionIsQuiet   bool   `json:"attentionIsQuiet"`
+		SourceCompacted    bool   `json:"sourceCompacted"`
+		AlertWorkspaceOpen bool   `json:"alertWorkspaceOpen"`
+	}
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(1440, 900),
+		chromedp.Navigate(server.URL+"/?demo=1&edge=1"),
+		chromedp.WaitVisible("#overview-attention-list .overview-action-item", chromedp.ByQuery),
+		chromedp.Poll(`(() => {
+          const chart = window.Chart?.getChart(document.querySelector('#overview-trend-chart'));
+          return (chart?.data?.datasets?.length || 0) === 3 && (chart?.data?.datasets?.[0]?.data?.length || 0) > 0;
+        })()`, nil, chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(3*time.Second)),
+		chromedp.Evaluate(`(() => {
+          const attention = [...document.querySelectorAll('#overview-attention-list .overview-action-item')];
+          const chart = window.Chart?.getChart(document.querySelector('#overview-trend-chart'));
+          return {
+            brand: document.querySelector('.brand-name')?.textContent.trim() || '',
+            hasRocket: Boolean(document.querySelector('.brand-mark')),
+            attentionTotal: Number(document.querySelector('#overview-attention-count')?.textContent || 0),
+            attentionVisible: attention.length,
+            firstIsCritical: attention[0]?.dataset.level === 'critical',
+            hasLogsAction: attention.some((item) => [...item.querySelectorAll('button')].some((button) => button.textContent.trim() === 'LOGS')),
+            pulseRows: document.querySelectorAll('#overview-service-pulse-list .overview-action-item').length,
+            trendPoints: chart?.data?.datasets?.[0]?.data?.length || 0,
+            trendSeries: chart?.data?.datasets?.length || 0,
+            attentionIsQuiet: !document.querySelector('#overview-attention-list').hasAttribute('aria-live'),
+            sourceCompacted: attention.some((item) => {
+              const detail = item.querySelector('.overview-action-detail');
+              return detail?.title?.includes('8d439abf2f349e6c2d35f0df8c139738571c3ba6d7eefcb732c8ee86f67b0a91')
+                && !detail.textContent.includes('8d439abf2f349e6c2d35f0df8c139738571c3ba6d7eefcb732c8ee86f67b0a91');
+            })
+          };
+        })()`, &report),
+		chromedp.Poll(`(() => [...document.querySelectorAll('#overview-attention-list button')]
+          .some((button) => button.textContent.trim() === 'LOGS'))()`, nil,
+			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`([...document.querySelectorAll('#overview-attention-list button')]
+          .find((button) => button.textContent.trim() === 'LOGS'))?.click()`, nil),
+		chromedp.WaitVisible("#log-viewer", chromedp.ByQuery),
+		chromedp.Click("#overview-alerts-open", chromedp.ByQuery),
+		chromedp.WaitVisible("#workspace-alerts", chromedp.ByQuery),
+		chromedp.Evaluate(`!document.querySelector('#workspace-alerts').hidden`, &report.AlertWorkspaceOpen),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Brand != "HOMELAB DASHBOARD" || report.HasRocket || report.AttentionTotal < 50 || report.AttentionVisible == 0 || report.AttentionVisible > 5 || !report.FirstIsCritical || !report.HasLogsAction || report.PulseRows == 0 || report.TrendPoints == 0 || report.TrendSeries != 3 || !report.AttentionIsQuiet || !report.SourceCompacted || !report.AlertWorkspaceOpen {
+		t.Fatalf("overview triage/trend regression: %+v", report)
+	}
+
+	mobileCtx, cancelMobile := chromedp.NewContext(allocator)
+	defer cancelMobile()
+	mobileCtx, mobileTimeout := context.WithTimeout(mobileCtx, 25*time.Second)
+	defer mobileTimeout()
+	var mobile struct {
+		Overflow      bool `json:"overflow"`
+		TouchFailures int  `json:"touchFailures"`
+	}
+	err = chromedp.Run(mobileCtx,
+		chromedp.EmulateViewport(375, 812),
+		chromedp.Navigate(server.URL+"/?demo=1&edge=1"),
+		chromedp.WaitVisible("#overview-attention-list .overview-action-item", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => ({
+          overflow: document.documentElement.scrollWidth > innerWidth + 1,
+          touchFailures: [...document.querySelectorAll('#overview-attention .text-button, #overview-trend-refresh')]
+            .filter((button) => {
+              const rect = button.getBoundingClientRect();
+              const style = getComputedStyle(button);
+              return style.display !== 'none' && rect.width > 0 && rect.height > 0
+                && rect.left < innerWidth && rect.right > 0 && (rect.width < 44 || rect.height < 44);
+            }).length
+        }))()`, &mobile),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mobile.Overflow || mobile.TouchFailures != 0 {
+		t.Fatalf("mobile overview triage regression: %+v", mobile)
+	}
+}
+
 func TestGraphiteAmberThemeDoesNotRestoreCyanGlass(t *testing.T) {
 	assets, err := homelab.Static()
 	if err != nil {
@@ -557,7 +671,7 @@ func TestGraphiteAmberThemeDoesNotRestoreCyanGlass(t *testing.T) {
 	server := httptest.NewServer(static)
 	defer server.Close()
 
-	for _, path := range []string{"/css/style.css", "/css/tokens.css", "/js/history.js", "/js/metrics.js", "/js/terminal.js", "/"} {
+	for _, path := range []string{"/css/style.css", "/css/tokens.css", "/js/history.js", "/js/metrics.js", "/js/overview.js", "/js/terminal.js", "/"} {
 		response, err := http.Get(server.URL + path)
 		if err != nil {
 			t.Fatalf("load %s: %v", path, err)
@@ -575,6 +689,9 @@ func TestGraphiteAmberThemeDoesNotRestoreCyanGlass(t *testing.T) {
 			if strings.Contains(content, forbidden) {
 				t.Fatalf("%s still contains removed cyan/glass token %q", path, forbidden)
 			}
+		}
+		if path == "/" && (!strings.Contains(string(body), "HOMELAB DASHBOARD") || strings.Contains(content, "brand-mark")) {
+			t.Fatalf("%s does not expose the text-only Homelab brand", path)
 		}
 	}
 }
