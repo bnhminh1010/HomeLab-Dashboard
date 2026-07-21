@@ -1,6 +1,6 @@
 [Unit]
 Description=Homelab Dashboard Node Agent
-Documentation=https://github.com/binhminh/HomeLab-Minh
+Documentation=https://github.com/bnhminh1010/homelab-dashboard
 After=network-online.target podman.socket
 Wants=network-online.target podman.socket
 

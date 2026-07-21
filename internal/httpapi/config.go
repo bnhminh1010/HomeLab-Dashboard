@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/binhminh/HomeLab-Minh/internal/auth"
-	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
-	"github.com/binhminh/HomeLab-Minh/internal/operations"
+	"github.com/bnhminh1010/homelab-dashboard/internal/auth"
+	"github.com/bnhminh1010/homelab-dashboard/internal/dashboardconfig"
+	"github.com/bnhminh1010/homelab-dashboard/internal/operations"
 	"github.com/gin-gonic/gin"
 )
 

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/model"
-	servicecatalog "github.com/binhminh/HomeLab-Minh/internal/services"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
+	servicecatalog "github.com/bnhminh1010/homelab-dashboard/internal/services"
 	_ "modernc.org/sqlite"
 )
 

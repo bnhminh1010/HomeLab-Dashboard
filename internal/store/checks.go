@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
-	"github.com/binhminh/HomeLab-Minh/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/healthchecks"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
 )
 
 func (s *Store) UpsertCertificateObservation(ctx context.Context, observation healthchecks.CertificateObservation) error {

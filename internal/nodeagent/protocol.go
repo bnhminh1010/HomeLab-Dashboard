@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/bnhminh1010/homelab-dashboard/internal/nodes"
 )
 
 var (

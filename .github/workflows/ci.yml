@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-quality:
+    name: Go quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26.0"
+          check-latest: true
+          cache: true
+      - name: Verify modules
+        run: go mod verify
+      - name: Vet
+        run: go vet ./...
+      - name: Unit and integration tests
+        run: go test ./... -count=1 -timeout=180s
+
+  go-race:
+    name: Go race
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26.0"
+          check-latest: true
+          cache: true
+      - name: Race detector
+        run: go test -race ./... -count=1 -timeout=240s
+
+  release-source:
+    name: Release source
+    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require develop or hotfix source branch
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          case "$HEAD_REF" in
+            develop|hotfix/*) ;;
+            *)
+              echo "Pull requests targeting main must come from develop or hotfix/*. Got: $HEAD_REF" >&2
+              exit 1
+              ;;
+          esac
+
+  browser-ui:
+    name: Browser UI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26.0"
+          check-latest: true
+          cache: true
+      - name: Verify Chrome or Chromium is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$browser"
+          "$browser" --version
+      - name: Browser UI regression tests
+        run: go test -tags=browser ./tests/browser -count=1 -timeout=180s
+
+  container-compose:
+    name: Container build and Compose config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build dashboard container
+        run: docker build --file Containerfile --target dashboard --tag homelab-dashboard:ci .
+      - name: Validate Compose configuration
+        env:
+          ADMIN_USERS: ci@example.invalid
+          TS_AUTHKEY: tskey-auth-ci
+          XDG_RUNTIME_DIR: /tmp/homelab-dashboard-runtime
+        run: |
+          set -euo pipefail
+          mkdir -p "$XDG_RUNTIME_DIR"
+          docker compose --file compose.yml config --quiet
+
+  govulncheck:
+    name: Govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26.0"
+          check-latest: true
+          cache: true
+      - name: Check known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

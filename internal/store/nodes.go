@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/bnhminh1010/homelab-dashboard/internal/nodes"
 )
 
 func (s *Store) CreateEnrollment(ctx context.Context, record nodes.EnrollmentRecord) error {

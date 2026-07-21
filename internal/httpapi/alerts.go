@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/alerts"
-	"github.com/binhminh/HomeLab-Minh/internal/auth"
-	"github.com/binhminh/HomeLab-Minh/internal/operations"
-	"github.com/binhminh/HomeLab-Minh/internal/store"
+	"github.com/bnhminh1010/homelab-dashboard/internal/alerts"
+	"github.com/bnhminh1010/homelab-dashboard/internal/auth"
+	"github.com/bnhminh1010/homelab-dashboard/internal/operations"
+	"github.com/bnhminh1010/homelab-dashboard/internal/store"
 	"github.com/gin-gonic/gin"
 )
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/binhminh/HomeLab-Minh/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
 )
 
 // marshalLegacySnapshot keeps the unversioned /ws/metrics contract from the

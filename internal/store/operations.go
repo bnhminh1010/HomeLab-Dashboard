@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/operations"
+	"github.com/bnhminh1010/homelab-dashboard/internal/operations"
 )
 
 // RecordOperationalEvent persists an automatic or validated manual timeline

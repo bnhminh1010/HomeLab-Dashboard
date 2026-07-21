@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/binhminh/HomeLab-Minh/internal/model"
-	"github.com/binhminh/HomeLab-Minh/internal/slo"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/slo"
 )
 
 func TestSLOPoliciesPersistAndFollowServiceLifecycle(t *testing.T) {

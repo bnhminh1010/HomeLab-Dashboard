@@ -8,7 +8,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/history"
+	"github.com/bnhminh1010/homelab-dashboard/internal/history"
 )
 
 // Remote snapshots permit two minutes of clock skew. Rebuilding five minutes

@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/alerts"
-	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
-	"github.com/binhminh/HomeLab-Minh/internal/history"
-	"github.com/binhminh/HomeLab-Minh/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/alerts"
+	"github.com/bnhminh1010/homelab-dashboard/internal/healthchecks"
+	"github.com/bnhminh1010/homelab-dashboard/internal/history"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
 )
 
 func TestPipelineAppliesTierCadenceAndServiceTransitions(t *testing.T) {

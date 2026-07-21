@@ -143,8 +143,8 @@ socket and make sure the runtime directory belongs to the account that owns
 Podman:
 
 ```bash
-git clone https://github.com/bnhminh1010/HomeLab-Minh.git
-cd HomeLab-Minh
+git clone https://github.com/bnhminh1010/homelab-dashboard.git
+cd homelab-dashboard
 systemctl --user enable --now podman.socket
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 test -S "$XDG_RUNTIME_DIR/podman/podman.sock"
@@ -298,6 +298,36 @@ admin or process changes portable configuration between preview and apply, the
 API returns `412 Precondition Failed`; preview again before retrying. A missing
 revision returns `428 Precondition Required`.
 
+### Update an existing installation
+
+Production installations should run an immutable release tag. SQLite migrations
+run during startup, so export the `dashboard-data` named volume with your
+normal Podman backup process before an upgrade if you need a rollback point.
+
+```bash
+git fetch --tags
+git checkout v0.1.0 # replace with the release you intend to run
+podman compose up -d --build
+podman compose ps
+```
+
+To follow unreleased development changes instead, switch to `develop` and
+fast-forward it explicitly with `git pull --ff-only` before rebuilding. To
+roll back, check out the previous release tag and recreate the dashboard; do
+not discard the persistent volume.
+
+If the pulled revision changes an agent, run the matching installer as the
+rootless account that owns the service. It preserves the remote node's existing
+credential state, then restarts its user unit.
+
+```bash
+# Dashboard host
+./deploy/host-agent/install.sh
+
+# Remote node, from its checkout
+./deploy/node-agent/install.sh
+```
+
 ## Security boundary
 
 ### Access at a glance
@@ -410,3 +440,10 @@ use fake Podman/agent Unix sockets and do not touch the real host socket. A
 release should also validate `podman compose config`, build the image, and run
 an end-to-end smoke test on the target homelab because Tailscale identity,
 systemd user services and rootless Podman are host-specific.
+
+## Contributing and security
+
+Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md). Please report
+security issues privately through the process in [SECURITY.md](SECURITY.md),
+not in a public issue. This project is licensed under
+[Apache-2.0](LICENSE).

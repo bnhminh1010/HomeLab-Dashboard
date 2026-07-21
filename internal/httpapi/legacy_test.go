@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/binhminh/HomeLab-Minh/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
 )
 
 func TestMetricsMarshallersRespectFrameLimit(t *testing.T) {

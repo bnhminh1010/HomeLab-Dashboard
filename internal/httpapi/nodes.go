@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/alerts"
-	"github.com/binhminh/HomeLab-Minh/internal/model"
-	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/bnhminh1010/homelab-dashboard/internal/alerts"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/nodes"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )

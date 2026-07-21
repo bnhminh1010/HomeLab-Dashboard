@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/alerts"
-	"github.com/binhminh/HomeLab-Minh/internal/hostagent"
-	"github.com/binhminh/HomeLab-Minh/internal/model"
-	"github.com/binhminh/HomeLab-Minh/internal/monitoring"
-	"github.com/binhminh/HomeLab-Minh/internal/nodes"
-	"github.com/binhminh/HomeLab-Minh/internal/store"
-	"github.com/binhminh/HomeLab-Minh/internal/terminal"
+	"github.com/bnhminh1010/homelab-dashboard/internal/alerts"
+	"github.com/bnhminh1010/homelab-dashboard/internal/hostagent"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/monitoring"
+	"github.com/bnhminh1010/homelab-dashboard/internal/nodes"
+	"github.com/bnhminh1010/homelab-dashboard/internal/store"
+	"github.com/bnhminh1010/homelab-dashboard/internal/terminal"
 )
 
 func TestHostSessionAdapterMapsAgentTimeouts(t *testing.T) {

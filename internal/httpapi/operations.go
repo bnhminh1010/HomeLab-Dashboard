@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/auth"
-	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
-	"github.com/binhminh/HomeLab-Minh/internal/history"
-	"github.com/binhminh/HomeLab-Minh/internal/operations"
-	"github.com/binhminh/HomeLab-Minh/internal/slo"
-	"github.com/binhminh/HomeLab-Minh/internal/topology"
+	"github.com/bnhminh1010/homelab-dashboard/internal/auth"
+	"github.com/bnhminh1010/homelab-dashboard/internal/healthchecks"
+	"github.com/bnhminh1010/homelab-dashboard/internal/history"
+	"github.com/bnhminh1010/homelab-dashboard/internal/operations"
+	"github.com/bnhminh1010/homelab-dashboard/internal/slo"
+	"github.com/bnhminh1010/homelab-dashboard/internal/topology"
 	"github.com/gin-gonic/gin"
 )
 

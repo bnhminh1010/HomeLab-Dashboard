@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/slo"
+	"github.com/bnhminh1010/homelab-dashboard/internal/slo"
 )
 
 // ListSLOPolicies implements slo.PolicyRepository. Services with no row use

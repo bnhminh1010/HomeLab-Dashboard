@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/containers"
-	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
-	"github.com/binhminh/HomeLab-Minh/internal/metrics"
-	"github.com/binhminh/HomeLab-Minh/internal/model"
-	"github.com/binhminh/HomeLab-Minh/internal/nodes"
-	"github.com/binhminh/HomeLab-Minh/internal/podman"
+	"github.com/bnhminh1010/homelab-dashboard/internal/containers"
+	"github.com/bnhminh1010/homelab-dashboard/internal/healthchecks"
+	"github.com/bnhminh1010/homelab-dashboard/internal/metrics"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/nodes"
+	"github.com/bnhminh1010/homelab-dashboard/internal/podman"
 	"github.com/gorilla/websocket"
 )
 

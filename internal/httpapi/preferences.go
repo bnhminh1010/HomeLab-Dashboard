@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
+	"github.com/bnhminh1010/homelab-dashboard/internal/dashboardconfig"
 	"github.com/gin-gonic/gin"
 )
 

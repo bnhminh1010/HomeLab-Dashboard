@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	homelab "github.com/binhminh/HomeLab-Minh"
-	"github.com/binhminh/HomeLab-Minh/internal/httpapi"
+	homelab "github.com/bnhminh1010/homelab-dashboard"
+	"github.com/bnhminh1010/homelab-dashboard/internal/httpapi"
 	"github.com/chromedp/cdproto/network"
 	cdpruntime "github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
@@ -757,50 +757,52 @@ func TestGraphiteAmberThemeDoesNotRestoreCyanGlass(t *testing.T) {
 }
 
 type interactionReport struct {
-	CPUText              string  `json:"cpuText"`
-	CPUMax               string  `json:"cpuMax"`
-	CPUProgress          string  `json:"cpuProgress"`
-	CPUDetail            string  `json:"cpuDetail"`
-	RAMText              string  `json:"ramText"`
-	RAMOverLimit         bool    `json:"ramOverLimit"`
-	DiskWarningVisible   bool    `json:"diskWarningVisible"`
-	DiskLevel            string  `json:"diskLevel"`
-	CrashedContainers    int     `json:"crashedContainers"`
-	StoppedContainers    int     `json:"stoppedContainers"`
-	Services             int     `json:"services"`
-	AddedEndpoint        string  `json:"addedEndpoint"`
-	KeyboardURL          string  `json:"keyboardUrl"`
-	NativeServiceLink    bool    `json:"nativeServiceLink"`
-	DialogInitialFocus   bool    `json:"dialogInitialFocus"`
-	DialogRestoredFocus  bool    `json:"dialogRestoredFocus"`
-	MenuInitialItem      string  `json:"menuInitialItem"`
-	MenuSecondItem       string  `json:"menuSecondItem"`
-	MenuRestoredFocus    bool    `json:"menuRestoredFocus"`
-	EditEndpoint         string  `json:"editEndpoint"`
-	EditIcon             string  `json:"editIcon"`
-	EditEmptyIcon        string  `json:"editEmptyIcon"`
-	StatusHasText        bool    `json:"statusHasText"`
-	ListsAreQuiet        bool    `json:"listsAreQuiet"`
-	FocusPreserved       bool    `json:"focusPreserved"`
-	CompactHeight        float64 `json:"compactHeight"`
-	DefaultHeight        float64 `json:"defaultHeight"`
-	Maximized            bool    `json:"maximized"`
-	MaximizePressed      string  `json:"maximizePressed"`
-	TerminalSession      string  `json:"terminalSession"`
-	TerminalOutput       string  `json:"terminalOutput"`
-	CollapsedHeight      float64 `json:"collapsedHeight"`
-	TerminalModeLogs     bool    `json:"terminalModeLogs"`
-	LogViewerVisible     bool    `json:"logViewerVisible"`
-	XtermHidden          bool    `json:"xtermHidden"`
-	LogSearchMatches     int     `json:"logSearchMatches"`
-	LogPausePressed      string  `json:"logPausePressed"`
-	LogFollowPressed     string  `json:"logFollowPressed"`
-	LogDownloadName      string  `json:"logDownloadName"`
-	LogDownloadBytes     int     `json:"logDownloadBytes"`
-	InvokerFocusRestored bool    `json:"invokerFocusRestored"`
-	DisconnectIsVisible  bool    `json:"disconnectIsVisible"`
-	PartialBadgeVisible  bool    `json:"partialBadgeVisible"`
-	OverviewHealth       string  `json:"overviewHealth"`
+	CPUText                string  `json:"cpuText"`
+	CPUMax                 string  `json:"cpuMax"`
+	CPUProgress            string  `json:"cpuProgress"`
+	CPUDetail              string  `json:"cpuDetail"`
+	RAMText                string  `json:"ramText"`
+	RAMOverLimit           bool    `json:"ramOverLimit"`
+	DiskWarningVisible     bool    `json:"diskWarningVisible"`
+	DiskLevel              string  `json:"diskLevel"`
+	CrashedContainers      int     `json:"crashedContainers"`
+	StoppedContainers      int     `json:"stoppedContainers"`
+	Services               int     `json:"services"`
+	AddedEndpoint          string  `json:"addedEndpoint"`
+	KeyboardURL            string  `json:"keyboardUrl"`
+	NativeServiceLink      bool    `json:"nativeServiceLink"`
+	DialogInitialFocus     bool    `json:"dialogInitialFocus"`
+	DialogRestoredFocus    bool    `json:"dialogRestoredFocus"`
+	MenuInitialItem        string  `json:"menuInitialItem"`
+	MenuSecondItem         string  `json:"menuSecondItem"`
+	MenuRestoredFocus      bool    `json:"menuRestoredFocus"`
+	EditEndpoint           string  `json:"editEndpoint"`
+	ServiceIconInputAbsent bool    `json:"serviceIconInputAbsent"`
+	ServiceListSemantics   bool    `json:"serviceListSemantics"`
+	ServiceRowsDesktop     bool    `json:"serviceRowsDesktop"`
+	ServiceCellsLabeled    bool    `json:"serviceCellsLabeled"`
+	StatusHasText          bool    `json:"statusHasText"`
+	ListsAreQuiet          bool    `json:"listsAreQuiet"`
+	FocusPreserved         bool    `json:"focusPreserved"`
+	CompactHeight          float64 `json:"compactHeight"`
+	DefaultHeight          float64 `json:"defaultHeight"`
+	Maximized              bool    `json:"maximized"`
+	MaximizePressed        string  `json:"maximizePressed"`
+	TerminalSession        string  `json:"terminalSession"`
+	TerminalOutput         string  `json:"terminalOutput"`
+	CollapsedHeight        float64 `json:"collapsedHeight"`
+	TerminalModeLogs       bool    `json:"terminalModeLogs"`
+	LogViewerVisible       bool    `json:"logViewerVisible"`
+	XtermHidden            bool    `json:"xtermHidden"`
+	LogSearchMatches       int     `json:"logSearchMatches"`
+	LogPausePressed        string  `json:"logPausePressed"`
+	LogFollowPressed       string  `json:"logFollowPressed"`
+	LogDownloadName        string  `json:"logDownloadName"`
+	LogDownloadBytes       int     `json:"logDownloadBytes"`
+	InvokerFocusRestored   bool    `json:"invokerFocusRestored"`
+	DisconnectIsVisible    bool    `json:"disconnectIsVisible"`
+	PartialBadgeVisible    bool    `json:"partialBadgeVisible"`
+	OverviewHealth         string  `json:"overviewHealth"`
 }
 
 func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
@@ -901,15 +903,24 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 		chromedp.WaitVisible("#service-dialog", chromedp.ByQuery),
 		chromedp.Evaluate(`(() => ({
           editEndpoint: document.querySelector('#service-form input[name="displayUrl"]').value,
-          editIcon: document.querySelector('#service-form input[name="icon"]').value
+          serviceIconInputAbsent: !document.querySelector('#service-form input[name="icon"]'),
+          serviceListSemantics: document.querySelector('#services-grid').getAttribute('role') === 'list'
+            && [...document.querySelectorAll('#services-grid .service-card:not(.skeleton-card)')]
+              .every((node) => node.getAttribute('role') === 'listitem'),
+          serviceCellsLabeled: [...document.querySelectorAll('#services-grid .service-card:not(.skeleton-card)')]
+            .every((node) => ['.service-endpoint', '.service-latency', '.service-meta']
+              .every((selector) => {
+                const cell = node.querySelector(selector);
+                return !cell || cell.hidden || (Boolean(cell.dataset.label) && Boolean(cell.getAttribute('aria-label')));
+              })),
+          serviceRowsDesktop: (() => {
+            const head = document.querySelector('.services-table-head');
+            const row = document.querySelector('#services-grid .service-card:not(.skeleton-card)');
+            const columns = getComputedStyle(row).gridTemplateColumns.trim().split(/\s+/);
+            return getComputedStyle(head).display === 'grid' && columns.length === 6
+              && getComputedStyle(row).borderRadius === '0px';
+          })()
         }))()`, &report),
-		chromedp.KeyEvent("\x1b"),
-		chromedp.Poll(`!document.querySelector('#service-dialog').open`, nil, chromedp.WithPollingTimeout(2*time.Second)),
-		chromedp.Evaluate(`document.querySelector('.service-card[data-service-id^="demo-"] .service-menu-button').click()`, nil),
-		chromedp.WaitVisible("#context-menu", chromedp.ByQuery),
-		chromedp.Click(`#context-menu [role="menuitem"]:first-child`, chromedp.ByQuery),
-		chromedp.WaitVisible("#service-dialog", chromedp.ByQuery),
-		chromedp.Evaluate(`document.querySelector('#service-form input[name="icon"]').value`, &report.EditEmptyIcon),
 		chromedp.KeyEvent("\x1b"),
 		chromedp.Poll(`!document.querySelector('#service-dialog').open`, nil, chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Focus(".service-link", chromedp.ByQuery),
@@ -1028,11 +1039,8 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 	if strings.TrimSpace(report.MenuInitialItem) != "Edit service" || strings.TrimSpace(report.MenuSecondItem) != "Copy URL" || !report.MenuRestoredFocus {
 		t.Fatalf("service overflow menu keyboard navigation failed: %+v", report)
 	}
-	if report.EditEndpoint != "https://immich.homelab.ts.net" || report.EditIcon != "📸" {
-		t.Fatalf("edit service did not preserve its hidden compatibility fields: %+v", report)
-	}
-	if report.EditEmptyIcon != "" {
-		t.Fatalf("edit service did not preserve an intentionally empty icon: %+v", report)
+	if report.EditEndpoint != "https://immich.homelab.ts.net" || !report.ServiceIconInputAbsent || !report.ServiceListSemantics || !report.ServiceRowsDesktop || !report.ServiceCellsLabeled {
+		t.Fatalf("service editor or list semantics regression: %+v", report)
 	}
 	if !report.StatusHasText || !report.ListsAreQuiet || !report.FocusPreserved {
 		t.Fatalf("status semantics or live-update focus stability failed: %+v", report)
@@ -1470,9 +1478,9 @@ func TestDemoMobileOperationsWorkspaces(t *testing.T) {
 		chromedp.Evaluate(`document.querySelectorAll('.node-workspace-card').length > 0`, &report.NodesReady),
 		openWorkspace("history"),
 		chromedp.Click(`[data-history-range="7d"]`, chromedp.ByQuery),
-		chromedp.Poll(`document.querySelector('#history-timeline-eyebrow')?.textContent.includes('7D WINDOW')`, nil,
+		chromedp.Poll(`document.querySelector('#history-timeline-context')?.textContent === '7D'`, nil,
 			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
-		chromedp.Evaluate(`document.querySelector('#history-timeline-eyebrow')?.textContent.includes('7D WINDOW')`, &report.HistoryRangeSynced),
+		chromedp.Evaluate(`document.querySelector('#history-timeline-context')?.textContent === '7D'`, &report.HistoryRangeSynced),
 		openWorkspace("topology"),
 		chromedp.WaitVisible("#topology-form", chromedp.ByQuery),
 		chromedp.Evaluate(`(() => {

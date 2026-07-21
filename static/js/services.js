@@ -12,7 +12,6 @@ function normalizedService(service = {}, index = 0) {
     key: id || displayUrl || `${name}-${index}`,
     originalIndex: index,
     name,
-    icon: String(service.icon ?? ""),
     displayUrl,
     probeUrl: String(service.probeUrl || service.probeURL || ""),
     status: String(service.status || service.health?.status || "unknown").toLowerCase(),
@@ -88,7 +87,6 @@ export function createServicesController({ api, toast, onChanged }) {
     if (payload.probeUrl && !probeUrl) throw new Error("Probe URL must be an absolute HTTP or HTTPS URL without credentials.");
     return {
       name: payload.name.trim(),
-      icon: String(payload.icon || ""),
       displayUrl: displayUrl.toString(),
       probeUrl: probeUrl?.toString() || "",
     };
@@ -98,7 +96,6 @@ export function createServicesController({ api, toast, onChanged }) {
     const data = new FormData(form);
     return validate({
       name: String(data.get("name") || ""),
-      icon: String(data.get("icon") || ""),
       displayUrl: String(data.get("displayUrl") || ""),
       probeUrl: String(data.get("probeUrl") || ""),
     });
@@ -107,6 +104,7 @@ export function createServicesController({ api, toast, onChanged }) {
   function createCard() {
     const article = document.createElement("article");
     article.className = "service-card";
+    article.setAttribute("role", "listitem");
 
     const heading = document.createElement("div");
     heading.className = "service-main";
@@ -116,10 +114,12 @@ export function createServicesController({ api, toast, onChanged }) {
     link.rel = "noopener noreferrer";
     const name = document.createElement("span");
     name.className = "service-name";
+    link.append(name);
+    heading.append(link);
+
     const endpoint = document.createElement("span");
     endpoint.className = "service-endpoint mono";
-    link.append(name, endpoint);
-    heading.append(link);
+    endpoint.dataset.label = "Endpoint";
 
     const trigger = document.createElement("button");
     trigger.type = "button";
@@ -133,23 +133,23 @@ export function createServicesController({ api, toast, onChanged }) {
       openMenu(article.service, rect.right, rect.bottom, trigger);
     });
 
-    const statusRow = document.createElement("div");
-    statusRow.className = "service-status-row mono";
     const status = document.createElement("span");
-    status.className = "service-status";
+    status.className = "service-status mono";
+    status.dataset.label = "Status";
     const dot = document.createElement("span");
     dot.className = "status-dot";
     dot.setAttribute("aria-hidden", "true");
     const statusText = document.createElement("span");
     status.append(dot, statusText);
     const latency = document.createElement("span");
-    latency.className = "service-latency";
-    statusRow.append(status, latency);
+    latency.className = "service-latency mono";
+    latency.dataset.label = "Latency";
 
     const checked = document.createElement("div");
     checked.className = "service-meta mono";
+    checked.dataset.label = "Checked";
 
-    article.append(heading, trigger, statusRow, checked);
+    article.append(heading, endpoint, status, latency, checked, trigger);
     article.refs = { link, name, endpoint, trigger, status, statusText, latency, checked };
     article.addEventListener("contextmenu", (event) => {
       if (!admin) return;
@@ -165,8 +165,9 @@ export function createServicesController({ api, toast, onChanged }) {
     const { link, name, endpoint, trigger, status, statusText, latency, checked } = article.refs;
     name.textContent = service.name;
     name.title = service.name;
-    endpoint.textContent = `↗ ${displayEndpoint(service.displayUrl)}`;
+    endpoint.textContent = displayEndpoint(service.displayUrl);
     endpoint.title = service.displayUrl;
+    endpoint.setAttribute("aria-label", `Endpoint ${displayEndpoint(service.displayUrl)}`);
     const url = safeHttpUrl(service.displayUrl);
     if (url) {
       link.href = url.toString();
@@ -182,8 +183,11 @@ export function createServicesController({ api, toast, onChanged }) {
     statusText.textContent = stateLabel(service.status);
     status.setAttribute("aria-label", `Status ${stateLabel(service.status)}`);
     latency.textContent = Number.isFinite(service.latencyMs) ? `${Math.round(service.latencyMs)} ms` : "—";
+    latency.setAttribute("aria-label", `Latency ${latency.textContent}`);
     checked.hidden = !service.lastCheckedAt;
-    checked.textContent = service.lastCheckedAt ? `Checked ${timeAgo(service.lastCheckedAt)}` : "";
+    checked.textContent = service.lastCheckedAt ? timeAgo(service.lastCheckedAt) : "";
+    if (service.lastCheckedAt) checked.setAttribute("aria-label", `Last checked ${timeAgo(service.lastCheckedAt)}`);
+    else checked.removeAttribute("aria-label");
   }
 
   function summary() {
@@ -280,7 +284,6 @@ export function createServicesController({ api, toast, onChanged }) {
   function openCreate(invoker) {
     serviceForm.reset();
     serviceForm.elements.id.value = "";
-    serviceForm.elements.icon.value = "";
     serviceTitle.textContent = "Add service";
     serviceSubmit.textContent = "ADD SERVICE";
     showServiceDialog(invoker);
@@ -289,7 +292,6 @@ export function createServicesController({ api, toast, onChanged }) {
   function openEdit(service, invoker) {
     serviceForm.elements.id.value = service.id;
     serviceForm.elements.name.value = service.name;
-    serviceForm.elements.icon.value = service.icon;
     serviceForm.elements.displayUrl.value = service.displayUrl;
     serviceForm.elements.probeUrl.value = service.probeUrl;
     serviceTitle.textContent = "Edit service";

@@ -9,8 +9,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/binhminh/HomeLab-Minh/internal/history"
-	"github.com/binhminh/HomeLab-Minh/internal/store"
+	"github.com/bnhminh1010/homelab-dashboard/internal/history"
+	"github.com/bnhminh1010/homelab-dashboard/internal/store"
 	"github.com/gin-gonic/gin"
 )
 

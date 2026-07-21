@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible dashboard, agent, API, or deployment fault.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include Tailscale auth keys, ntfy tokens, enrollment tokens, or private host addresses."
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: State the observed behavior and the intended behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include release/commit, browser or OS, and Podman/Docker version. Redact private identifiers.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Redact secrets and personal data before attaching evidence.

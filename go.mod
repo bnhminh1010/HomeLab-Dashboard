@@ -1,4 +1,4 @@
-module github.com/binhminh/HomeLab-Minh
+module github.com/bnhminh1010/homelab-dashboard
 
 go 1.26.0
 

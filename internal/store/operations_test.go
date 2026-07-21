@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/operations"
+	"github.com/bnhminh1010/homelab-dashboard/internal/operations"
 )
 
 func TestOperationalEventStoreRecordsFiltersAndBoundsTimeline(t *testing.T) {

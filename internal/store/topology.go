@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/topology"
+	"github.com/bnhminh1010/homelab-dashboard/internal/topology"
 )
 
 // ListTopologyDependencies returns manual topology edges in stable creation

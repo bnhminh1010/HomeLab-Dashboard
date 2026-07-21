@@ -163,7 +163,6 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
   const serviceList = document.getElementById("overview-service-pulse-list");
   const serviceEmpty = document.getElementById("overview-service-pulse-empty");
   const serviceCount = document.getElementById("overview-service-pulse-count");
-  const serviceEyebrow = document.getElementById("overview-service-pulse-eyebrow");
   const chartWrap = document.getElementById("overview-trend-chart-wrap");
   const chartStatus = document.getElementById("overview-trend-status");
   const nodeLabel = document.getElementById("overview-trend-node");
@@ -278,7 +277,6 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
 
   function renderServicePulse() {
     const services = Array.isArray(latest.services) ? latest.services : [];
-    serviceEyebrow.textContent = latest.remote ? "LOCAL ENDPOINT PROBES" : "ENDPOINT PROBES";
     const probed = services
       .filter((service) => String(service?.probeUrl || service?.probeURL || "").trim())
       .sort((left, right) => {

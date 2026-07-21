@@ -1,6 +1,6 @@
 [Unit]
 Description=HomeLab dashboard host shell agent
-Documentation=https://github.com/bnhminh1010/HomeLab-Minh
+Documentation=https://github.com/bnhminh1010/homelab-dashboard
 After=basic.target
 
 [Service]

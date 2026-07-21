@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
-	"github.com/binhminh/HomeLab-Minh/internal/model"
-	"github.com/binhminh/HomeLab-Minh/internal/nodes"
-	"github.com/binhminh/HomeLab-Minh/internal/topology"
+	"github.com/bnhminh1010/homelab-dashboard/internal/dashboardconfig"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/nodes"
+	"github.com/bnhminh1010/homelab-dashboard/internal/topology"
 )
 
 func TestNodeEnrollmentPersistsOnlyCredentialHash(t *testing.T) {

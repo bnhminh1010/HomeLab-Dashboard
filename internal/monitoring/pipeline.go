@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/alerts"
-	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
-	"github.com/binhminh/HomeLab-Minh/internal/history"
-	"github.com/binhminh/HomeLab-Minh/internal/metrics"
-	"github.com/binhminh/HomeLab-Minh/internal/model"
-	"github.com/binhminh/HomeLab-Minh/internal/operations"
+	"github.com/bnhminh1010/homelab-dashboard/internal/alerts"
+	"github.com/bnhminh1010/homelab-dashboard/internal/healthchecks"
+	"github.com/bnhminh1010/homelab-dashboard/internal/history"
+	"github.com/bnhminh1010/homelab-dashboard/internal/metrics"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/operations"
 )
 
 const (

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/alerts"
+	"github.com/bnhminh1010/homelab-dashboard/internal/alerts"
 	_ "modernc.org/sqlite"
 )
 

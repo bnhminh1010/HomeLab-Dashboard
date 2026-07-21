@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/bnhminh1010/homelab-dashboard/internal/nodes"
 )
 
 const credentialFileLimit = 64 << 10

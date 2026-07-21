@@ -14,13 +14,13 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/auth"
-	"github.com/binhminh/HomeLab-Minh/internal/metrics"
-	"github.com/binhminh/HomeLab-Minh/internal/model"
-	"github.com/binhminh/HomeLab-Minh/internal/podman"
-	"github.com/binhminh/HomeLab-Minh/internal/services"
-	"github.com/binhminh/HomeLab-Minh/internal/store"
-	"github.com/binhminh/HomeLab-Minh/internal/terminal"
+	"github.com/bnhminh1010/homelab-dashboard/internal/auth"
+	"github.com/bnhminh1010/homelab-dashboard/internal/metrics"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/podman"
+	"github.com/bnhminh1010/homelab-dashboard/internal/services"
+	"github.com/bnhminh1010/homelab-dashboard/internal/store"
+	"github.com/bnhminh1010/homelab-dashboard/internal/terminal"
 )
 
 type memoryServices struct {

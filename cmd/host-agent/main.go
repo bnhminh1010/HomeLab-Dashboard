@@ -10,7 +10,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/binhminh/HomeLab-Minh/internal/hostagent"
+	"github.com/bnhminh1010/homelab-dashboard/internal/hostagent"
 )
 
 func main() {

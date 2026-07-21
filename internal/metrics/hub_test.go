@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
 )
 
 type hostCollectorFunc func(context.Context) (HostSnapshot, error)

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/alerts"
-	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
-	"github.com/binhminh/HomeLab-Minh/internal/model"
-	"github.com/binhminh/HomeLab-Minh/internal/nodes"
-	"github.com/binhminh/HomeLab-Minh/internal/slo"
-	"github.com/binhminh/HomeLab-Minh/internal/topology"
+	"github.com/bnhminh1010/homelab-dashboard/internal/alerts"
+	"github.com/bnhminh1010/homelab-dashboard/internal/dashboardconfig"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/nodes"
+	"github.com/bnhminh1010/homelab-dashboard/internal/slo"
+	"github.com/bnhminh1010/homelab-dashboard/internal/topology"
 )
 
 func (s *Store) LoadDashboardConfig(ctx context.Context) (dashboardconfig.Snapshot, error) {

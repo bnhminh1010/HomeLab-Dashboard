@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/binhminh/HomeLab-Minh/internal/podman"
+	"github.com/bnhminh1010/homelab-dashboard/internal/podman"
 )
 
 type fakeClient struct {

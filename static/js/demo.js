@@ -4,10 +4,10 @@ const edgeContainerID = "04fe5d1ce9fc995c2f071051aaff95fb94a0fcdc39cfc54cc5cea05
 const edgeUnknownContainerID = "8d439abf2f349e6c2d35f0df8c139738571c3ba6d7eefcb732c8ee86f67b0a91";
 
 const demoServices = [
-  { id: "svc_immich", name: "Immich", icon: "📸", displayUrl: "https://immich.homelab.ts.net", probeUrl: "http://100.64.0.10:2283/api/server/ping", status: "up", latencyMs: 12, lastCheckedAt: nowIso() },
-  { id: "svc_crw", name: "fastCRW", icon: "⚙", displayUrl: "https://crw.homelab.ts.net", probeUrl: "http://100.64.0.11:3000/health", status: "up", latencyMs: 7, lastCheckedAt: nowIso() },
-  { id: "svc_hermes", name: "Hermes", icon: "🤖", displayUrl: "https://bot.homelab.ts.net", probeUrl: "", status: "unknown", latencyMs: null, lastCheckedAt: null },
-  { id: "svc_glance", name: "Glance", icon: "◇", displayUrl: "https://glance.homelab.ts.net", probeUrl: "http://100.64.0.12:8082/health", status: "up", latencyMs: 18, lastCheckedAt: nowIso() },
+  { id: "svc_immich", name: "Immich", displayUrl: "https://immich.homelab.ts.net", probeUrl: "http://100.64.0.10:2283/api/server/ping", status: "up", latencyMs: 12, lastCheckedAt: nowIso() },
+  { id: "svc_crw", name: "fastCRW", displayUrl: "https://crw.homelab.ts.net", probeUrl: "http://100.64.0.11:3000/health", status: "up", latencyMs: 7, lastCheckedAt: nowIso() },
+  { id: "svc_hermes", name: "Hermes", displayUrl: "https://bot.homelab.ts.net", probeUrl: "", status: "unknown", latencyMs: null, lastCheckedAt: null },
+  { id: "svc_glance", name: "Glance", displayUrl: "https://glance.homelab.ts.net", probeUrl: "http://100.64.0.12:8082/health", status: "up", latencyMs: 18, lastCheckedAt: nowIso() },
 ];
 
 const demoContainers = [

@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a focused improvement to the homelab dashboard.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the operational or user problem, not only a proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Include the intended UX/API behavior and any rollback or migration considerations.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Area
+      options:
+        - Dashboard UI
+        - Monitoring or alerts
+        - Node agent
+        - API or security
+        - Deployment or operations
+    validations:
+      required: true

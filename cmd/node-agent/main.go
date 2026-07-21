@@ -14,7 +14,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/binhminh/HomeLab-Minh/internal/nodeagent"
+	"github.com/bnhminh1010/homelab-dashboard/internal/nodeagent"
 )
 
 var version = "dev"

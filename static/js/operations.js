@@ -76,7 +76,7 @@ export function createOperationsController({ api, demo = false, toast, onSelectN
   const sloButtons = [...document.querySelectorAll("[data-slo-window]")];
   const timeline = document.getElementById("history-events-list");
   const markers = document.getElementById("history-event-markers");
-  const timelineEyebrow = document.getElementById("history-timeline-eyebrow");
+  const timelineContext = document.getElementById("history-timeline-context");
   const eventForm = document.getElementById("operations-event-form");
   const nodesGrid = document.getElementById("nodes-workspace-grid");
   const nodesStatus = document.getElementById("nodes-workspace-status");
@@ -127,10 +127,12 @@ export function createOperationsController({ api, demo = false, toast, onSelectN
   function setTimelineStale(stale) {
     timeline?.toggleAttribute("data-stale", stale);
     markers?.toggleAttribute("data-stale", stale);
-    if (!timelineEyebrow) return;
+    if (!timelineContext) return;
     const rangeChanged = stale && displayedTimelineRange && displayedTimelineRange !== timelineRange;
-    timelineEyebrow.textContent = `CHANGE CORRELATION · ${timelineRange.toUpperCase()} WINDOW${rangeChanged ? ` · SHOWING ${displayedTimelineRange.toUpperCase()}` : ""}`;
-    timelineEyebrow.toggleAttribute("data-stale", stale);
+    timelineContext.textContent = rangeChanged
+      ? `${timelineRange.toUpperCase()} · showing ${displayedTimelineRange.toUpperCase()}`
+      : timelineRange.toUpperCase();
+    timelineContext.toggleAttribute("data-stale", stale);
   }
 
   function setSLOWindow(next) {

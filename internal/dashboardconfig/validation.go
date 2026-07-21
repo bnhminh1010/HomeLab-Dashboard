@@ -7,11 +7,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/binhminh/HomeLab-Minh/internal/alerts"
-	"github.com/binhminh/HomeLab-Minh/internal/model"
-	"github.com/binhminh/HomeLab-Minh/internal/services"
-	"github.com/binhminh/HomeLab-Minh/internal/slo"
-	"github.com/binhminh/HomeLab-Minh/internal/topology"
+	"github.com/bnhminh1010/homelab-dashboard/internal/alerts"
+	"github.com/bnhminh1010/homelab-dashboard/internal/model"
+	"github.com/bnhminh1010/homelab-dashboard/internal/services"
+	"github.com/bnhminh1010/homelab-dashboard/internal/slo"
+	"github.com/bnhminh1010/homelab-dashboard/internal/topology"
 )
 
 const (

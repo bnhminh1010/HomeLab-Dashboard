@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  security-events: write
+
+jobs:
+  release:
+    name: Verify source and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tag and main history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require tagged commit to be reachable from origin/main
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          tag_commit="$(git rev-parse "${TAG_NAME}^{commit}")"
+          git merge-base --is-ancestor "$tag_commit" origin/main
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26.0"
+          check-latest: true
+          cache: true
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@e0647621c2984b5ed2f768cb892365bf2a616ad1 # v4
+        with:
+          languages: go
+          build-mode: manual
+      - name: Verify modules, vet, and test
+        run: |
+          set -euo pipefail
+          go mod verify
+          go vet ./...
+          go test ./... -count=1 -timeout=180s
+      - name: Race detector
+        run: go test -race ./... -count=1 -timeout=240s
+      - name: Verify Chrome or Chromium is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$browser"
+          "$browser" --version
+      - name: Browser UI regression tests
+        run: go test -tags=browser ./tests/browser -count=1 -timeout=180s
+      - name: Build dashboard container
+        run: docker build --file Containerfile --target dashboard --tag homelab-dashboard:release .
+      - name: Validate Compose configuration
+        env:
+          ADMIN_USERS: ci@example.invalid
+          TS_AUTHKEY: tskey-auth-ci
+          XDG_RUNTIME_DIR: /tmp/homelab-dashboard-runtime
+        run: |
+          set -euo pipefail
+          mkdir -p "$XDG_RUNTIME_DIR"
+          docker compose --file compose.yml config --quiet
+      - name: Check known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+      - name: Build Go packages for CodeQL
+        run: go build ./...
+      - name: Analyze CodeQL
+        uses: github/codeql-action/analyze@e0647621c2984b5ed2f768cb892365bf2a616ad1 # v4
+        with:
+          category: /language:go
+      - name: Publish generated release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: gh release create "$TAG_NAME" --verify-tag --generate-notes --title "$TAG_NAME"

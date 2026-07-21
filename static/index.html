@@ -130,8 +130,7 @@
         <section id="overview-attention" class="panel overview-attention" aria-labelledby="overview-attention-title">
           <header class="panel-header compact">
             <div>
-              <p class="eyebrow">INCIDENT TRIAGE</p>
-              <h2 id="overview-attention-title">NEEDS ATTENTION</h2>
+              <h2 id="overview-attention-title">Needs Attention</h2>
             </div>
             <div class="panel-actions">
               <span id="overview-attention-count" class="count-badge mono">0</span>
@@ -148,8 +147,7 @@
         <section id="overview-service-pulse" class="panel overview-service-pulse" aria-labelledby="overview-service-pulse-title" hidden>
           <header class="panel-header compact">
             <div>
-              <p id="overview-service-pulse-eyebrow" class="eyebrow">ENDPOINT PROBES</p>
-              <h2 id="overview-service-pulse-title">SERVICE PULSE</h2>
+              <h2 id="overview-service-pulse-title">Probe Results</h2>
             </div>
             <span id="overview-service-pulse-count" class="count-badge mono">0</span>
           </header>
@@ -220,8 +218,7 @@
         <section id="overview-trend" class="panel overview-trend" aria-labelledby="overview-trend-title">
           <header class="panel-header compact">
             <div>
-              <p class="eyebrow">LAZY 24-HOUR WINDOW</p>
-              <h2 id="overview-trend-title">RESOURCE TREND</h2>
+              <h2 id="overview-trend-title">Resource Trend</h2>
             </div>
             <button id="overview-trend-refresh" class="text-button" type="button">REFRESH</button>
           </header>
@@ -243,7 +240,7 @@
         <header class="panel-header compact">
           <div class="title-with-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-7"/></svg>
-            <div><p class="eyebrow">90-DAY RETENTION</p><h2 id="history-title" tabindex="-1">SYSTEM HISTORY</h2></div>
+            <div><h2 id="history-title" tabindex="-1">System History</h2></div>
           </div>
           <div class="history-toolbar">
             <div class="history-kind-controls" role="group" aria-label="History resource type">
@@ -278,7 +275,7 @@
             <button id="history-refresh" class="text-button" type="button">REFRESH</button>
           </footer>
           <section id="history-timeline" class="history-timeline" aria-labelledby="history-timeline-title">
-            <header><span id="history-timeline-eyebrow" class="eyebrow">CHANGE CORRELATION · 24H WINDOW</span><h3 id="history-timeline-title">OPERATIONS TIMELINE</h3></header>
+            <header><h3 id="history-timeline-title">Operations Timeline</h3><span id="history-timeline-context" class="panel-context mono">24H</span></header>
             <div id="history-event-markers" class="history-event-markers" aria-label="Timeline change markers"></div>
             <div id="history-events-list" class="timeline-list" aria-live="polite"></div>
             <form id="operations-event-form" class="operations-event-form admin-only" autocomplete="off">
@@ -297,15 +294,14 @@
         <header class="panel-header compact">
           <div class="title-with-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
-            <div><p class="eyebrow">ACTION REQUIRED</p><h2 id="alerts-title" tabindex="-1">SYSTEM ALERTS</h2></div>
+            <div><h2 id="alerts-title" tabindex="-1">System Alerts</h2></div>
           </div>
           <div class="panel-actions"><span id="alerts-partial" class="badge badge-degraded" hidden>PARTIAL</span><span id="alerts-count" class="count-badge mono">0</span></div>
         </header>
-        <div id="alerts-list" class="alerts-list"></div>
-        <div id="alerts-empty" class="empty-state">
-          <span class="empty-icon">✓</span>
-          <strong>All clear</strong>
-          <span>No active warning or critical alerts.</span>
+          <div id="alerts-list" class="alerts-list"></div>
+          <div id="alerts-empty" class="empty-state">
+            <strong>All clear</strong>
+            <span>No active warning or critical alerts.</span>
         </div>
       </section>
       </section>
@@ -315,8 +311,7 @@
         <section class="panel services-panel" aria-labelledby="services-title">
           <header class="panel-header">
             <div>
-              <p class="eyebrow">TAILNET ENDPOINTS</p>
-              <h2 id="services-title" tabindex="-1">ACTIVE SERVICES</h2>
+              <h2 id="services-title" tabindex="-1">Active Services</h2>
             </div>
             <div class="panel-actions">
               <span id="services-stale" class="badge badge-degraded" hidden>⚠ STALE</span>
@@ -324,19 +319,21 @@
               <button id="focus-add-service" class="button button-ghost button-small admin-only" type="button">+ ADD SERVICE</button>
             </div>
           </header>
-          <div id="services-grid" class="services-grid" aria-busy="true">
+          <div class="services-table-head mono" aria-hidden="true">
+            <span>Service</span><span>Endpoint</span><span>Status</span><span>Latency</span><span>Checked</span><span></span>
+          </div>
+          <div id="services-grid" class="services-grid" role="list" aria-busy="true">
             <div class="service-card skeleton-card" aria-hidden="true"></div>
             <div class="service-card skeleton-card" aria-hidden="true"></div>
           </div>
           <div id="services-empty" class="empty-state" hidden>
-            <span class="empty-icon">◇</span>
             <strong>No services configured</strong>
             <span>Use Add Service to register your first endpoint.</span>
           </div>
         </section>
         <section id="slo-panel" class="panel slo-panel" aria-labelledby="slo-title">
           <header class="panel-header compact">
-            <div><p class="eyebrow">DASHBOARD-LOCAL PROBES · UNKNOWN EXCLUDED</p><h2 id="slo-title">SERVICE OBJECTIVES</h2></div>
+            <div><h2 id="slo-title">Service Objectives</h2><span class="panel-context mono">Local probes · unknown excluded</span></div>
             <div class="panel-actions" role="group" aria-label="SLO window"><button class="range-button" type="button" data-slo-window="7">7D</button><button class="range-button is-active" type="button" data-slo-window="30">30D</button><button class="range-button" type="button" data-slo-window="90">90D</button></div>
           </header>
           <div id="slo-list" class="slo-list" aria-busy="true"></div>
@@ -350,8 +347,7 @@
         <section class="panel containers-panel" aria-labelledby="containers-title">
           <header class="panel-header">
             <div>
-              <p class="eyebrow">PODMAN RUNTIME</p>
-              <h2 id="containers-title" tabindex="-1">CONTAINERS</h2>
+              <h2 id="containers-title" tabindex="-1">Containers</h2>
             </div>
             <span id="containers-count" class="count-badge mono">0</span>
           </header>
@@ -360,7 +356,6 @@
             <div class="container-item skeleton-container" aria-hidden="true"></div>
           </div>
           <div id="containers-empty" class="empty-state" hidden>
-            <span class="empty-icon">□</span>
             <strong>No containers running</strong>
             <span>The Podman host returned an empty inventory.</span>
           </div>
@@ -370,12 +365,12 @@
 
       <section id="workspace-nodes" class="dashboard-workspace workspace-nodes" data-workspace-panel="nodes" aria-labelledby="nodes-workspace-title" hidden>
         <section class="panel nodes-workspace-panel" aria-labelledby="nodes-workspace-title" data-workspace-focus tabindex="-1">
-          <header class="panel-header"><div><p class="eyebrow">FLEET COMPARISON</p><h2 id="nodes-workspace-title" tabindex="-1">MONITORING NODES</h2></div><button id="nodes-workspace-refresh" class="text-button" type="button">REFRESH</button></header>
+          <header class="panel-header"><div><h2 id="nodes-workspace-title" tabindex="-1">Monitoring Nodes</h2></div><button id="nodes-workspace-refresh" class="text-button" type="button">REFRESH</button></header>
           <div id="nodes-workspace-grid" class="nodes-workspace-grid" aria-busy="true"></div>
           <p id="nodes-workspace-status" class="panel-status mono">Loading node inventory…</p>
         </section>
         <section class="panel checks-panel" aria-labelledby="checks-title">
-          <header class="panel-header compact"><div><p class="eyebrow">TLS · DASHBOARD / BACKUPS · SELECTED NODE</p><h2 id="checks-title">TLS &amp; BACKUPS</h2></div></header>
+          <header class="panel-header compact"><div><h2 id="checks-title">TLS &amp; Backups</h2><span class="panel-context mono">TLS: dashboard · backups: selected node</span></div></header>
           <div id="checks-list" class="checks-list" aria-busy="true"></div>
           <p id="checks-status" class="panel-status mono">Loading certificate and backup checks…</p>
         </section>
@@ -383,7 +378,7 @@
 
       <section id="workspace-topology" class="dashboard-workspace workspace-topology" data-workspace-panel="topology" aria-labelledby="topology-title" hidden>
         <section class="panel topology-panel" aria-labelledby="topology-title" data-workspace-focus tabindex="-1">
-          <header class="panel-header"><div><p class="eyebrow">MANUAL SERVICE DEPENDENCIES</p><h2 id="topology-title" tabindex="-1">SERVICE TOPOLOGY</h2></div><span id="topology-count" class="count-badge mono">0</span></header>
+          <header class="panel-header"><div><h2 id="topology-title" tabindex="-1">Service Topology</h2></div><span id="topology-count" class="count-badge mono">0</span></header>
           <p class="topology-hint">Arrows run from the dependent service to the service it needs. Relationships are curated; no traffic is inferred.</p>
           <p id="topology-scroll-hint" class="topology-scroll-hint">Scroll horizontally to inspect the map.</p>
           <div id="topology-canvas" class="topology-canvas" role="region" aria-label="Manual service dependency topology" aria-describedby="topology-scroll-hint"></div>
@@ -436,9 +431,8 @@
 
   <dialog id="service-dialog" class="modal" aria-labelledby="service-dialog-title">
     <form id="service-form" class="modal-form" autocomplete="off">
-      <header><div><p class="eyebrow">SERVICE CONFIGURATION</p><h2 id="service-dialog-title">Add service</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close dialog">×</button></header>
+      <header><div><h2 id="service-dialog-title">Add service</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close dialog">×</button></header>
       <input name="id" type="hidden">
-      <input name="icon" type="hidden" value="">
       <div class="form-grid">
         <label class="full"><span>NAME</span><input name="name" type="text" maxlength="40" required></label>
         <label class="full"><span>DISPLAY URL OR PORT</span><input name="displayUrl" type="text" maxlength="300" placeholder="8080 or https://service.tailnet.ts.net" required></label>
@@ -451,7 +445,7 @@
 
   <dialog id="delete-dialog" class="modal modal-small" aria-labelledby="delete-dialog-title">
     <form id="delete-form" class="modal-form" method="dialog">
-      <header><div><p class="eyebrow">DESTRUCTIVE ACTION</p><h2 id="delete-dialog-title">Delete service?</h2></div></header>
+      <header><div><h2 id="delete-dialog-title">Delete service?</h2></div></header>
       <p>Remove <strong id="delete-service-name"></strong> from the dashboard? This does not stop its container.</p>
       <input name="id" type="hidden">
       <p id="delete-form-error" class="form-error" role="alert" hidden></p>
@@ -461,7 +455,7 @@
 
   <dialog id="host-shell-dialog" class="modal modal-small" aria-labelledby="host-shell-dialog-title" aria-describedby="host-shell-dialog-description">
     <form id="host-shell-confirm-form" class="modal-form" method="dialog">
-      <header><div><p class="eyebrow">PRIVILEGED SESSION</p><h2 id="host-shell-dialog-title">Open Host Shell?</h2></div></header>
+      <header><div><h2 id="host-shell-dialog-title">Open Host Shell?</h2></div></header>
       <p id="host-shell-dialog-description">This opens an interactive <code>/bin/bash</code> session on <strong id="host-shell-target" class="mono">the homelab host</strong> as the Unix account running the host agent. The actual account is shown after connection.</p>
       <p id="host-shell-replace-warning" class="security-callout" hidden>The current terminal session will be disconnected first.</p>
       <footer>
@@ -474,7 +468,7 @@
   <dialog id="alert-center-dialog" class="modal modal-wide" aria-labelledby="alert-center-title">
     <div class="modal-form monitoring-dialog">
       <header>
-        <div><p class="eyebrow">MONITORING CONTROL</p><h2 id="alert-center-title">Alert center</h2></div>
+        <div><h2 id="alert-center-title">Alert center</h2></div>
         <button class="icon-button" type="button" data-dialog-close aria-label="Close alert center">×</button>
       </header>
       <p id="alert-center-status" class="dialog-status mono" role="status">Loading alert state…</p>
@@ -501,7 +495,7 @@
 
   <dialog id="alert-rule-dialog" class="modal" aria-labelledby="alert-rule-dialog-title">
     <form id="alert-rule-form" class="modal-form" autocomplete="off">
-      <header><div><p class="eyebrow">ALERT AUTOMATION</p><h2 id="alert-rule-dialog-title">New alert rule</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close rule editor">×</button></header>
+      <header><div><h2 id="alert-rule-dialog-title">New alert rule</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close rule editor">×</button></header>
       <input name="id" type="hidden">
       <div class="form-grid form-grid-rules">
         <label class="full"><span>RULE NAME</span><input name="name" type="text" maxlength="160" required></label>
@@ -523,7 +517,7 @@
 
   <dialog id="nodes-dialog" class="modal" aria-labelledby="nodes-dialog-title">
     <div class="modal-form monitoring-dialog">
-      <header><div><p class="eyebrow">OUTBOUND WSS AGENTS</p><h2 id="nodes-dialog-title">Monitoring nodes</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close node manager">×</button></header>
+      <header><div><h2 id="nodes-dialog-title">Monitoring nodes</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close node manager">×</button></header>
       <p>Enroll up to four remote nodes (five nodes total including this host). Enrollment tokens expire after 10 minutes and are shown only once.</p>
       <div class="subsection-header"><h3>ENROLLED NODES</h3><button id="node-enroll-create" class="button button-primary button-small admin-only" type="button">CREATE TOKEN</button></div>
       <div id="nodes-list" class="management-list"><div class="skeleton-line"></div></div>
@@ -539,7 +533,7 @@
 
   <dialog id="settings-dialog" class="modal" aria-labelledby="settings-title">
     <div class="modal-form monitoring-dialog">
-      <header><div><p class="eyebrow">PORTABLE CONFIGURATION</p><h2 id="settings-title">Dashboard settings</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close settings">×</button></header>
+      <header><div><h2 id="settings-title">Dashboard settings</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close settings">×</button></header>
       <section class="settings-section" aria-labelledby="config-transfer-title">
         <div class="subsection-header"><h3 id="config-transfer-title">EXPORT / IMPORT</h3><button id="config-export" class="button button-ghost button-small admin-only" type="button">EXPORT JSON</button></div>
         <p>Transfers services, alert rules, UI preferences, and node display metadata. Secrets, credentials, metrics, logs, and audit records are never included.</p>
