@@ -41,10 +41,21 @@ func (f AlertSourceFunc) Alerts(ctx context.Context) ([]model.Alert, error) {
 	return f(ctx)
 }
 
+type BackupSource interface {
+	Backups(context.Context) ([]model.BackupStatus, error)
+}
+
+type BackupSourceFunc func(context.Context) ([]model.BackupStatus, error)
+
+func (f BackupSourceFunc) Backups(ctx context.Context) ([]model.BackupStatus, error) {
+	return f(ctx)
+}
+
 type Sources struct {
 	Host       HostCollector
 	Services   ServiceSource
 	Containers ContainerSource
+	Backups    BackupSource
 	Alerts     AlertSource
 }
 
@@ -100,6 +111,7 @@ func (h *Hub) CollectOnce(ctx context.Context) (model.SnapshotEnvelope, error) {
 	if !hasPrevious {
 		data.Services = make([]model.Service, 0)
 		data.Containers = make([]model.Container, 0)
+		data.Backups = make([]model.BackupStatus, 0)
 		data.Disks = make([]model.DiskStats, 0)
 		data.Alerts = make([]model.Alert, 0)
 	}
@@ -167,6 +179,23 @@ func (h *Hub) CollectOnce(ctx context.Context) (model.SnapshotEnvelope, error) {
 			resultMu.Unlock()
 		}()
 	}
+	if h.sources.Backups != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			value, err := h.sources.Backups.Backups(ctx)
+			if err != nil {
+				recordError("backups", err)
+				return
+			}
+			resultMu.Lock()
+			if len(value) > 50 {
+				truncatedSources["backups"] = struct{}{}
+			}
+			data.Backups = capSlice(value, 50)
+			resultMu.Unlock()
+		}()
+	}
 	wg.Wait()
 	// Alerts may be derived from the container collection (for example restart
 	// loops). Read them after the concurrent collectors finish so a snapshot
@@ -182,8 +211,8 @@ func (h *Hub) CollectOnce(ctx context.Context) (model.SnapshotEnvelope, error) {
 			data.Alerts = capSlice(value, 50)
 		}
 	}
-
 	now := h.now().UTC()
+
 	staleSources := make([]string, 0, len(errorsOut))
 	for _, item := range errorsOut {
 		staleSources = append(staleSources, item.source)
@@ -319,6 +348,7 @@ func cloneSnapshotData(data model.SnapshotData) model.SnapshotData {
 	data.Disks = capSlice(data.Disks, len(data.Disks))
 	data.Services = capSlice(data.Services, len(data.Services))
 	data.Containers = capSlice(data.Containers, len(data.Containers))
+	data.Backups = capSlice(data.Backups, len(data.Backups))
 	data.Alerts = capSlice(data.Alerts, len(data.Alerts))
 	for index := range data.Containers {
 		data.Containers[index].Ports = capSlice(data.Containers[index].Ports, len(data.Containers[index].Ports))

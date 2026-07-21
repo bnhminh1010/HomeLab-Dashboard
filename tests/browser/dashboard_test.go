@@ -285,13 +285,16 @@ func TestDemoWorkspaceNavigationAndPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, workspace := range []string{"services", "containers", "history", "alerts", "overview"} {
+	for _, workspace := range []string{"services", "containers", "nodes", "history", "alerts", "topology", "overview"} {
 		workspace := workspace
 		selector := `[data-workspace="` + workspace + `"]`
 		panelSelector := `#workspace-` + workspace
 		titleSelector := `#` + workspace + `-title`
 		if workspace == "overview" {
 			titleSelector = "#health-overview"
+		}
+		if workspace == "nodes" {
+			titleSelector = "#nodes-workspace-title"
 		}
 		err = chromedp.Run(ctx,
 			chromedp.Click(selector, chromedp.ByQuery),
@@ -1301,6 +1304,7 @@ func TestDemoMonitoringWorkbench(t *testing.T) {
 		HistoryResolution      string `json:"historyResolution"`
 		NodeOptions            int    `json:"nodeOptions"`
 		RuleCount              int    `json:"ruleCount"`
+		BackupMetricAvailable  bool   `json:"backupMetricAvailable"`
 		NtfyConfigured         bool   `json:"ntfyConfigured"`
 		AlertFocusRestored     bool   `json:"alertFocusRestored"`
 		PreviewReady           bool   `json:"previewReady"`
@@ -1338,6 +1342,19 @@ func TestDemoMonitoringWorkbench(t *testing.T) {
 		chromedp.SetValue(`#alert-rule-form select[name="metric"]`, "system.memory.percent", chromedp.ByQuery),
 		chromedp.Click("#alert-rule-submit", chromedp.ByQuery),
 		chromedp.Poll(`!document.querySelector('#alert-rule-dialog').open && document.querySelectorAll('#alert-rules-list .management-item').length === 3`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Click("#alert-rule-add", chromedp.ByQuery),
+		chromedp.WaitVisible("#alert-rule-dialog", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+          const resource = document.querySelector('#alert-rule-form select[name="resourceType"]');
+          resource.value = 'backup';
+          resource.dispatchEvent(new Event('change', { bubbles: true }));
+          const metric = document.querySelector('#alert-rule-form select[name="metric"]');
+          return [...resource.options].some((option) => option.value === 'backup')
+            && metric.value === 'backup.healthy'
+            && [...metric.options].some((option) => option.value === 'backup.healthy');
+        })()`, &report.BackupMetricAvailable),
+		chromedp.KeyEvent("\x1b"),
+		chromedp.Poll(`!document.querySelector('#alert-rule-dialog').open`, nil, chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Evaluate(`(() => ({
           ruleCount: document.querySelectorAll('#alert-rules-list .management-item').length,
           ntfyConfigured: document.querySelector('#ntfy-status').dataset.configured === 'true'
@@ -1394,7 +1411,7 @@ func TestDemoMonitoringWorkbench(t *testing.T) {
 		!strings.Contains(report.HistoryResolution, "RESOLUTION") || report.NodeOptions != 2 {
 		t.Fatalf("history/node selector did not initialize: %+v", report)
 	}
-	if report.RuleCount != 3 || !report.NtfyConfigured || !report.AlertFocusRestored {
+	if report.RuleCount != 3 || !report.BackupMetricAvailable || !report.NtfyConfigured || !report.AlertFocusRestored {
 		t.Fatalf("alert center CRUD, ntfy state, or focus restoration failed: %+v", report)
 	}
 	if !report.ApplyDisabledBefore || !report.PreviewReady || !report.ImportApplied {
@@ -1402,6 +1419,80 @@ func TestDemoMonitoringWorkbench(t *testing.T) {
 	}
 	if !report.TokenVisible || !report.TokenCleared || !report.RemoteTruthful {
 		t.Fatalf("node enrollment secrecy or remote offline state failed: %+v", report)
+	}
+}
+
+func TestDemoMobileOperationsWorkspaces(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+	ctx, cancel := chromedp.NewContext(allocator)
+	defer cancel()
+	ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
+	defer timeout()
+
+	openWorkspace := func(workspace string) chromedp.Action {
+		return chromedp.Tasks{
+			chromedp.Click("#sidebar-open", chromedp.ByQuery),
+			chromedp.WaitVisible(`[data-workspace="`+workspace+`"]`, chromedp.ByQuery),
+			chromedp.Click(`[data-workspace="`+workspace+`"]`, chromedp.ByQuery),
+			chromedp.WaitVisible("#workspace-"+workspace, chromedp.ByQuery),
+		}
+	}
+
+	var report struct {
+		NodesReady              bool `json:"nodesReady"`
+		HistoryRangeSynced      bool `json:"historyRangeSynced"`
+		TopologySemantics       bool `json:"topologySemantics"`
+		TopologyHintVisible     bool `json:"topologyHintVisible"`
+		TopologyActionTouch     bool `json:"topologyActionTouch"`
+		DocumentDoesNotOverflow bool `json:"documentDoesNotOverflow"`
+	}
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(375, 812),
+		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+		openWorkspace("nodes"),
+		chromedp.WaitVisible(".node-workspace-card", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelectorAll('.node-workspace-card').length > 0`, &report.NodesReady),
+		openWorkspace("history"),
+		chromedp.Click(`[data-history-range="7d"]`, chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#history-timeline-eyebrow')?.textContent.includes('7D WINDOW')`, nil,
+			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`document.querySelector('#history-timeline-eyebrow')?.textContent.includes('7D WINDOW')`, &report.HistoryRangeSynced),
+		openWorkspace("topology"),
+		chromedp.WaitVisible("#topology-form", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+          const canvas = document.querySelector('#topology-canvas');
+          const hint = document.querySelector('#topology-scroll-hint');
+          const add = document.querySelector('#topology-form button[type="submit"]');
+          return {
+            topologySemantics: canvas?.getAttribute('role') === 'region'
+              && canvas?.getAttribute('aria-describedby') === 'topology-scroll-hint',
+            topologyHintVisible: getComputedStyle(hint).display !== 'none',
+            topologyActionTouch: add.getBoundingClientRect().width >= 44 && add.getBoundingClientRect().height >= 44,
+            documentDoesNotOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
+          };
+        })()`, &report),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.NodesReady || !report.HistoryRangeSynced || !report.TopologySemantics || !report.TopologyHintVisible || !report.TopologyActionTouch || !report.DocumentDoesNotOverflow {
+		t.Fatalf("mobile operations workspace regression: %+v", report)
 	}
 }
 

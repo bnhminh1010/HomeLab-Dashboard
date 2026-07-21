@@ -1,9 +1,61 @@
-# HomeLab Dashboard
+<h1 align="center">HomeLab Dashboard</h1>
 
-A compact, self-hosted monitoring and operations dashboard for a rootless
-Podman homelab. The dashboard backend, API, WebSocket server and frontend
-assets are delivered as one Go binary. The UI is plain HTML, CSS and native
-JavaScript.
+<p align="center"><strong>A quiet operations workbench for a Tailscale-connected, rootless Podman homelab.</strong></p>
+
+<p align="center"><code>Go</code> · <code>SQLite</code> · <code>Podman</code> · <code>Tailscale</code> · <code>WebSocket</code> · <code>Vanilla JS</code></p>
+
+<p align="center"><sub>One binary. No Node.js. No npm. No CDN runtime dependencies.</sub></p>
+
+<p align="center"><a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#operations-and-troubleshooting">Operations</a> · <a href="#development-and-verification">Development</a></p>
+
+> [!NOTE]
+> This is an intentionally small, single-instance operations console—not a
+> replacement for Grafana, Prometheus, Loki, or an enterprise control plane.
+> It favors direct visibility and safe everyday action on a personal homelab.
+
+| Observe | Act | Retain | Trust |
+|---|---|---|---|
+| Host, services, containers, TLS, backups and up to five nodes | Logs, container shells and explicitly confirmed host Bash | Tiered metrics, SLOs, alerts and operational events for up to 90 days | Tailscale identity, viewer/admin roles, CSRF and same-origin mutation guards |
+
+## Capabilities
+
+### See the state of the lab
+
+- Live CPU, memory, disk, network, load, uptime, temperature and process
+  metrics; rootless Podman health and resource usage; and a graphite workbench
+  that adapts from desktop to mobile.
+- Tiered SQLite history for host, container and service uptime across
+  **1 hour–90 days**, including an archived-resource picker and a visible
+  storage-quota state.
+- Local and remote fleet capacity, HTTPS certificate observations, backup
+  freshness, manually curated service dependencies and a 90-day change
+  timeline with markers aligned to the selected history window.
+- Per-service availability objectives with 7/30/90-day windows and an explicit
+  error budget once probe observations exist.
+
+### Respond without leaving the dashboard
+
+- Persistent service shortcuts with SSRF-safe probes, read-only container logs
+  with follow/pause/search/download, and admin-only interactive container
+  shells in xterm.js.
+- An explicitly confirmed Bash login shell on the selected host. It requires an
+  admin identity, the dedicated host-shell allowlist and a visible confirmation;
+  local sessions use a Unix-socket host agent while remote sessions use an
+  outbound node agent.
+- Stateful alert rules for node availability, host resources, services,
+  containers and backup freshness. Incidents can be acknowledged or silenced
+  for 1, 6 or 24 hours.
+- Optional ntfy delivery for firing and resolved alerts, with cooldowns,
+  retries, superseded-delivery handling and an admin test push.
+
+### Keep configuration and access deliberate
+
+- One local node plus up to four remote Linux/Podman nodes, connected outbound
+  over Tailscale HTTPS/WSS—no inbound agent port.
+- Versioned, secret-free export/import with merge/replace previews and a
+  revision/`If-Match` guard against stale writes.
+- Viewer/admin authorization from Tailscale identity, same-origin and CSRF
+  checks for mutations, plus bounded audit history.
 
 There is **no Node.js toolchain**: no npm, package manifest, bundler, CDN or
 runtime download. xterm.js, FitAddon and Chart.js are versioned browser bundles
@@ -11,37 +63,28 @@ under `static/lib/` and embedded with `go:embed`. The repository `.gitattributes
 marks that directory as `linguist-vendored`, so GitHub language statistics do
 not mistake the local browser dependencies for application JavaScript.
 
-## Capabilities
-
-- Live host CPU, memory, disk, network, load, uptime, temperature and process
-  metrics, plus rootless Podman container health and resource usage.
-- Tiered SQLite history for host, container and service-uptime data, with UI
-  ranges from 1 hour to 90 days, an archived-resource picker and an explicit
-  storage quota indicator.
-- Stateful alert rules for node availability, CPU, memory, disk, temperature,
-  service failures and container health/restarts. Alerts can be acknowledged or
-  silenced for 1, 6 or 24 hours.
-- Optional ntfy delivery for firing and resolved alerts, including cooldown,
-  bounded retries, superseded-delivery handling and an admin test-push action.
-- A dedicated, read-only container log viewer with follow, pause, search and
-  download. Its browser buffer is bounded to 10,000 lines or 5 MiB, and log
-  lookback is limited to 24 hours.
-- Admin-only interactive container shells in xterm.js, with PTY resize and
-  session limits.
-- An explicitly confirmed Bash login shell on the selected host. The local
-  host uses a Unix-socket host agent; remote hosts use the outbound node agent.
-- Up to five monitoring nodes total: the built-in local node and four remote
-  Linux/Podman nodes connected outbound over Tailscale HTTPS/WSS.
-- Persistent service shortcuts with SSRF-safe health probes and service uptime
-  history.
-- Versioned, secret-free dashboard configuration export/import with merge and
-  replace previews. Apply is guarded by a revision/`If-Match` precondition so
-  a stale preview cannot overwrite newer configuration.
-- Viewer/admin authorization from Tailscale identity, same-origin and CSRF
-  checks for mutations, bounded audit history, responsive 3/2/1-column UI and
-  an explicit `?demo=1` fixture mode.
-
 ## Architecture and data lifecycle
+
+```text
+Tailnet browser
+      │ HTTPS / WSS (Tailscale Serve)
+      ▼
+┌───────────────────────────────────────────────────────┐
+│ Dashboard container                                   │
+│ Go API + WebSocket + embedded static UI + SQLite       │
+└───────┬─────────────────────┬─────────────────────┬───┘
+        │                     │                     │
+        ▼                     ▼                     ▼
+  Podman socket         Host-agent PTY       Tailscale WSS
+  containers/logs       local Bash           remote node agents
+                                                    │
+                                                    ▼
+                                            Podman + host metrics
+```
+
+The dashboard has no published host port. Tailscale Serve terminates the
+tailnet HTTPS/WSS connection, while the Go process listens only on loopback in
+the shared network namespace. Remote agents always dial out to the dashboard.
 
 The dashboard collects the local node every 2 seconds. A monitoring pipeline
 writes host samples every 10 seconds, container samples every 30 seconds and
@@ -69,6 +112,13 @@ operational cleanup runs at startup and daily. Alert events, resolved alert
 states and audit records are retained for 90 days, completed notification
 deliveries for 30 days, and active incidents/queued delivery work are preserved.
 
+The latest TLS certificate observation is refreshed at startup and every 12
+hours for each configured HTTPS service. It shares the service-probe CIDR
+allowlist and optional Tailscale SOCKS route, so the certificate feature cannot
+be used as a separate network scanner. A backup job may optionally write a
+small status JSON file; the dashboard keeps only its newest status per job and
+evaluates its configured freshness interval.
+
 The SQLite database and Tailscale node state live in named volumes and survive
 a Compose recreate. History is local to this dashboard instance; it is not a
 Prometheus-compatible long-term archive.
@@ -84,14 +134,17 @@ a one-day cache lifetime with `must-revalidate`; application assets use a
 one-hour revalidation window. This keeps repeat loads small while ensuring a
 browser revalidates the committed vendor bundles after an upgrade.
 
-## Run with Podman Compose
+## Quick start with Podman Compose
 
-Prerequisites are Linux with systemd and `/bin/bash`, rootless Podman 5.8+, a
-Compose provider (`podman-compose` or the Docker Compose plugin), and a tailnet
-with MagicDNS and HTTPS certificates enabled. Enable the user socket and make
-sure the rootless runtime directory matches the account that owns Podman:
+Prerequisites: Linux with systemd and `/bin/bash`, rootless Podman, a Compose
+provider (`podman-compose` or the Docker Compose plugin), and a tailnet with
+MagicDNS and HTTPS certificates enabled. Clone the repository, enable the user
+socket and make sure the runtime directory belongs to the account that owns
+Podman:
 
 ```bash
+git clone https://github.com/bnhminh1010/HomeLab-Minh.git
+cd HomeLab-Minh
 systemctl --user enable --now podman.socket
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 test -S "$XDG_RUNTIME_DIR/podman/podman.sock"
@@ -109,6 +162,11 @@ podman compose config
 podman compose up -d --build
 podman compose ps
 ```
+
+> [!IMPORTANT]
+> Do not publish the dashboard directly on `0.0.0.0` while
+> `TRUST_TAILSCALE_HEADERS=true`. Compose deliberately exposes no host port;
+> access it through Tailscale Serve instead.
 
 The Compose project publishes no host port. Open
 `https://homelab-dashboard.<your-tailnet>.ts.net` (or the hostname selected in
@@ -174,6 +232,19 @@ the configured token at a fixed read-only path; the token is never exported in
 dashboard configuration. After recreating the dashboard, use **Settings → ntfy
 delivery → Test push** as an administrator.
 
+### Backup status reports
+
+The dashboard does not run or credential backup software. Any local backup job
+can publish its most recent result by atomically replacing a small JSON file on
+the host. Set `BACKUP_STATUS_FILE` in `.env` to that host path, then recreate
+the dashboard. The Compose file exposes it read-only inside the container.
+
+For a remote node, set `BACKUP_STATUS_FILE=/absolute/path/report.json` in
+`~/.config/systemd/user/homelab-node-agent.service.d/backup.conf`, then run
+`systemctl --user daemon-reload && systemctl --user restart homelab-node-agent`.
+The complete JSON contract and an atomic writer example are in
+[`deploy/node-agent/README.md`](deploy/node-agent/README.md#backup-status-reports).
+
 ### Add a remote node
 
 The dashboard supports four remote nodes in addition to `local`. A remote node
@@ -212,6 +283,7 @@ document is limited to 1 MiB and contains only:
 
 - service definitions;
 - alert rules;
+- service SLO target/window policies and manual service-dependency edges;
 - UI preferences; and
 - display metadata for nodes that are already enrolled.
 
@@ -227,6 +299,14 @@ API returns `412 Precondition Failed`; preview again before retrying. A missing
 revision returns `428 Precondition Required`.
 
 ## Security boundary
+
+### Access at a glance
+
+| Actor | Allowed actions |
+|---|---|
+| **Viewer** | Read metrics, history, alerts and container logs. |
+| **Admin** | Mutate services/rules/configuration, acknowledge or silence incidents, manage nodes, open container shells and test ntfy. |
+| **Host shell user** | An admin explicitly listed in `HOST_SHELL_USERS`, after an in-UI confirmation. The login shell has the Unix account's normal power. |
 
 Every authenticated Tailnet user can view metrics and container logs. Only
 exact login names in `ADMIN_USERS` can mutate configuration, acknowledge or

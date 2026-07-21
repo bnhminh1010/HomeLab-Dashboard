@@ -12,11 +12,16 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/alerts"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/binhminh/HomeLab-Minh/internal/slo"
+	"github.com/binhminh/HomeLab-Minh/internal/topology"
 )
 
 const (
-	DocumentVersion  = "homelab-dashboard.config/v1"
-	MaxDocumentBytes = 1 << 20
+	// DocumentVersion is emitted for every new export. Decode upgrades the
+	// previous portable schema so existing v1 backup files remain importable.
+	DocumentVersion       = "homelab-dashboard.config/v2"
+	legacyDocumentVersion = "homelab-dashboard.config/v1"
+	MaxDocumentBytes      = 1 << 20
 )
 
 var (
@@ -42,11 +47,18 @@ func (mode ImportMode) Valid() bool {
 // Document is the complete public schema. Do not add runtime or secret-bearing
 // fields here. Adding a field is a schema change and must be reviewed as such.
 type Document struct {
-	Version       string            `json:"version"`
-	Services      []ServiceConfig   `json:"services"`
-	AlertRules    []AlertRuleConfig `json:"alertRules"`
-	UIPreferences UIPreferences     `json:"uiPreferences"`
-	Nodes         []NodeMetadata    `json:"nodes"`
+	Version       string             `json:"version"`
+	Services      []ServiceConfig    `json:"services"`
+	AlertRules    []AlertRuleConfig  `json:"alertRules"`
+	SLOPolicies   []SLOPolicyConfig  `json:"sloPolicies"`
+	Dependencies  []DependencyConfig `json:"topologyDependencies"`
+	UIPreferences UIPreferences      `json:"uiPreferences"`
+	Nodes         []NodeMetadata     `json:"nodes"`
+
+	// legacyV1 is set only by Decode. It lets import preserve portable sections
+	// introduced after v1 instead of treating their absence as a destructive
+	// replace request. It is deliberately not part of the JSON schema.
+	legacyV1 bool
 }
 
 type ServiceConfig struct {
@@ -70,6 +82,25 @@ type AlertRuleConfig struct {
 	Severity         alerts.Severity `json:"severity"`
 	CooldownMS       int64           `json:"cooldownMs"`
 	Enabled          bool            `json:"enabled"`
+}
+
+// SLOPolicyConfig includes only durable, non-secret target settings. Runtime
+// availability, remaining error budget, and observation timestamps belong to
+// history and therefore are never exported with dashboard configuration.
+type SLOPolicyConfig struct {
+	ServiceID     string  `json:"serviceId"`
+	TargetPercent float64 `json:"targetPercent"`
+	WindowDays    int     `json:"windowDays"`
+}
+
+// DependencyConfig is one manually curated service-to-service edge. IDs and
+// timestamps are storage/runtime details, so portable topology remains stable
+// across imports into another dashboard database.
+type DependencyConfig struct {
+	NodeID              string `json:"nodeId"`
+	DependentServiceID  string `json:"dependentServiceId"`
+	DependencyServiceID string `json:"dependencyServiceId"`
+	Label               string `json:"label,omitempty"`
 }
 
 type UIPreferences struct {
@@ -101,6 +132,8 @@ type NodeMetadata struct {
 type Snapshot struct {
 	Services      []model.Service
 	AlertRules    []alerts.AlertRule
+	SLOPolicies   []slo.Policy
+	Dependencies  []topology.Dependency
 	UIPreferences UIPreferences
 	Nodes         []nodes.Node
 }

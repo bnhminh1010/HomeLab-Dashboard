@@ -8,6 +8,7 @@ import (
 
 	"github.com/binhminh/HomeLab-Minh/internal/auth"
 	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
+	"github.com/binhminh/HomeLab-Minh/internal/operations"
 	"github.com/gin-gonic/gin"
 )
 
@@ -65,6 +66,10 @@ func (s *Server) applyDashboardConfig(c *gin.Context) {
 	if s.options.DashboardConfigApplied != nil {
 		s.options.DashboardConfigApplied()
 	}
+	s.recordAutomaticEvent(c.Request.Context(), operations.Event{
+		Type: operations.EventConfigurationImported, Title: "Dashboard configuration imported",
+		Summary: string(result.Preview.Mode), Actor: principal.Login,
+	})
 	c.JSON(http.StatusOK, result)
 }
 

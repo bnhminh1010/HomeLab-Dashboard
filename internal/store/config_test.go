@@ -12,6 +12,8 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/alerts"
 	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
+	"github.com/binhminh/HomeLab-Minh/internal/slo"
+	"github.com/binhminh/HomeLab-Minh/internal/topology"
 )
 
 func TestDashboardConfigStoreExportMergeReplaceAndSecretExclusion(t *testing.T) {
@@ -30,6 +32,16 @@ func TestDashboardConfigStoreExportMergeReplaceAndSecretExclusion(t *testing.T) 
 		if _, err := store.CreateService(ctx, service); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := store.UpsertSLOPolicy(ctx, slo.Policy{
+		ServiceID: "svc_keep", TargetPercent: 99.9, WindowDays: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateTopologyDependency(ctx, topology.DependencyInput{
+		NodeID: "local", DependentServiceID: "svc_keep", DependencyServiceID: "svc_old", Label: "database",
+	}); err != nil {
+		t.Fatal(err)
 	}
 	rule := alerts.DefaultRules()[0]
 	rule.ID = "rule_cpu"
@@ -76,11 +88,22 @@ func TestDashboardConfigStoreExportMergeReplaceAndSecretExclusion(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if document.Version != dashboardconfig.DocumentVersion || len(document.SLOPolicies) != 1 ||
+		len(document.Dependencies) != 1 || document.Dependencies[0].Label != "database" {
+		t.Fatalf("exported v2 reliability config = %+v", document)
+	}
 	document.Services = []dashboardconfig.ServiceConfig{
 		{ID: "svc_keep", Name: "Keep Updated", DisplayURL: "https://keep.example"},
 		{ID: "svc_new", Name: "New", DisplayURL: "https://new.example"},
 	}
 	document.AlertRules = []dashboardconfig.AlertRuleConfig{}
+	document.SLOPolicies = []dashboardconfig.SLOPolicyConfig{
+		{ServiceID: "svc_keep", TargetPercent: 99.5, WindowDays: 7},
+		{ServiceID: "svc_new", TargetPercent: 99.0, WindowDays: 30},
+	}
+	document.Dependencies = []dashboardconfig.DependencyConfig{
+		{NodeID: "local", DependentServiceID: "svc_keep", DependencyServiceID: "svc_new", Label: "cache"},
+	}
 	document.UIPreferences.TerminalHeight = 280
 	document.Nodes = []dashboardconfig.NodeMetadata{
 		{ID: "node_one", DisplayName: "Compute One", Hostname: "compute-one"},
@@ -102,7 +125,8 @@ func TestDashboardConfigStoreExportMergeReplaceAndSecretExclusion(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.Services) != 3 || len(snapshot.AlertRules) != 1 ||
+	if len(snapshot.Services) != 3 || len(snapshot.AlertRules) != 1 || len(snapshot.SLOPolicies) != 2 ||
+		len(snapshot.Dependencies) != 2 ||
 		snapshot.UIPreferences.TerminalHeight != 280 || len(snapshot.Nodes) != 1 ||
 		snapshot.Nodes[0].DisplayName != "Compute One" || snapshot.Nodes[0].Hostname != "compute-one" {
 		t.Fatalf("unexpected merged snapshot: %+v", snapshot)
@@ -120,6 +144,10 @@ func TestDashboardConfigStoreExportMergeReplaceAndSecretExclusion(t *testing.T) 
 		{ID: "svc_new", Name: "New", DisplayURL: "https://new.example"},
 	}
 	replaceDocument.AlertRules = []dashboardconfig.AlertRuleConfig{}
+	replaceDocument.SLOPolicies = []dashboardconfig.SLOPolicyConfig{
+		{ServiceID: "svc_new", TargetPercent: 99.0, WindowDays: 30},
+	}
+	replaceDocument.Dependencies = []dashboardconfig.DependencyConfig{}
 	replaceDocument.Nodes = []dashboardconfig.NodeMetadata{}
 	replaceRaw, _ := json.Marshal(replaceDocument)
 	replacePreview, err := manager.Preview(ctx, replaceRaw, dashboardconfig.ImportReplace)
@@ -134,7 +162,8 @@ func TestDashboardConfigStoreExportMergeReplaceAndSecretExclusion(t *testing.T) 
 		t.Fatal(err)
 	}
 	if len(snapshot.Services) != 1 || snapshot.Services[0].ID != "svc_new" ||
-		len(snapshot.AlertRules) != 0 || len(snapshot.Nodes) != 1 {
+		len(snapshot.AlertRules) != 0 || len(snapshot.SLOPolicies) != 1 ||
+		len(snapshot.Dependencies) != 0 || len(snapshot.Nodes) != 1 {
 		t.Fatalf("unexpected replaced snapshot: %+v", snapshot)
 	}
 	events, err := store.ListAudit(ctx, 20)
@@ -199,6 +228,50 @@ func TestDashboardPreferencesRejectMissingOrRevokedDefaultNode(t *testing.T) {
 	}
 }
 
+func TestDashboardConfigStoreRejectsTopologyForRevokedNodeInsideApplyTransaction(t *testing.T) {
+	ctx := context.Background()
+	database, err := Open(ctx, filepath.Join(t.TempDir(), "revoked-topology.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	for _, service := range []model.Service{
+		{ID: "svc_api", Name: "API", DisplayURL: "https://api.example"},
+		{ID: "svc_db", Name: "Database", DisplayURL: "https://db.example"},
+	} {
+		if _, err := database.CreateService(ctx, service); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	if _, err := database.db.ExecContext(ctx, `
+		INSERT INTO nodes(id, display_name, hostname, credential_hash, created_at, updated_at)
+		VALUES ('node_revoked', 'Revoked', 'revoked', zeroblob(32), ?, ?)`, now.Unix(), now.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RevokeNode(ctx, "node_revoked", now); err != nil {
+		t.Fatal(err)
+	}
+	current, err := database.LoadDashboardConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := dashboardconfig.Revision(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.Dependencies = []topology.Dependency{{
+		NodeID: "node_revoked", DependentServiceID: "svc_api", DependencyServiceID: "svc_db",
+	}}
+	if err := database.ApplyDashboardConfig(ctx, current, dashboardconfig.ImportMerge, "admin@example.com", revision); !errors.Is(err, dashboardconfig.ErrInvalidDocument) {
+		t.Fatalf("revoked topology import error = %v", err)
+	}
+	dependencies, err := database.ListTopologyDependencies(ctx, "node_revoked")
+	if err != nil || len(dependencies) != 0 {
+		t.Fatalf("revoked topology dependency persisted: %#v, %v", dependencies, err)
+	}
+}
+
 func TestDashboardConfigStoreRollsBackWholeImport(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(ctx, filepath.Join(t.TempDir(), "dashboard.db"))
@@ -227,6 +300,8 @@ func TestDashboardConfigStoreRollsBackWholeImport(t *testing.T) {
 			{ID: "svc_fail", Name: "Failure", DisplayURL: "https://fail.example"},
 		},
 		AlertRules:    []dashboardconfig.AlertRuleConfig{},
+		SLOPolicies:   []dashboardconfig.SLOPolicyConfig{},
+		Dependencies:  []dashboardconfig.DependencyConfig{},
 		UIPreferences: dashboardconfig.DefaultUIPreferences(),
 		Nodes:         []dashboardconfig.NodeMetadata{},
 	}
@@ -252,5 +327,60 @@ func TestDashboardConfigStoreRollsBackWholeImport(t *testing.T) {
 	}
 	if len(events) != 0 {
 		t.Fatalf("audit event survived failed transaction: %+v", events)
+	}
+}
+
+func TestDashboardConfigStoreRollsBackSLOAndTopologyWithImport(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "dashboard.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.CreateService(ctx, model.Service{
+		ID: "svc_existing", Name: "Existing", DisplayURL: "https://existing.example",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+		CREATE TRIGGER fail_imported_topology
+		BEFORE INSERT ON topology_dependencies
+		BEGIN
+			SELECT RAISE(ABORT, 'forced topology import failure');
+		END`); err != nil {
+		t.Fatal(err)
+	}
+	document := dashboardconfig.Document{
+		Version: dashboardconfig.DocumentVersion,
+		Services: []dashboardconfig.ServiceConfig{
+			{ID: "svc_api", Name: "API", DisplayURL: "https://api.example"},
+			{ID: "svc_db", Name: "Database", DisplayURL: "https://db.example"},
+		},
+		AlertRules: []dashboardconfig.AlertRuleConfig{},
+		SLOPolicies: []dashboardconfig.SLOPolicyConfig{
+			{ServiceID: "svc_api", TargetPercent: 99.5, WindowDays: 30},
+		},
+		Dependencies: []dashboardconfig.DependencyConfig{
+			{NodeID: "local", DependentServiceID: "svc_api", DependencyServiceID: "svc_db"},
+		},
+		UIPreferences: dashboardconfig.DefaultUIPreferences(),
+		Nodes:         []dashboardconfig.NodeMetadata{},
+	}
+	raw, _ := json.Marshal(document)
+	manager, _ := dashboardconfig.NewService(store)
+	preview, err := manager.Preview(ctx, raw, dashboardconfig.ImportReplace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Apply(ctx, raw, dashboardconfig.ImportReplace, "admin@example.com", preview.Revision); err == nil {
+		t.Fatal("topology failure unexpectedly committed import")
+	}
+	snapshot, err := store.LoadDashboardConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Services) != 1 || snapshot.Services[0].ID != "svc_existing" ||
+		len(snapshot.SLOPolicies) != 0 || len(snapshot.Dependencies) != 0 {
+		t.Fatalf("SLO/topology import was not atomic: %+v", snapshot)
 	}
 }

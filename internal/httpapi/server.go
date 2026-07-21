@@ -14,13 +14,17 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/alerts"
 	"github.com/binhminh/HomeLab-Minh/internal/auth"
 	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
+	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
 	"github.com/binhminh/HomeLab-Minh/internal/history"
 	"github.com/binhminh/HomeLab-Minh/internal/metrics"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/binhminh/HomeLab-Minh/internal/operations"
 	"github.com/binhminh/HomeLab-Minh/internal/services"
+	"github.com/binhminh/HomeLab-Minh/internal/slo"
 	"github.com/binhminh/HomeLab-Minh/internal/store"
 	"github.com/binhminh/HomeLab-Minh/internal/terminal"
+	"github.com/binhminh/HomeLab-Minh/internal/topology"
 	"github.com/gin-gonic/gin"
 )
 
@@ -51,6 +55,17 @@ type PreferencesRepository interface {
 	UpdateDashboardUIPreferences(context.Context, dashboardconfig.UIPreferences, string) (dashboardconfig.UIPreferences, error)
 }
 
+type TopologyRepository interface {
+	ListTopologyDependencies(context.Context, string) ([]topology.Dependency, error)
+	CreateTopologyDependency(context.Context, topology.DependencyInput) (topology.Dependency, error)
+	DeleteTopologyDependency(context.Context, string, int64) error
+}
+
+type CheckRepository interface {
+	ListCertificateObservations(context.Context) ([]healthchecks.CertificateObservation, error)
+	ListBackupObservations(context.Context, string) ([]healthchecks.BackupObservation, error)
+}
+
 type Options struct {
 	Auth                   *auth.Manager
 	Metrics                *metrics.Hub
@@ -74,6 +89,10 @@ type Options struct {
 	DashboardConfig        *dashboardconfig.Service
 	DashboardConfigApplied func()
 	Preferences            PreferencesRepository
+	SLO                    *slo.Service
+	Operations             operations.Repository
+	Topology               TopologyRepository
+	Checks                 CheckRepository
 }
 
 type Server struct {
@@ -148,6 +167,22 @@ func (s *Server) routes() {
 	authenticatedAPI.POST("/services", s.createService)
 	authenticatedAPI.PATCH("/services/:id", s.updateService)
 	authenticatedAPI.DELETE("/services/:id", s.deleteService)
+	if s.options.SLO != nil {
+		authenticatedAPI.GET("/slos", s.listSLOs)
+		authenticatedAPI.PATCH("/services/:id/slo", s.updateServiceSLO)
+	}
+	if s.options.Operations != nil {
+		authenticatedAPI.GET("/events", s.listOperationalEvents)
+		authenticatedAPI.POST("/events", s.createOperationalEvent)
+	}
+	if s.options.Topology != nil {
+		authenticatedAPI.GET("/topology/dependencies", s.listTopologyDependencies)
+		authenticatedAPI.POST("/topology/dependencies", s.createTopologyDependency)
+		authenticatedAPI.DELETE("/topology/dependencies/:id", s.deleteTopologyDependency)
+	}
+	if s.options.Checks != nil {
+		authenticatedAPI.GET("/operations/checks", s.listOperationalChecks)
+	}
 	authenticatedAPI.POST("/terminal/sessions", s.createTerminalSession)
 	authenticatedAPI.POST("/terminal/host-sessions", s.createHostTerminalSession)
 	authenticatedAPI.DELETE("/terminal/sessions/:id", s.cancelTerminalSession)
@@ -273,6 +308,10 @@ func (s *Server) createSession(c *gin.Context) {
 			"manageConfig":   principal.Role == auth.RoleAdmin && s.options.DashboardConfig != nil,
 			"history":        s.options.History != nil,
 			"multiNode":      s.options.NodeRegistry != nil,
+			"slo":            s.options.SLO != nil,
+			"operations":     s.options.Operations != nil,
+			"topology":       s.options.Topology != nil,
+			"healthChecks":   s.options.Checks != nil,
 		},
 	})
 }
@@ -312,6 +351,10 @@ func (s *Server) createService(c *gin.Context) {
 		return
 	}
 	s.audit(c, principal, "service.create", created.ID, "success")
+	s.recordAutomaticEvent(c.Request.Context(), operations.Event{
+		Type: operations.EventServiceCreated, Title: "Service added", Summary: created.Name,
+		ServiceID: created.ID, Actor: principal.Login,
+	})
 	c.JSON(http.StatusCreated, created)
 }
 
@@ -332,6 +375,10 @@ func (s *Server) updateService(c *gin.Context) {
 		return
 	}
 	s.audit(c, principal, "service.update", updated.ID, "success")
+	s.recordAutomaticEvent(c.Request.Context(), operations.Event{
+		Type: operations.EventServiceUpdated, Title: "Service updated", Summary: updated.Name,
+		ServiceID: updated.ID, Actor: principal.Login,
+	})
 	c.JSON(http.StatusOK, updated)
 }
 
@@ -347,6 +394,10 @@ func (s *Server) deleteService(c *gin.Context) {
 		return
 	}
 	s.audit(c, principal, "service.delete", id, "success")
+	s.recordAutomaticEvent(c.Request.Context(), operations.Event{
+		Type: operations.EventServiceDeleted, Title: "Service removed", Summary: id,
+		ServiceID: id, Actor: principal.Login,
+	})
 	c.Status(http.StatusNoContent)
 }
 

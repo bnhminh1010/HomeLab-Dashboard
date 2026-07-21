@@ -106,13 +106,27 @@ type Alert struct {
 	OccurredAt time.Time `json:"occurredAt"`
 }
 
+// BackupStatus is a small, portable report emitted by a backup job. It is
+// deliberately backend-agnostic so Restic, Borg, database dumps, and plain
+// rsync jobs can all report through the same node-agent snapshot contract.
+// A non-success status is never silently converted into a successful backup.
+type BackupStatus struct {
+	Job                   string    `json:"job"`
+	Status                string    `json:"status"`
+	CompletedAt           time.Time `json:"completedAt,omitempty"`
+	ExpectedWithinSeconds int64     `json:"expectedWithinSeconds,omitempty"`
+	Bytes                 uint64    `json:"bytes,omitempty"`
+	Message               string    `json:"message,omitempty"`
+}
+
 type SnapshotData struct {
-	System     SystemStats  `json:"system"`
-	Disks      []DiskStats  `json:"disks"`
-	Network    NetworkStats `json:"network"`
-	Services   []Service    `json:"services"`
-	Containers []Container  `json:"containers"`
-	Alerts     []Alert      `json:"alerts"`
+	System     SystemStats    `json:"system"`
+	Disks      []DiskStats    `json:"disks"`
+	Network    NetworkStats   `json:"network"`
+	Services   []Service      `json:"services"`
+	Containers []Container    `json:"containers"`
+	Backups    []BackupStatus `json:"backups,omitempty"`
+	Alerts     []Alert        `json:"alerts"`
 }
 
 type SnapshotEnvelope struct {

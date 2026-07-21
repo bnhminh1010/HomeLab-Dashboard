@@ -13,6 +13,8 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/alerts"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/binhminh/HomeLab-Minh/internal/slo"
+	"github.com/binhminh/HomeLab-Minh/internal/topology"
 )
 
 func TestExportUsesSanitizedVersionedSchema(t *testing.T) {
@@ -51,19 +53,19 @@ func TestDecodeEnforcesSizeSchemaAndStrictFields(t *testing.T) {
 		t.Fatalf("oversized document error = %v", err)
 	}
 	base := testDocument()
-	base.Version = "homelab-dashboard.config/v2"
+	base.Version = "homelab-dashboard.config/v999"
 	if _, err := Decode(mustJSON(t, base)); !errors.Is(err, ErrUnsupportedVersion) {
 		t.Fatalf("unsupported version error = %v", err)
 	}
 	unknown := strings.Replace(string(mustJSON(t, testDocument())),
-		`"version":"homelab-dashboard.config/v1"`,
-		`"version":"homelab-dashboard.config/v1","ntfyToken":"secret"`, 1)
+		`"version":"`+DocumentVersion+`"`,
+		`"version":"`+DocumentVersion+`","ntfyToken":"secret"`, 1)
 	if _, err := Decode([]byte(unknown)); !errors.Is(err, ErrInvalidDocument) {
 		t.Fatalf("unknown secret field error = %v", err)
 	}
 	duplicate := strings.Replace(string(mustJSON(t, testDocument())),
-		`"version":"homelab-dashboard.config/v1"`,
-		`"version":"homelab-dashboard.config/v1","version":"homelab-dashboard.config/v1"`, 1)
+		`"version":"`+DocumentVersion+`"`,
+		`"version":"`+DocumentVersion+`","version":"`+DocumentVersion+`"`, 1)
 	if _, err := Decode([]byte(duplicate)); !errors.Is(err, ErrInvalidDocument) {
 		t.Fatalf("duplicate field error = %v", err)
 	}
@@ -71,9 +73,161 @@ func TestDecodeEnforcesSizeSchemaAndStrictFields(t *testing.T) {
 	if _, err := Decode(missingSections); !errors.Is(err, ErrInvalidDocument) {
 		t.Fatalf("missing section error = %v", err)
 	}
+	missingV2Section := testDocument()
+	missingV2Section.SLOPolicies = nil
+	if _, err := Decode(mustJSON(t, missingV2Section)); !errors.Is(err, ErrInvalidDocument) {
+		t.Fatalf("missing v2 section error = %v", err)
+	}
 	trailing := append(mustJSON(t, testDocument()), []byte(` {}`)...)
 	if _, err := Decode(trailing); !errors.Is(err, ErrInvalidDocument) {
 		t.Fatalf("trailing JSON error = %v", err)
+	}
+}
+
+func TestDecodeUpgradesV1DocumentWithEmptyV2Sections(t *testing.T) {
+	raw := []byte(`{
+  "version": "homelab-dashboard.config/v1",
+  "services": [],
+  "alertRules": [],
+  "uiPreferences": {"terminalHeight": 200, "terminalCollapsed": false, "historyRange": "24h", "defaultNodeId": "local"},
+  "nodes": []
+}`)
+	document, err := Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Version != DocumentVersion || document.SLOPolicies == nil || document.Dependencies == nil ||
+		len(document.SLOPolicies) != 0 || len(document.Dependencies) != 0 {
+		t.Fatalf("v1 document was not upgraded to empty v2 sections: %+v", document)
+	}
+	mixedVersion := strings.Replace(string(raw), `"nodes": []`, `"nodes": [], "sloPolicies": []`, 1)
+	if _, err := Decode([]byte(mixedVersion)); !errors.Is(err, ErrInvalidDocument) {
+		t.Fatalf("mixed v1/v2 document error = %v", err)
+	}
+}
+
+func TestV1ReplacePreservesNewerPortableSections(t *testing.T) {
+	snapshot := testSnapshot()
+	snapshot.SLOPolicies = []slo.Policy{{
+		ServiceID: "svc_keep", TargetPercent: 99.9, WindowDays: 30, Configured: true,
+	}}
+	snapshot.Dependencies = []topology.Dependency{{
+		NodeID: "local", DependentServiceID: "svc_keep", DependencyServiceID: "svc_old", Label: "database",
+	}}
+	current := documentFromSnapshot(snapshot)
+	legacy := struct {
+		Version       string            `json:"version"`
+		Services      []ServiceConfig   `json:"services"`
+		AlertRules    []AlertRuleConfig `json:"alertRules"`
+		UIPreferences UIPreferences     `json:"uiPreferences"`
+		Nodes         []NodeMetadata    `json:"nodes"`
+	}{
+		Version: legacyDocumentVersion, Services: current.Services, AlertRules: current.AlertRules,
+		UIPreferences: current.UIPreferences, Nodes: current.Nodes,
+	}
+	raw := mustJSON(t, legacy)
+	repository := &fakeRepository{snapshot: snapshot}
+	manager, _ := NewService(repository)
+	preview, err := manager.Preview(context.Background(), raw, ImportReplace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Summary["sloPolicies"].Unchanged != 1 || preview.Summary["topologyDependencies"].Unchanged != 1 {
+		t.Fatalf("v1 replace preview would mutate newer sections: %+v", preview)
+	}
+	if _, err := manager.Apply(context.Background(), raw, ImportReplace, "admin@example.com", preview.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.snapshot.SLOPolicies) != 1 || len(repository.snapshot.Dependencies) != 1 {
+		t.Fatalf("v1 replace removed newer portable settings: %+v", repository.snapshot)
+	}
+}
+
+func TestPreviewSkipsTopologyForUnenrolledNode(t *testing.T) {
+	document := testDocument()
+	document.Dependencies = []DependencyConfig{{
+		NodeID: "node_missing", DependentServiceID: "svc_keep", DependencyServiceID: "svc_old",
+	}}
+	repository := &fakeRepository{snapshot: testSnapshot()}
+	manager, _ := NewService(repository)
+	preview, err := manager.Preview(context.Background(), mustJSON(t, document), ImportMerge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Summary["topologyDependencies"].Skipped != 1 || len(preview.Warnings) == 0 {
+		t.Fatalf("unenrolled topology node was not skipped: %+v", preview)
+	}
+	if _, err := manager.Apply(context.Background(), mustJSON(t, document), ImportMerge, "admin@example.com", preview.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.snapshot.Dependencies) != 0 {
+		t.Fatalf("unenrolled topology edge was persisted: %+v", repository.snapshot.Dependencies)
+	}
+}
+
+func TestReplaceKeepsExistingTopologyForUnavailableNode(t *testing.T) {
+	snapshot := testSnapshot()
+	snapshot.Dependencies = []topology.Dependency{{
+		NodeID: "node_missing", DependentServiceID: "svc_keep", DependencyServiceID: "svc_old", Label: "database",
+	}}
+	repository := &fakeRepository{snapshot: snapshot}
+	manager, _ := NewService(repository)
+	raw, err := manager.Export(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := manager.Preview(context.Background(), raw, ImportReplace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Summary["topologyDependencies"].Skipped != 0 ||
+		preview.Summary["topologyDependencies"].Unchanged != 1 ||
+		preview.Summary["topologyDependencies"].Deleted != 0 || len(preview.Warnings) == 0 {
+		t.Fatalf("unavailable topology edge was not preserved in replace preview: %+v", preview)
+	}
+	if _, err := manager.Apply(context.Background(), raw, ImportReplace, "admin@example.com", preview.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.snapshot.Dependencies) != 1 || repository.snapshot.Dependencies[0].NodeID != "node_missing" {
+		t.Fatalf("replace removed topology for unavailable node: %+v", repository.snapshot.Dependencies)
+	}
+}
+
+func TestV2ExportAndImportRoundTripSLOPoliciesAndTopology(t *testing.T) {
+	snapshot := testSnapshot()
+	snapshot.SLOPolicies = []slo.Policy{{
+		ServiceID: "svc_keep", TargetPercent: 99.9, WindowDays: 30, Configured: true,
+	}}
+	snapshot.Dependencies = []topology.Dependency{{
+		NodeID: "local", DependentServiceID: "svc_keep", DependencyServiceID: "svc_old", Label: "database",
+	}}
+	repository := &fakeRepository{snapshot: snapshot}
+	manager, err := NewService(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := manager.Export(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Version != DocumentVersion || len(document.SLOPolicies) != 1 ||
+		document.SLOPolicies[0].TargetPercent != 99.9 || len(document.Dependencies) != 1 ||
+		document.Dependencies[0].DependencyServiceID != "svc_old" {
+		t.Fatalf("v2 export lost portable reliability settings: %+v", document)
+	}
+	preview, err := manager.Preview(context.Background(), raw, ImportMerge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Apply(context.Background(), raw, ImportMerge, "admin@example.com", preview.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.snapshot.SLOPolicies) != 1 || len(repository.snapshot.Dependencies) != 1 {
+		t.Fatalf("v2 import lost portable reliability settings: %+v", repository.snapshot)
 	}
 }
 

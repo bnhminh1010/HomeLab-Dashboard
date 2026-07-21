@@ -6,6 +6,7 @@ import { bytes, clamp, number, percent, rate, setProgress, setText, timeAgo, upt
 import { createHistoryController } from "./history.js";
 import { createMetricCharts } from "./metrics.js";
 import { createNodesController } from "./nodes.js";
+import { createOperationsController } from "./operations.js";
 import { createOverviewController } from "./overview.js";
 import { createServicesController } from "./services.js";
 import { createSettingsController } from "./settings.js";
@@ -39,7 +40,7 @@ let latestOverviewData = { system: {}, disks: [], services: [], containers: [], 
 const alertNodes = new Map();
 const WORKSPACE_STORAGE_KEY = "homelab.workspace.active";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "homelab.sidebar.collapsed";
-const WORKSPACES = new Set(["overview", "services", "containers", "history", "alerts"]);
+const WORKSPACES = new Set(["overview", "services", "containers", "nodes", "history", "alerts", "topology"]);
 const overviewSummary = {
   services: { total: 0, up: 0, down: 0, unknown: 0 },
   containers: { total: 0, running: 0, issue: 0, stopped: 0 },
@@ -84,7 +85,13 @@ const servicesController = createServicesController({
     updateOverview();
   },
 });
-const historyController = createHistoryController({ api, demo, toast });
+let operationsController = null;
+const historyController = createHistoryController({
+  api,
+  demo,
+  toast,
+  onRangeChange: (range, shouldRefresh) => operationsController?.setTimelineRange(range, shouldRefresh),
+});
 const overviewController = createOverviewController({
   api,
   toast,
@@ -98,6 +105,14 @@ const nodesController = createNodesController({
   toast,
   onSelect: selectNode,
 });
+operationsController = createOperationsController({
+  api,
+  demo,
+  toast,
+  onSelectNode: (nodeID) => nodesController.setSelected(nodeID),
+  onOpenServices: () => document.querySelector("[data-workspace='services']")?.click(),
+});
+operationsController.setTimelineRange(historyController.range(), false);
 const settingsController = createSettingsController({
   api,
   demo,
@@ -183,7 +198,7 @@ function createWorkspaceNavigation() {
 
   function focusWorkspace(workspace) {
     const panel = workspacePanels.find((item) => item.dataset.workspacePanel === workspace);
-    const target = panel?.querySelector("[data-workspace-focus], h2[tabindex='-1']");
+    const target = panel?.querySelector("h2[tabindex='-1']") || panel?.querySelector("[data-workspace-focus]");
     dashboard.scrollTop = 0;
     window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
   }
@@ -203,6 +218,7 @@ function createWorkspaceNavigation() {
     }
     storeValue(WORKSPACE_STORAGE_KEY, workspace);
     if (workspace === "history") window.requestAnimationFrame(() => historyController.activate());
+    if (workspace === "nodes" || workspace === "topology") window.requestAnimationFrame(() => operationsController.activate(workspace));
     if (workspace === "overview") window.requestAnimationFrame(() => overviewController.activate());
     else overviewController.deactivate();
     if (focus) focusWorkspace(workspace);
@@ -453,6 +469,7 @@ function renderSelectedSnapshot(payload, state = "online") {
   latestOverviewData = { system: data.system, disks: data.disks, services: selectedServices, containers: data.containers, alerts: data.alerts };
   overviewSummary.services = servicesController.render(selectedServices);
   overviewSummary.containers = containersController.render(data.containers);
+  operationsController.setServices(selectedServices);
   historyController.setResources(data.containers, data.services);
   renderAlerts(data.alerts);
   setConnectionState(state, { collectedAt: latestCollectedAt });
@@ -461,6 +478,7 @@ function renderSelectedSnapshot(payload, state = "online") {
 function renderLocalSnapshot(payload) {
   latestLocalEnvelope = payload;
   latestServices = normalize(unwrapSnapshot(payload)).services;
+  operationsController.setSnapshot(payload);
   if (demo) localConnectionState = "online";
   if (selectedNodeId === "local") renderSelectedSnapshot(payload, "online");
   else {
@@ -526,6 +544,7 @@ function selectNode({ id, state }) {
     alertsController.setNode(selectedNodeId);
   }
   terminal.setHostShellCapability?.(sessionHostShellCapability);
+  operationsController.setNode(selectedNodeId);
   if (!remote) {
     if (latestLocalEnvelope) renderSelectedSnapshot(latestLocalEnvelope, localConnectionState === "online" ? "online" : localConnectionState);
     else refreshSnapshot().catch(() => setConnectionState("offline"));
@@ -724,6 +743,7 @@ function applySession(session = {}) {
   alertsController.setAdmin(admin);
   nodesController.setAdmin(admin);
   settingsController.setAdmin(admin);
+  operationsController.setAdmin(admin);
   terminal.setHostShellCapability(sessionHostShellCapability);
   updateOverview();
 }
@@ -834,6 +854,7 @@ window.addEventListener("beforeunload", () => {
   charts.destroy();
   overviewController.destroy();
   historyController.destroy();
+  operationsController.destroy();
   nodesController.destroy();
   window.clearInterval(sessionKeepalive);
   window.clearTimeout(sessionRenewalTimer);

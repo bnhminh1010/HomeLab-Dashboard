@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/binhminh/HomeLab-Minh/internal/alerts"
+	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
 	"github.com/binhminh/HomeLab-Minh/internal/history"
 	"github.com/binhminh/HomeLab-Minh/internal/metrics"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
+	"github.com/binhminh/HomeLab-Minh/internal/operations"
 )
 
 const (
@@ -28,17 +30,29 @@ type AlertEngine interface {
 	Evaluate(context.Context, []alerts.Sample) (alerts.EvaluationResult, error)
 }
 
+type OperationalEventWriter interface {
+	RecordOperationalEvent(context.Context, operations.Event) (operations.Event, error)
+}
+
+type BackupObservationWriter interface {
+	UpsertBackupObservation(context.Context, string, model.BackupStatus, time.Time) error
+}
+
 type Options struct {
 	History           HistoryWriter
 	Alerts            AlertEngine
+	Operations        OperationalEventWriter
+	Backups           BackupObservationWriter
 	ActiveAlertStates []alerts.AlertState
 	OnError           func(error)
 }
 
 type Pipeline struct {
-	history HistoryWriter
-	alerts  AlertEngine
-	onError func(error)
+	history    HistoryWriter
+	alerts     AlertEngine
+	operations OperationalEventWriter
+	backups    BackupObservationWriter
+	onError    func(error)
 
 	mu                    sync.Mutex
 	lastHostHistory       map[string]time.Time
@@ -47,6 +61,8 @@ type Pipeline struct {
 	serviceRecordedAt     map[string]time.Time
 	knownAlertResources   map[string]map[string]struct{}
 	missingAlertResources map[string]int
+	containerRestarts     map[string]uint64
+	backupVersions        map[string]string
 }
 
 func New(options Options) (*Pipeline, error) {
@@ -54,12 +70,14 @@ func New(options Options) (*Pipeline, error) {
 		return nil, errors.New("monitoring: history writer or alert engine is required")
 	}
 	pipeline := &Pipeline{
-		history: options.History, alerts: options.Alerts, onError: options.OnError,
+		history: options.History, alerts: options.Alerts, operations: options.Operations, backups: options.Backups, onError: options.OnError,
 		lastHostHistory: make(map[string]time.Time), lastContainerHist: make(map[string]time.Time),
 		serviceStates:         make(map[string]history.ServiceState),
 		serviceRecordedAt:     make(map[string]time.Time),
 		knownAlertResources:   make(map[string]map[string]struct{}),
 		missingAlertResources: make(map[string]int),
+		containerRestarts:     make(map[string]uint64),
+		backupVersions:        make(map[string]string),
 	}
 	pipeline.seedActiveAlertResources(options.ActiveAlertStates)
 	return pipeline, nil
@@ -142,13 +160,94 @@ func (p *Pipeline) Handle(ctx context.Context, nodeID string, snapshot model.Sna
 	}
 	p.mu.Lock()
 	samples := p.samplesLocked(nodeID, snapshot.Data, at, stale)
+	events := p.operationalEventsLocked(nodeID, snapshot.Data, at, stale)
 	p.recordHistoryLocked(nodeID, snapshot.Data, at, stale)
 	p.mu.Unlock()
+	if p.backups != nil && !stale["backups"] {
+		for _, backup := range snapshot.Data.Backups {
+			if err := p.backups.UpsertBackupObservation(ctx, nodeID, backup, at); err != nil && p.onError != nil {
+				p.onError(err)
+			}
+		}
+	}
+	if p.operations != nil {
+		for _, event := range events {
+			if _, err := p.operations.RecordOperationalEvent(ctx, event); err != nil && p.onError != nil {
+				p.onError(err)
+			}
+		}
+	}
 	if p.alerts == nil {
 		return nil
 	}
 	_, err := p.alerts.Evaluate(ctx, samples)
 	return err
+}
+
+func (p *Pipeline) operationalEventsLocked(nodeID string, data model.SnapshotData, at time.Time, stale map[string]bool) []operations.Event {
+	if p.operations == nil {
+		return nil
+	}
+	events := make([]operations.Event, 0)
+	if !stale["services"] {
+		for _, service := range data.Services {
+			if service.ID == "" || service.LastCheckedAt == nil {
+				continue
+			}
+			key := nodeID + "\x00" + service.ID
+			next := serviceHistoryState(service.Status)
+			previous, seen := p.serviceStates[key]
+			if seen && previous != next {
+				events = append(events, operations.Event{
+					Type: operations.EventServiceHealthChanged, Source: operations.SourceAutomatic,
+					Title: "Service health changed", Summary: service.Name + " is now " + string(next),
+					NodeID: nodeID, ServiceID: service.ID, OccurredAt: at,
+				})
+			}
+		}
+	}
+	if !stale["containers"] {
+		seen := make(map[string]struct{}, len(data.Containers))
+		for _, container := range data.Containers {
+			if container.ID == "" {
+				continue
+			}
+			key := nodeID + "\x00" + container.ID
+			seen[key] = struct{}{}
+			previous, known := p.containerRestarts[key]
+			if known && container.RestartCount > previous {
+				events = append(events, operations.Event{
+					Type: operations.EventContainerRestarted, Source: operations.SourceAutomatic,
+					Title: "Container restart detected", Summary: container.Name + " restart count increased",
+					NodeID: nodeID, ContainerID: container.ID, OccurredAt: at,
+				})
+			}
+			p.containerRestarts[key] = container.RestartCount
+		}
+		for key := range p.containerRestarts {
+			if strings.HasPrefix(key, nodeID+"\x00") {
+				if _, exists := seen[key]; !exists {
+					delete(p.containerRestarts, key)
+				}
+			}
+		}
+	}
+	if !stale["backups"] {
+		for _, backup := range data.Backups {
+			key := nodeID + "\x00" + backup.Job
+			version := backup.Status + "\x00" + backup.CompletedAt.UTC().Format(time.RFC3339Nano)
+			previous, known := p.backupVersions[key]
+			if !known || previous != version {
+				events = append(events, operations.Event{
+					Type: operations.EventBackupReported, Source: operations.SourceAutomatic,
+					Title: "Backup report updated", Summary: backup.Job + " reported " + backup.Status,
+					NodeID: nodeID, OccurredAt: at,
+				})
+			}
+			p.backupVersions[key] = version
+		}
+	}
+	return events
 }
 
 // HandleNodeOffline records a transport-level outage without pretending the
@@ -176,6 +275,38 @@ func (p *Pipeline) HandleNodeAvailability(ctx context.Context, nodeID string, on
 		NodeID: nodeID, ResourceType: "node", ResourceID: nodeID,
 		Metric: alerts.MetricNodeOnline, Value: value, ObservedAt: at.UTC(),
 	}})
+	return err
+}
+
+// HandleBackupFreshness evaluates the latest persisted reports for active
+// nodes. Unlike a snapshot-only check, callers can run this between reports so
+// a job that silently stops reporting still moves from healthy to unhealthy.
+// The node id remains part of every alert key, which keeps same-named jobs on
+// different nodes independent for acknowledgement, silencing, and delivery.
+func (p *Pipeline) HandleBackupFreshness(ctx context.Context, observations []healthchecks.BackupObservation, at time.Time) error {
+	if at.IsZero() {
+		return errors.New("monitoring: backup freshness timestamp is required")
+	}
+	if p.alerts == nil || len(observations) == 0 {
+		return nil
+	}
+	samples := make([]alerts.Sample, 0, len(observations))
+	for _, observation := range observations {
+		nodeID := strings.TrimSpace(observation.NodeID)
+		job := strings.TrimSpace(observation.Status.Job)
+		if nodeID == "" || job == "" {
+			return errors.New("monitoring: backup observation requires node and job")
+		}
+		value := 1.0
+		if healthy, _, _ := healthchecks.BackupFreshness(observation.Status, at); !healthy {
+			value = 0
+		}
+		samples = append(samples, alerts.Sample{
+			NodeID: nodeID, ResourceType: "backup", ResourceID: job,
+			Metric: alerts.MetricBackupHealthy, Value: value, ObservedAt: at.UTC(),
+		})
+	}
+	_, err := p.alerts.Evaluate(ctx, samples)
 	return err
 }
 

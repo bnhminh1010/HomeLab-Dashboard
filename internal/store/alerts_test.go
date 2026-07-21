@@ -682,7 +682,7 @@ func TestDefaultAlertRulesAreSeededOnlyOnce(t *testing.T) {
 	}
 }
 
-func TestDefaultAlertRuleUpgradeAddsNodeRuleOnlyOnce(t *testing.T) {
+func TestDefaultAlertRuleUpgradeAddsMissingRulesOnlyOnce(t *testing.T) {
 	ctx := context.Background()
 	database := openAlertTestStore(t)
 	if _, err := database.db.ExecContext(ctx, `
@@ -694,11 +694,16 @@ func TestDefaultAlertRuleUpgradeAddsNodeRuleOnlyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	rules, err := database.ListAlertRules(ctx)
-	if err != nil || len(rules) != 1 || rules[0].ID != "default_node_offline" {
+	if err != nil || len(rules) != 2 {
 		t.Fatalf("upgraded default rules = %+v, error = %v", rules, err)
 	}
-	if err := database.DeleteAlertRule(ctx, rules[0].ID); err != nil {
-		t.Fatal(err)
+	for _, rule := range rules {
+		if rule.ID != "default_node_offline" && rule.ID != "default_backup_unhealthy" {
+			t.Fatalf("unexpected upgraded default rule = %+v", rule)
+		}
+		if err := database.DeleteAlertRule(ctx, rule.ID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := database.SeedDefaultAlertRules(ctx, alerts.DefaultRules()); err != nil {
 		t.Fatal(err)
@@ -706,6 +711,23 @@ func TestDefaultAlertRuleUpgradeAddsNodeRuleOnlyOnce(t *testing.T) {
 	rules, err = database.ListAlertRules(ctx)
 	if err != nil || len(rules) != 0 {
 		t.Fatalf("deleted upgraded default reappeared: %+v, error = %v", rules, err)
+	}
+}
+
+func TestDefaultAlertRuleUpgradeAddsBackupRuleForVersionTwo(t *testing.T) {
+	ctx := context.Background()
+	database := openAlertTestStore(t)
+	if _, err := database.db.ExecContext(ctx, `
+		INSERT INTO app_state(key, value, updated_at) VALUES (?, '2', ?)`,
+		alertDefaultsSeededKey, formatAlertTime(time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SeedDefaultAlertRules(ctx, alerts.DefaultRules()); err != nil {
+		t.Fatal(err)
+	}
+	rules, err := database.ListAlertRules(ctx)
+	if err != nil || len(rules) != 1 || rules[0].ID != "default_backup_unhealthy" {
+		t.Fatalf("version two upgrade = %+v, error = %v", rules, err)
 	}
 }
 

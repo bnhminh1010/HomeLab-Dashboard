@@ -156,7 +156,7 @@ function mergeResources(catalog, live) {
   return [...merged.values()].sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
 }
 
-export function createHistoryController({ api, demo = false, toast }) {
+export function createHistoryController({ api, demo = false, toast, onRangeChange }) {
   const panel = document.getElementById("history-panel");
   const wrap = document.getElementById("history-chart-wrap");
   const empty = document.getElementById("history-empty");
@@ -337,7 +337,7 @@ export function createHistoryController({ api, demo = false, toast }) {
     }
   }
 
-  for (const button of rangeButtons) button.addEventListener("click", () => { selectRange(button.dataset.historyRange); refresh(); });
+  for (const button of rangeButtons) button.addEventListener("click", () => setRange(button.dataset.historyRange));
   for (const button of kindButtons) button.addEventListener("click", () => { selectKind(button.dataset.historyKind); refresh(); });
   resourceSelect.addEventListener("change", () => {
     selectedResources[kind] = resourceSelect.value;
@@ -380,6 +380,7 @@ export function createHistoryController({ api, demo = false, toast }) {
     refresh,
     setRange(nextRange, shouldRefresh = true) {
       selectRange(nextRange);
+      onRangeChange?.(range, shouldRefresh);
       if (shouldRefresh) refresh();
     },
     range: () => range,

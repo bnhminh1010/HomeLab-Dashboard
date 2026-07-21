@@ -15,6 +15,8 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/alerts"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/binhminh/HomeLab-Minh/internal/slo"
+	"github.com/binhminh/HomeLab-Minh/internal/topology"
 )
 
 type Service struct {
@@ -38,6 +40,9 @@ func (manager *Service) Export(ctx context.Context) ([]byte, error) {
 	document := documentFromSnapshot(snapshot)
 	if err := validateDocument(document); err != nil {
 		return nil, fmt.Errorf("validate exported dashboard config: %w", err)
+	}
+	if err := validatePortableReferences(snapshot, document, ImportMerge); err != nil {
+		return nil, fmt.Errorf("validate exported dashboard config references: %w", err)
 	}
 	encoded, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
@@ -70,7 +75,12 @@ func (manager *Service) Preview(ctx context.Context, raw []byte, mode ImportMode
 		return Preview{}, err
 	}
 	document, warnings := normalizeDefaultNode(document, current)
+	document, skippedTopology, topologyWarnings := skipUnenrolledTopologyDependencies(document, current)
+	document = preserveLegacyV1Sections(document, current)
 	if err := validateServiceCapacity(current, document, mode); err != nil {
+		return Preview{}, err
+	}
+	if err := validatePortableReferences(current, document, mode); err != nil {
 		return Preview{}, err
 	}
 	previewToken, err := previewRevision(revision, document, mode)
@@ -79,6 +89,7 @@ func (manager *Service) Preview(ctx context.Context, raw []byte, mode ImportMode
 	}
 	preview := buildPreview(documentFromSnapshot(current), document, mode, previewToken)
 	preview.Warnings = append(preview.Warnings, warnings...)
+	appendSkippedTopologyPreview(&preview, skippedTopology, topologyWarnings)
 	return preview, nil
 }
 
@@ -111,7 +122,12 @@ func (manager *Service) Apply(ctx context.Context, raw []byte, mode ImportMode, 
 		return ApplyResult{}, err
 	}
 	document, warnings := normalizeDefaultNode(document, current)
+	document, skippedTopology, topologyWarnings := skipUnenrolledTopologyDependencies(document, current)
+	document = preserveLegacyV1Sections(document, current)
 	if err := validateServiceCapacity(current, document, mode); err != nil {
+		return ApplyResult{}, err
+	}
+	if err := validatePortableReferences(current, document, mode); err != nil {
 		return ApplyResult{}, err
 	}
 	// expectedRevision is an opaque preview token, not the raw current-state
@@ -125,6 +141,7 @@ func (manager *Service) Apply(ctx context.Context, raw []byte, mode ImportMode, 
 	}
 	preview := buildPreview(documentFromSnapshot(current), document, mode, previewToken)
 	preview.Warnings = append(preview.Warnings, warnings...)
+	appendSkippedTopologyPreview(&preview, skippedTopology, topologyWarnings)
 	if err := manager.repository.ApplyDashboardConfig(ctx, snapshotFromDocument(document), mode, actor, currentRevision); err != nil {
 		return ApplyResult{}, fmt.Errorf("apply dashboard config: %w", err)
 	}
@@ -144,6 +161,92 @@ func validateServiceCapacity(current Snapshot, incoming Document, mode ImportMod
 	}
 	if len(serviceIDs) > maxServices {
 		return invalid("services", fmt.Sprintf("merge would exceed the %d-service dashboard limit", maxServices))
+	}
+	return nil
+}
+
+// preserveLegacyV1Sections keeps a v1 import scoped to the configuration that
+// schema knew about. In particular, a v1 replace must not silently erase
+// SLO policies or manual topology authored after the dashboard was upgraded.
+func preserveLegacyV1Sections(document Document, current Snapshot) Document {
+	if !document.legacyV1 {
+		return document
+	}
+	currentDocument := documentFromSnapshot(current)
+	document.SLOPolicies = currentDocument.SLOPolicies
+	document.Dependencies = currentDocument.Dependencies
+	return document
+}
+
+// skipUnenrolledTopologyDependencies prevents an import from creating an edge
+// for a node the dashboard cannot currently select. In replace mode, an
+// existing edge for that unavailable node is retained so an export/import
+// round-trip never deletes configuration that was merely unavailable.
+func skipUnenrolledTopologyDependencies(document Document, current Snapshot) (Document, []Change, []string) {
+	if document.legacyV1 || len(document.Dependencies) == 0 {
+		return document, nil, nil
+	}
+	available := map[string]struct{}{"local": {}}
+	for _, node := range current.Nodes {
+		available[node.ID] = struct{}{}
+	}
+	currentByID := make(map[string]DependencyConfig, len(current.Dependencies))
+	for _, dependency := range documentFromSnapshot(current).Dependencies {
+		currentByID[topologyDependencyID(dependency)] = dependency
+	}
+	kept := make([]DependencyConfig, 0, len(document.Dependencies))
+	skipped := make([]Change, 0)
+	warnings := make([]string, 0)
+	for _, dependency := range document.Dependencies {
+		if _, enrolled := available[dependency.NodeID]; enrolled {
+			kept = append(kept, dependency)
+			continue
+		}
+		id := topologyDependencyID(dependency)
+		if existing, exists := currentByID[id]; exists {
+			kept = append(kept, existing)
+			warnings = append(warnings, fmt.Sprintf(
+				"Topology edge %s was retained without changes because node %s is not actively enrolled.", id, dependency.NodeID,
+			))
+			continue
+		}
+		skipped = append(skipped, Change{
+			Section: "topologyDependencies", ID: id, Action: ChangeSkipped,
+			Reason: "node is not actively enrolled; topology edge was skipped",
+		})
+		warnings = append(warnings, fmt.Sprintf(
+			"Topology edge %s was skipped because node %s is not actively enrolled.", id, dependency.NodeID,
+		))
+	}
+	document.Dependencies = kept
+	return document, skipped, warnings
+}
+
+// validatePortableReferences keeps an import from referring to a service that
+// cannot exist after the selected merge/replace operation. It complements
+// document-level syntax validation with the current catalog state.
+func validatePortableReferences(current Snapshot, incoming Document, mode ImportMode) error {
+	available := make(map[string]struct{}, len(current.Services)+len(incoming.Services))
+	if mode == ImportMerge {
+		for _, service := range current.Services {
+			available[service.ID] = struct{}{}
+		}
+	}
+	for _, service := range incoming.Services {
+		available[service.ID] = struct{}{}
+	}
+	for index, policy := range incoming.SLOPolicies {
+		if _, exists := available[policy.ServiceID]; !exists {
+			return invalid(fmt.Sprintf("sloPolicies[%d].serviceId", index), "must reference a configured service")
+		}
+	}
+	for index, dependency := range incoming.Dependencies {
+		if _, exists := available[dependency.DependentServiceID]; !exists {
+			return invalid(fmt.Sprintf("topologyDependencies[%d].dependentServiceId", index), "must reference a configured service")
+		}
+		if _, exists := available[dependency.DependencyServiceID]; !exists {
+			return invalid(fmt.Sprintf("topologyDependencies[%d].dependencyServiceId", index), "must reference a configured service")
+		}
 	}
 	return nil
 }
@@ -199,7 +302,8 @@ func normalizeDefaultNode(document Document, current Snapshot) (Document, []stri
 }
 
 // Decode enforces the 1 MiB limit, rejects unknown fields and trailing JSON,
-// checks the exact schema version, and validates every portable value.
+// and validates every portable value. v1 documents are upgraded in memory to
+// v2 with explicit empty new sections; callers always receive the current DTO.
 func Decode(raw []byte) (Document, error) {
 	if len(raw) > MaxDocumentBytes {
 		return Document{}, ErrDocumentTooLarge
@@ -222,6 +326,23 @@ func Decode(raw []byte) (Document, error) {
 			return Document{}, fmt.Errorf("%w: multiple JSON values", ErrInvalidDocument)
 		}
 		return Document{}, fmt.Errorf("%w: trailing JSON: %v", ErrInvalidDocument, err)
+	}
+	switch document.Version {
+	case legacyDocumentVersion:
+		// v1 had no SLO/topology sections. Keep its old required sections
+		// strict, then represent the absent portable settings explicitly. A
+		// mixed-version payload must not silently discard user configuration.
+		if document.SLOPolicies != nil || document.Dependencies != nil {
+			return Document{}, invalid("version", "v1 documents must not include v2 sections")
+		}
+		document.Version = DocumentVersion
+		document.SLOPolicies = []SLOPolicyConfig{}
+		document.Dependencies = []DependencyConfig{}
+		document.legacyV1 = true
+	case DocumentVersion:
+		// v2 validation below requires every portable section to be explicit.
+	default:
+		return Document{}, fmt.Errorf("%w: got %q", ErrUnsupportedVersion, document.Version)
 	}
 	if err := validateDocument(document); err != nil {
 		return Document{}, err
@@ -313,6 +434,8 @@ func documentFromSnapshot(snapshot Snapshot) Document {
 	document := Document{
 		Version: DocumentVersion, Services: make([]ServiceConfig, 0, len(snapshot.Services)),
 		AlertRules:    make([]AlertRuleConfig, 0, len(snapshot.AlertRules)),
+		SLOPolicies:   make([]SLOPolicyConfig, 0, len(snapshot.SLOPolicies)),
+		Dependencies:  make([]DependencyConfig, 0, len(snapshot.Dependencies)),
 		UIPreferences: snapshot.UIPreferences,
 		Nodes:         make([]NodeMetadata, 0, len(snapshot.Nodes)),
 	}
@@ -325,6 +448,17 @@ func documentFromSnapshot(snapshot Snapshot) Document {
 	for _, rule := range snapshot.AlertRules {
 		document.AlertRules = append(document.AlertRules, alertRuleFromDomain(rule))
 	}
+	for _, policy := range snapshot.SLOPolicies {
+		document.SLOPolicies = append(document.SLOPolicies, SLOPolicyConfig{
+			ServiceID: policy.ServiceID, TargetPercent: policy.TargetPercent, WindowDays: policy.WindowDays,
+		})
+	}
+	for _, dependency := range snapshot.Dependencies {
+		document.Dependencies = append(document.Dependencies, DependencyConfig{
+			NodeID: dependency.NodeID, DependentServiceID: dependency.DependentServiceID,
+			DependencyServiceID: dependency.DependencyServiceID, Label: dependency.Label,
+		})
+	}
 	for _, node := range snapshot.Nodes {
 		document.Nodes = append(document.Nodes, NodeMetadata{
 			ID: node.ID, DisplayName: node.DisplayName, Hostname: node.Hostname,
@@ -332,6 +466,17 @@ func documentFromSnapshot(snapshot Snapshot) Document {
 	}
 	sort.Slice(document.Services, func(i, j int) bool { return document.Services[i].ID < document.Services[j].ID })
 	sort.Slice(document.AlertRules, func(i, j int) bool { return document.AlertRules[i].ID < document.AlertRules[j].ID })
+	sort.Slice(document.SLOPolicies, func(i, j int) bool { return document.SLOPolicies[i].ServiceID < document.SLOPolicies[j].ServiceID })
+	sort.Slice(document.Dependencies, func(i, j int) bool {
+		left, right := document.Dependencies[i], document.Dependencies[j]
+		if left.NodeID != right.NodeID {
+			return left.NodeID < right.NodeID
+		}
+		if left.DependentServiceID != right.DependentServiceID {
+			return left.DependentServiceID < right.DependentServiceID
+		}
+		return left.DependencyServiceID < right.DependencyServiceID
+	})
 	sort.Slice(document.Nodes, func(i, j int) bool { return document.Nodes[i].ID < document.Nodes[j].ID })
 	return document
 }
@@ -340,6 +485,8 @@ func snapshotFromDocument(document Document) Snapshot {
 	snapshot := Snapshot{
 		Services:      make([]model.Service, 0, len(document.Services)),
 		AlertRules:    make([]alerts.AlertRule, 0, len(document.AlertRules)),
+		SLOPolicies:   make([]slo.Policy, 0, len(document.SLOPolicies)),
+		Dependencies:  make([]topology.Dependency, 0, len(document.Dependencies)),
 		UIPreferences: document.UIPreferences,
 		Nodes:         make([]nodes.Node, 0, len(document.Nodes)),
 	}
@@ -352,6 +499,18 @@ func snapshotFromDocument(document Document) Snapshot {
 	}
 	for _, rule := range document.AlertRules {
 		snapshot.AlertRules = append(snapshot.AlertRules, rule.domain())
+	}
+	for _, policy := range document.SLOPolicies {
+		snapshot.SLOPolicies = append(snapshot.SLOPolicies, slo.Policy{
+			ServiceID: policy.ServiceID, TargetPercent: policy.TargetPercent,
+			WindowDays: policy.WindowDays, Configured: true,
+		})
+	}
+	for _, dependency := range document.Dependencies {
+		snapshot.Dependencies = append(snapshot.Dependencies, topology.Dependency{
+			NodeID: dependency.NodeID, DependentServiceID: dependency.DependentServiceID,
+			DependencyServiceID: dependency.DependencyServiceID, Label: dependency.Label,
+		})
 	}
 	for _, node := range document.Nodes {
 		snapshot.Nodes = append(snapshot.Nodes, nodes.Node{
@@ -367,12 +526,15 @@ func buildPreview(current, incoming Document, mode ImportMode, revision string) 
 		Mode:     mode,
 		Revision: revision,
 		Summary: map[string]ChangeCounts{
-			"services": {}, "alertRules": {}, "uiPreferences": {}, "nodes": {},
+			"services": {}, "alertRules": {}, "sloPolicies": {}, "topologyDependencies": {},
+			"uiPreferences": {}, "nodes": {},
 		},
 		Changes: make([]Change, 0),
 	}
 	preview.Changes = append(preview.Changes, diffValues("services", current.Services, incoming.Services, mode)...)
 	preview.Changes = append(preview.Changes, diffValues("alertRules", current.AlertRules, incoming.AlertRules, mode)...)
+	preview.Changes = append(preview.Changes, diffValues("sloPolicies", current.SLOPolicies, incoming.SLOPolicies, mode)...)
+	preview.Changes = append(preview.Changes, diffValues("topologyDependencies", current.Dependencies, incoming.Dependencies, mode)...)
 	uiAction := ChangeUnchanged
 	if current.UIPreferences != incoming.UIPreferences {
 		uiAction = ChangeUpdate
@@ -406,7 +568,7 @@ func buildPreview(current, incoming Document, mode ImportMode, revision string) 
 	}
 	if mode == ImportReplace {
 		preview.Warnings = append(preview.Warnings,
-			"Replace deletes services and alert rules omitted from the document; node registrations are always retained.")
+			"Replace deletes services, alert rules, SLO policies, and topology dependencies omitted from the document; node registrations are always retained.")
 	}
 	sort.SliceStable(preview.Changes, func(i, j int) bool {
 		if preview.Changes[i].Section == preview.Changes[j].Section {
@@ -433,8 +595,25 @@ func buildPreview(current, incoming Document, mode ImportMode, revision string) 
 	return preview
 }
 
+func appendSkippedTopologyPreview(preview *Preview, skipped []Change, warnings []string) {
+	if len(skipped) == 0 {
+		return
+	}
+	preview.Changes = append(preview.Changes, skipped...)
+	counts := preview.Summary["topologyDependencies"]
+	counts.Skipped += len(skipped)
+	preview.Summary["topologyDependencies"] = counts
+	preview.Warnings = append(preview.Warnings, warnings...)
+	sort.SliceStable(preview.Changes, func(i, j int) bool {
+		if preview.Changes[i].Section == preview.Changes[j].Section {
+			return preview.Changes[i].ID < preview.Changes[j].ID
+		}
+		return sectionOrder(preview.Changes[i].Section) < sectionOrder(preview.Changes[j].Section)
+	})
+}
+
 type identifiable interface {
-	ServiceConfig | AlertRuleConfig | NodeMetadata
+	ServiceConfig | AlertRuleConfig | SLOPolicyConfig | DependencyConfig | NodeMetadata
 }
 
 func diffValues[T identifiable](section string, current, incoming []T, mode ImportMode) []Change {
@@ -481,11 +660,19 @@ func valueID[T identifiable](value T) string {
 		return typed.ID
 	case AlertRuleConfig:
 		return typed.ID
+	case SLOPolicyConfig:
+		return typed.ServiceID
+	case DependencyConfig:
+		return topologyDependencyID(typed)
 	case NodeMetadata:
 		return typed.ID
 	default:
 		panic("unsupported dashboard config value")
 	}
+}
+
+func topologyDependencyID(dependency DependencyConfig) string {
+	return dependency.NodeID + "/" + dependency.DependentServiceID + "->" + dependency.DependencyServiceID
 }
 
 func sectionOrder(section string) int {
@@ -494,11 +681,15 @@ func sectionOrder(section string) int {
 		return 0
 	case "alertRules":
 		return 1
-	case "uiPreferences":
+	case "sloPolicies":
 		return 2
-	case "nodes":
+	case "topologyDependencies":
 		return 3
-	default:
+	case "uiPreferences":
 		return 4
+	case "nodes":
+		return 5
+	default:
+		return 6
 	}
 }

@@ -251,8 +251,8 @@ func TestEngineRejectsInvalidInputAndRepositoryErrors(t *testing.T) {
 func TestDefaultsAreValidAndIndependent(t *testing.T) {
 	first := DefaultRules()
 	second := DefaultRules()
-	if len(first) != 9 {
-		t.Fatalf("expected 9 defaults, got %d", len(first))
+	if len(first) != 10 {
+		t.Fatalf("expected 10 defaults, got %d", len(first))
 	}
 	seen := make(map[string]bool)
 	for _, rule := range first {
@@ -269,6 +269,12 @@ func TestDefaultsAreValidAndIndependent(t *testing.T) {
 		nodeOffline.Metric != MetricNodeOnline || nodeOffline.Operator != OperatorLessThan ||
 		nodeOffline.Threshold != 1 || nodeOffline.For != 0 || nodeOffline.Severity != SeverityCritical {
 		t.Fatalf("unexpected node offline default: %+v", nodeOffline)
+	}
+	backup := first[len(first)-1]
+	if backup.ID != "default_backup_unhealthy" || backup.ResourceType != "backup" ||
+		backup.Metric != MetricBackupHealthy || backup.Operator != OperatorLessThan ||
+		backup.Threshold != 1 || backup.For != 0 || backup.Severity != SeverityWarning {
+		t.Fatalf("unexpected backup unhealthy default: %+v", backup)
 	}
 	first[0].Name = "changed"
 	if second[0].Name == "changed" {

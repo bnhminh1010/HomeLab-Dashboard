@@ -16,6 +16,7 @@ const METRICS_BY_RESOURCE = {
     ["container.healthy", "Healthy (1 or 0)"],
     ["container.restarts", "Restart count"],
   ],
+  backup: [["backup.healthy", "Healthy (1 or 0)"]],
 };
 
 function alertKey(state) {

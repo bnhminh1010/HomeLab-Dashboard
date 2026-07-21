@@ -36,6 +36,20 @@ func (s *Store) RetainOperationalData(ctx context.Context, now time.Time) error 
 		{`DELETE FROM alert_states
 		  WHERE status = 'resolved' AND last_evaluated_at < ?`, []any{eventCutoff}},
 		{`DELETE FROM audit_events WHERE created_at < ?`, []any{eventCutoff}},
+		{`DELETE FROM operational_events WHERE occurred_at < ?`, []any{eventCutoff}},
+		{`DELETE FROM certificate_observations
+		  WHERE checked_at < ?
+		     OR NOT EXISTS (
+		       SELECT 1 FROM services
+		       WHERE services.id = certificate_observations.service_id
+		         AND lower(services.display_url) LIKE 'https://%'
+		         AND services.display_url = certificate_observations.endpoint_url
+		     )`, []any{eventCutoff}},
+		{`DELETE FROM backup_observations
+		  WHERE observed_at < ?
+		     OR (node_id <> 'local' AND NOT EXISTS (
+		       SELECT 1 FROM nodes WHERE nodes.id = backup_observations.node_id AND nodes.revoked_at IS NULL
+		     ))`, []any{eventCutoff}},
 		{`DELETE FROM node_enrollments WHERE expires_at <= ?`, []any{now.Unix()}},
 	}
 	for _, statement := range statements {

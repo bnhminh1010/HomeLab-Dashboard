@@ -80,12 +80,18 @@
         <button class="workspace-nav-item" type="button" data-workspace="containers" aria-current="false" aria-label="Containers workspace" title="Containers">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg><span class="sidebar-label">Containers</span>
         </button>
+        <button class="workspace-nav-item" type="button" data-workspace="nodes" aria-current="false" aria-label="Nodes workspace" title="Nodes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="6" rx="1"/><rect x="4" y="15" width="16" height="6" rx="1"/><path d="M8 6h.01M8 18h.01M12 6h4M12 18h4"/></svg><span class="sidebar-label">Nodes</span>
+        </button>
         <p class="sidebar-group-label">OBSERVABILITY</p>
         <button class="workspace-nav-item" type="button" data-workspace="history" aria-current="false" aria-label="History workspace" title="History">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5M12 7v5l3 2"/></svg><span class="sidebar-label">History</span>
         </button>
         <button class="workspace-nav-item" type="button" data-workspace="alerts" aria-current="false" aria-label="Alerts workspace" title="Alerts">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.4 2.9 17a2 2 0 0 0 1.8 3h14.6a2 2 0 0 0 1.8-3L13.7 3.4a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg><span class="sidebar-label">Alerts</span>
+        </button>
+        <button class="workspace-nav-item" type="button" data-workspace="topology" aria-current="false" aria-label="Service topology workspace" title="Topology">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="m8.1 7.4 2.5 8M15.9 7.4l-2.5 8M8.5 6h7"/></svg><span class="sidebar-label">Topology</span>
         </button>
         <p class="sidebar-group-label">WORKBENCH</p>
         <button class="workspace-nav-item" type="button" data-sidebar-action="terminal" aria-label="Open terminal workbench" title="Terminal">
@@ -271,6 +277,17 @@
             <span id="history-quota" class="history-quota">STORAGE · CHECKING</span>
             <button id="history-refresh" class="text-button" type="button">REFRESH</button>
           </footer>
+          <section id="history-timeline" class="history-timeline" aria-labelledby="history-timeline-title">
+            <header><span id="history-timeline-eyebrow" class="eyebrow">CHANGE CORRELATION · 24H WINDOW</span><h3 id="history-timeline-title">OPERATIONS TIMELINE</h3></header>
+            <div id="history-event-markers" class="history-event-markers" aria-label="Timeline change markers"></div>
+            <div id="history-events-list" class="timeline-list" aria-live="polite"></div>
+            <form id="operations-event-form" class="operations-event-form admin-only" autocomplete="off">
+              <label><span>CHANGE</span><select name="type"><option value="deploy">DEPLOY</option><option value="maintenance">MAINTENANCE</option><option value="note">NOTE</option></select></label>
+              <label><span>TITLE</span><input name="title" maxlength="180" required placeholder="e.g. Updated Immich"></label>
+              <label><span>SUMMARY <small>(optional)</small></span><input name="summary" maxlength="600" placeholder="What changed and why?"></label>
+              <button class="text-button" type="submit">RECORD CHANGE</button>
+            </form>
+          </section>
         </div>
       </section>
       </section>
@@ -317,6 +334,14 @@
             <span>Use Add Service to register your first endpoint.</span>
           </div>
         </section>
+        <section id="slo-panel" class="panel slo-panel" aria-labelledby="slo-title">
+          <header class="panel-header compact">
+            <div><p class="eyebrow">DASHBOARD-LOCAL PROBES · UNKNOWN EXCLUDED</p><h2 id="slo-title">SERVICE OBJECTIVES</h2></div>
+            <div class="panel-actions" role="group" aria-label="SLO window"><button class="range-button" type="button" data-slo-window="7">7D</button><button class="range-button is-active" type="button" data-slo-window="30">30D</button><button class="range-button" type="button" data-slo-window="90">90D</button></div>
+          </header>
+          <div id="slo-list" class="slo-list" aria-busy="true"></div>
+          <p id="slo-status" class="panel-status mono">Loading service objectives…</p>
+        </section>
       </section>
       </section>
 
@@ -341,6 +366,36 @@
           </div>
         </section>
       </aside>
+      </section>
+
+      <section id="workspace-nodes" class="dashboard-workspace workspace-nodes" data-workspace-panel="nodes" aria-labelledby="nodes-workspace-title" hidden>
+        <section class="panel nodes-workspace-panel" aria-labelledby="nodes-workspace-title" data-workspace-focus tabindex="-1">
+          <header class="panel-header"><div><p class="eyebrow">FLEET COMPARISON</p><h2 id="nodes-workspace-title" tabindex="-1">MONITORING NODES</h2></div><button id="nodes-workspace-refresh" class="text-button" type="button">REFRESH</button></header>
+          <div id="nodes-workspace-grid" class="nodes-workspace-grid" aria-busy="true"></div>
+          <p id="nodes-workspace-status" class="panel-status mono">Loading node inventory…</p>
+        </section>
+        <section class="panel checks-panel" aria-labelledby="checks-title">
+          <header class="panel-header compact"><div><p class="eyebrow">TLS · DASHBOARD / BACKUPS · SELECTED NODE</p><h2 id="checks-title">TLS &amp; BACKUPS</h2></div></header>
+          <div id="checks-list" class="checks-list" aria-busy="true"></div>
+          <p id="checks-status" class="panel-status mono">Loading certificate and backup checks…</p>
+        </section>
+      </section>
+
+      <section id="workspace-topology" class="dashboard-workspace workspace-topology" data-workspace-panel="topology" aria-labelledby="topology-title" hidden>
+        <section class="panel topology-panel" aria-labelledby="topology-title" data-workspace-focus tabindex="-1">
+          <header class="panel-header"><div><p class="eyebrow">MANUAL SERVICE DEPENDENCIES</p><h2 id="topology-title" tabindex="-1">SERVICE TOPOLOGY</h2></div><span id="topology-count" class="count-badge mono">0</span></header>
+          <p class="topology-hint">Arrows run from the dependent service to the service it needs. Relationships are curated; no traffic is inferred.</p>
+          <p id="topology-scroll-hint" class="topology-scroll-hint">Scroll horizontally to inspect the map.</p>
+          <div id="topology-canvas" class="topology-canvas" role="region" aria-label="Manual service dependency topology" aria-describedby="topology-scroll-hint"></div>
+          <div id="topology-edge-list" class="topology-edge-list" aria-label="Curated dependency relationships" hidden></div>
+          <form id="topology-form" class="topology-form admin-only" autocomplete="off">
+            <label><span>DEPENDENT</span><select id="topology-dependent" required></select></label>
+            <label><span>DEPENDS ON</span><select id="topology-dependency" required></select></label>
+            <label><span>LABEL <small>(optional)</small></span><input id="topology-label" maxlength="160"></label>
+            <button class="button button-primary" type="submit">ADD EDGE</button>
+          </form>
+          <p id="topology-status" class="panel-status mono">Loading topology…</p>
+        </section>
       </section>
     </main>
 
@@ -450,7 +505,7 @@
       <input name="id" type="hidden">
       <div class="form-grid form-grid-rules">
         <label class="full"><span>RULE NAME</span><input name="name" type="text" maxlength="160" required></label>
-        <label><span>RESOURCE</span><select name="resourceType" required><option value="node">Node</option><option value="host">Host</option><option value="disk">Disk</option><option value="service">Service</option><option value="container">Container</option></select></label>
+        <label><span>RESOURCE</span><select name="resourceType" required><option value="node">Node</option><option value="host">Host</option><option value="disk">Disk</option><option value="service">Service</option><option value="container">Container</option><option value="backup">Backup</option></select></label>
         <label><span>METRIC</span><select name="metric" required></select></label>
         <label><span>NODE SELECTOR</span><input name="nodeSelector" type="text" maxlength="256" value="*" required></label>
         <label><span>RESOURCE SELECTOR</span><input name="resourceSelector" type="text" maxlength="256" value="*" required></label>

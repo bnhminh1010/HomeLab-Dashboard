@@ -68,6 +68,57 @@ systemctl --user restart homelab-node-agent.service
 If the service must start at boot while the account is logged out, an
 administrator can run `loginctl enable-linger USER`.
 
+## Backup status reports
+
+The agent can report the freshness of any backup program without running that
+program or receiving its credentials. Set `BACKUP_STATUS_FILE` to an absolute,
+readable JSON path in a systemd user drop-in:
+
+```ini
+# ~/.config/systemd/user/homelab-node-agent.service.d/backup.conf
+[Service]
+Environment=BACKUP_STATUS_FILE=%h/.local/state/homelab-backup/status.json
+```
+
+Then reload and restart the service:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart homelab-node-agent.service
+```
+
+Each job writes either one object or a wrapper containing `backups`. Write to a
+temporary file in the same directory and rename it so the agent never reads a
+partial update:
+
+```json
+{
+  "backups": [
+    {
+      "job": "restic-home",
+      "status": "success",
+      "completedAt": "2026-07-22T03:15:00Z",
+      "expectedWithinSeconds": 93600,
+      "bytes": 158734221,
+      "message": "daily snapshot complete"
+    }
+  ]
+}
+```
+
+`status` is one of `success`, `failed`, `running`, or `unknown`. A successful
+entry needs `completedAt`; the optional `expectedWithinSeconds` defines when a
+successful backup becomes overdue. The document is capped at 64 KiB and 50
+jobs. For example, a shell backup script can publish it atomically with:
+
+```bash
+state_dir="$HOME/.local/state/homelab-backup"
+mkdir -p "$state_dir"
+temporary="$(mktemp "$state_dir/status.json.XXXXXX")"
+printf '%s\n' '{"job":"restic-home","status":"success","completedAt":"2026-07-22T03:15:00Z","expectedWithinSeconds":93600}' >"$temporary"
+mv -f "$temporary" "$state_dir/status.json"
+```
+
 ## Uninstall
 
 Revoke the node in the dashboard first, then run:

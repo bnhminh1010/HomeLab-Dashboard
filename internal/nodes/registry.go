@@ -27,6 +27,7 @@ type RegistryOptions struct {
 	OfflineAfter     time.Duration
 	TimestampWindow  time.Duration
 	OnSnapshot       func(context.Context, string, model.SnapshotEnvelope) error
+	OnConnectionOpen func(string)
 	OnConnectionLost func(string)
 }
 
@@ -65,6 +66,7 @@ type Registry struct {
 	offlineAfter    time.Duration
 	timestampWindow time.Duration
 	onSnapshot      func(context.Context, string, model.SnapshotEnvelope) error
+	onOpen          func(string)
 	onLost          func(string)
 
 	// lifecycle serializes a connection replacement with the side effects of a
@@ -104,7 +106,7 @@ func NewRegistry(service *Service, options RegistryOptions) (*Registry, error) {
 	return &Registry{
 		service: service, now: options.Now, offlineAfter: options.OfflineAfter,
 		timestampWindow: options.TimestampWindow, onSnapshot: options.OnSnapshot,
-		onLost: options.OnConnectionLost, connections: make(map[string]*nodeConnection),
+		onOpen: options.OnConnectionOpen, onLost: options.OnConnectionLost, connections: make(map[string]*nodeConnection),
 		cache: make(map[string]*cachedNodeState), streams: make(map[string]*Stream),
 	}, nil
 }
@@ -133,6 +135,9 @@ func (r *Registry) Attach(ctx context.Context, nodeID, credential string, sender
 		r.closeNodeStreamsGeneration(node.ID, previous.generation, ErrConnectionReplaced)
 	}
 	_ = r.service.Touch(ctx, node.ID)
+	if r.onOpen != nil {
+		r.onOpen(node.ID)
+	}
 	return node, generation, nil
 }
 

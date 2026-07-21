@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -15,10 +16,14 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/alerts"
 	"github.com/binhminh/HomeLab-Minh/internal/auth"
 	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
+	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
 	"github.com/binhminh/HomeLab-Minh/internal/history"
 	"github.com/binhminh/HomeLab-Minh/internal/metrics"
+	"github.com/binhminh/HomeLab-Minh/internal/model"
 	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/binhminh/HomeLab-Minh/internal/operations"
 	"github.com/binhminh/HomeLab-Minh/internal/services"
+	"github.com/binhminh/HomeLab-Minh/internal/slo"
 	"github.com/binhminh/HomeLab-Minh/internal/store"
 	"github.com/binhminh/HomeLab-Minh/internal/terminal"
 )
@@ -113,7 +118,7 @@ func TestHistoryAndAlertAPIs(t *testing.T) {
 	exportRequest := authenticatedRead("/api/v1/config/export", "admin@example.com", cookie)
 	exportResponse := httptest.NewRecorder()
 	server.Handler().ServeHTTP(exportResponse, exportRequest)
-	if exportResponse.Code != http.StatusOK || !strings.Contains(exportResponse.Body.String(), `"version": "homelab-dashboard.config/v1"`) {
+	if exportResponse.Code != http.StatusOK || !strings.Contains(exportResponse.Body.String(), `"version": "homelab-dashboard.config/v2"`) {
 		t.Fatalf("config export status=%d body=%s", exportResponse.Code, exportResponse.Body.String())
 	}
 	for _, forbidden := range []string{"credential", "ntfy", "audit_events", "session"} {
@@ -215,6 +220,142 @@ func TestNTFYStatusRedactsDestinationForViewer(t *testing.T) {
 	}
 }
 
+func TestOperationalExtensionsAPI(t *testing.T) {
+	server, database, _ := newExtensionTestServer(t)
+	ctx := context.Background()
+	first, err := database.CreateService(ctx, model.Service{
+		ID: "svc_alpha", Name: "Alpha", DisplayURL: "https://alpha.example.test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateService(ctx, model.Service{
+		ID: "svc_bravo", Name: "Bravo", DisplayURL: "https://bravo.example.test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	csrf, cookie, _ := startTestBrowserSession(t, server, "admin@example.com")
+	if _, err := database.RecordOperationalEvent(ctx, operations.Event{
+		Type: "internal.note", Source: operations.SourceAutomatic, Visibility: operations.VisibilitySensitive,
+		Title: "Sensitive internal detail", OccurredAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	listSLO := authenticatedRead("/api/v1/slos?node=local&window=30", "admin@example.com", cookie)
+	listSLOResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(listSLOResponse, listSLO)
+	if listSLOResponse.Code != http.StatusOK || !strings.Contains(listSLOResponse.Body.String(), `"serviceId":"svc_alpha"`) {
+		t.Fatalf("SLO list status=%d body=%s", listSLOResponse.Code, listSLOResponse.Body.String())
+	}
+	viewerCSRF, viewerCookie, _ := startTestBrowserSession(t, server, "viewer@example.com")
+	viewerSLO := authenticatedRead("/api/v1/slos?node=local&window=30", "viewer@example.com", viewerCookie)
+	viewerSLOResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(viewerSLOResponse, viewerSLO)
+	if viewerSLOResponse.Code != http.StatusOK {
+		t.Fatalf("viewer SLO read status=%d body=%s", viewerSLOResponse.Code, viewerSLOResponse.Body.String())
+	}
+	viewerEvent := authenticatedMutation(http.MethodPost, "/api/v1/events", `{"type":"note","title":"viewer mutation"}`, "viewer@example.com", viewerCSRF, viewerCookie)
+	viewerEventResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(viewerEventResponse, viewerEvent)
+	if viewerEventResponse.Code != http.StatusForbidden {
+		t.Fatalf("viewer event mutation status=%d body=%s", viewerEventResponse.Code, viewerEventResponse.Body.String())
+	}
+	missingCSRF := authenticatedMutation(http.MethodPost, "/api/v1/topology/dependencies", `{"nodeId":"local","dependentServiceId":"svc_alpha","dependencyServiceId":"svc_bravo"}`, "admin@example.com", "", cookie)
+	missingCSRFResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(missingCSRFResponse, missingCSRF)
+	if missingCSRFResponse.Code != http.StatusForbidden {
+		t.Fatalf("topology mutation without CSRF status=%d body=%s", missingCSRFResponse.Code, missingCSRFResponse.Body.String())
+	}
+	updateSLO := authenticatedMutation(http.MethodPatch, "/api/v1/services/svc_alpha/slo", `{"targetPercent":99.9,"windowDays":90}`, "admin@example.com", csrf, cookie)
+	updateSLOResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(updateSLOResponse, updateSLO)
+	if updateSLOResponse.Code != http.StatusOK || !strings.Contains(updateSLOResponse.Body.String(), `"targetPercent":99.9`) {
+		t.Fatalf("SLO update status=%d body=%s", updateSLOResponse.Code, updateSLOResponse.Body.String())
+	}
+	maxSLO := authenticatedMutation(http.MethodPatch, "/api/v1/services/svc_alpha/slo", `{"targetPercent":99.999,"windowDays":90}`, "admin@example.com", csrf, cookie)
+	maxSLOResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(maxSLOResponse, maxSLO)
+	if maxSLOResponse.Code != http.StatusOK {
+		t.Fatalf("maximum SLO update status=%d body=%s", maxSLOResponse.Code, maxSLOResponse.Body.String())
+	}
+	overMaxSLO := authenticatedMutation(http.MethodPatch, "/api/v1/services/svc_alpha/slo", `{"targetPercent":99.9991,"windowDays":90}`, "admin@example.com", csrf, cookie)
+	overMaxSLOResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(overMaxSLOResponse, overMaxSLO)
+	if overMaxSLOResponse.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("SLO target above product maximum status=%d body=%s", overMaxSLOResponse.Code, overMaxSLOResponse.Body.String())
+	}
+
+	manual := authenticatedMutation(http.MethodPost, "/api/v1/events", `{"type":"maintenance","title":"Rotated backups","summary":"stored snapshot","nodeId":"local","occurredAt":"2099-01-01T00:00:00Z"}`, "admin@example.com", csrf, cookie)
+	manualResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(manualResponse, manual)
+	if manualResponse.Code != http.StatusCreated || strings.Contains(manualResponse.Body.String(), "2099-01-01") {
+		t.Fatalf("manual event status=%d body=%s", manualResponse.Code, manualResponse.Body.String())
+	}
+	events := authenticatedRead("/api/v1/events?node=local", "admin@example.com", cookie)
+	eventsResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(eventsResponse, events)
+	if eventsResponse.Code != http.StatusOK || !strings.Contains(eventsResponse.Body.String(), "Rotated backups") || strings.Contains(eventsResponse.Body.String(), "Sensitive internal detail") {
+		t.Fatalf("events status=%d body=%s", eventsResponse.Code, eventsResponse.Body.String())
+	}
+	if !strings.Contains(eventsResponse.Body.String(), `"actor":"admin@example.com"`) || !strings.Contains(eventsResponse.Body.String(), "Service objective updated") {
+		t.Fatalf("admin timeline did not include expected operational metadata: %s", eventsResponse.Body.String())
+	}
+	viewerEvents := authenticatedRead("/api/v1/events?node=local", "viewer@example.com", viewerCookie)
+	viewerEventsResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(viewerEventsResponse, viewerEvents)
+	if viewerEventsResponse.Code != http.StatusOK || strings.Contains(viewerEventsResponse.Body.String(), `"actor":`) {
+		t.Fatalf("viewer timeline leaked actor metadata: status=%d body=%s", viewerEventsResponse.Code, viewerEventsResponse.Body.String())
+	}
+
+	createEdge := authenticatedMutation(http.MethodPost, "/api/v1/topology/dependencies", `{"nodeId":"local","dependentServiceId":"svc_alpha","dependencyServiceId":"svc_bravo","label":"cache"}`, "admin@example.com", csrf, cookie)
+	createEdgeResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(createEdgeResponse, createEdge)
+	if createEdgeResponse.Code != http.StatusCreated {
+		t.Fatalf("topology create status=%d body=%s", createEdgeResponse.Code, createEdgeResponse.Body.String())
+	}
+	var edge struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(createEdgeResponse.Body.Bytes(), &edge); err != nil || edge.ID == 0 {
+		t.Fatalf("decode topology create: edge=%+v err=%v", edge, err)
+	}
+	listEdge := authenticatedRead("/api/v1/topology/dependencies?node=local", "admin@example.com", cookie)
+	listEdgeResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(listEdgeResponse, listEdge)
+	if listEdgeResponse.Code != http.StatusOK || !strings.Contains(listEdgeResponse.Body.String(), `"dependencyServiceId":"svc_bravo"`) {
+		t.Fatalf("topology list status=%d body=%s", listEdgeResponse.Code, listEdgeResponse.Body.String())
+	}
+	deleteEdge := authenticatedMutation(http.MethodDelete, "/api/v1/topology/dependencies/"+strconv.FormatInt(edge.ID, 10)+"?node=local", "", "admin@example.com", csrf, cookie)
+	deleteEdgeResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(deleteEdgeResponse, deleteEdge)
+	if deleteEdgeResponse.Code != http.StatusNoContent {
+		t.Fatalf("topology delete status=%d body=%s", deleteEdgeResponse.Code, deleteEdgeResponse.Body.String())
+	}
+	topologyEvents := authenticatedRead("/api/v1/events?node=local", "admin@example.com", cookie)
+	topologyEventsResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(topologyEventsResponse, topologyEvents)
+	if topologyEventsResponse.Code != http.StatusOK ||
+		!strings.Contains(topologyEventsResponse.Body.String(), "Topology dependency added") ||
+		!strings.Contains(topologyEventsResponse.Body.String(), "Topology dependency removed") {
+		t.Fatalf("topology mutations were absent from operational timeline: status=%d body=%s", topologyEventsResponse.Code, topologyEventsResponse.Body.String())
+	}
+
+	now := time.Now().UTC()
+	if err := database.UpsertCertificateObservation(ctx, healthchecks.CertificateObservation{ServiceID: first.ID, CheckedAt: now, NotAfter: now.Add(10 * 24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpsertBackupObservation(ctx, "local", model.BackupStatus{Job: "restic-home", Status: "success", CompletedAt: now, ExpectedWithinSeconds: 86400}, now); err != nil {
+		t.Fatal(err)
+	}
+	checks := authenticatedRead("/api/v1/operations/checks", "admin@example.com", cookie)
+	checksResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(checksResponse, checks)
+	if checksResponse.Code != http.StatusOK || !strings.Contains(checksResponse.Body.String(), "Alpha") || !strings.Contains(checksResponse.Body.String(), "restic-home") {
+		t.Fatalf("checks status=%d body=%s", checksResponse.Code, checksResponse.Body.String())
+	}
+}
+
 func TestAgentEnrollmentNeedsOnlyOneTimeTokenAndNodeCredential(t *testing.T) {
 	server, database, _ := newExtensionTestServer(t)
 	service, err := nodes.NewService(database, nodes.Options{})
@@ -257,6 +398,10 @@ func newExtensionTestServer(t *testing.T) (*Server, *store.Store, *memoryNotific
 	nodeService, _ := nodes.NewService(database, nodes.Options{})
 	nodeRegistry, _ := nodes.NewRegistry(nodeService, nodes.RegistryOptions{})
 	configService, _ := dashboardconfig.NewService(database)
+	sloService, err := slo.NewService(database, database, slo.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	notifications := &memoryNotificationSender{}
 	server, err := New(Options{
 		Auth: auth.NewManager([]string{"admin@example.com"}, true, false), Metrics: hub,
@@ -266,6 +411,10 @@ func newExtensionTestServer(t *testing.T) (*Server, *store.Store, *memoryNotific
 		Nodes: nodeService, NodeRegistry: nodeRegistry,
 		DashboardConfig: configService,
 		Preferences:     database,
+		SLO:             sloService,
+		Operations:      database,
+		Topology:        database,
+		Checks:          database,
 	})
 	if err != nil {
 		t.Fatal(err)

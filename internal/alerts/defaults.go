@@ -11,6 +11,7 @@ const (
 	MetricContainerHealthy           = "container.healthy"
 	MetricContainerRestarts          = "container.restarts"
 	MetricNodeOnline                 = "node.online"
+	MetricBackupHealthy              = "backup.healthy"
 )
 
 // DefaultRules returns fresh values so callers may safely change selectors or
@@ -71,6 +72,12 @@ func DefaultRules() []AlertRule {
 			NodeSelector: WildcardSelector, ResourceSelector: WildcardSelector,
 			Metric: MetricContainerRestarts, Operator: OperatorGreaterThan, Threshold: 3,
 			Severity: SeverityCritical, Cooldown: cooldown, Enabled: true,
+		},
+		{
+			ID: "default_backup_unhealthy", Name: "Backup is unhealthy", ResourceType: "backup",
+			NodeSelector: WildcardSelector, ResourceSelector: WildcardSelector,
+			Metric: MetricBackupHealthy, Operator: OperatorLessThan, Threshold: 1,
+			Severity: SeverityWarning, Cooldown: cooldown, Enabled: true,
 		},
 	}
 }

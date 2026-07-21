@@ -13,7 +13,7 @@ import (
 
 const (
 	alertDefaultsSeededKey = "alert_defaults_seeded"
-	alertDefaultsVersion   = "2"
+	alertDefaultsVersion   = "3"
 )
 
 // SeedDefaultAlertRules installs the built-in rules at most once for a
@@ -30,7 +30,7 @@ func (s *Store) SeedDefaultAlertRules(ctx context.Context, defaults []alerts.Ale
 	if err == nil && marker == alertDefaultsVersion {
 		return tx.Commit()
 	}
-	if err == nil && marker != "1" {
+	if err == nil && marker != "1" && marker != "2" {
 		return fmt.Errorf("unsupported default alert rule version %q", marker)
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -42,11 +42,14 @@ func (s *Store) SeedDefaultAlertRules(ctx context.Context, defaults []alerts.Ale
 	}
 	now := s.now().UTC()
 	seedInitial := errors.Is(err, sql.ErrNoRows) && count == 0
-	upgradeNodeRule := err == nil && marker == "1"
-	if seedInitial || upgradeNodeRule {
+	upgradeLegacyRules := err == nil && (marker == "1" || marker == "2")
+	if seedInitial || upgradeLegacyRules {
 		for _, candidate := range defaults {
 			rule := alerts.NormalizeRule(candidate)
-			if upgradeNodeRule && rule.ID != "default_node_offline" {
+			if marker == "1" && rule.ID != "default_node_offline" && rule.ID != "default_backup_unhealthy" {
+				continue
+			}
+			if marker == "2" && rule.ID != "default_backup_unhealthy" {
 				continue
 			}
 			if err := alerts.ValidateRule(rule); err != nil {

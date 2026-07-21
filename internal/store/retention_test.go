@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
+	"github.com/binhminh/HomeLab-Minh/internal/model"
 )
 
 func TestOperationalRetentionBoundsTerminalDataAndKeepsActiveWork(t *testing.T) {
@@ -83,5 +86,37 @@ func TestOperationalRetentionBoundsTerminalDataAndKeepsActiveWork(t *testing.T) 
 	var firingStates int
 	if err := database.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM alert_states WHERE status = 'firing'`).Scan(&firingStates); err != nil || firingStates != 1 {
 		t.Fatalf("firing states = %d err=%v", firingStates, err)
+	}
+}
+
+func TestOperationalRetentionPrunesObsoleteCheckObservations(t *testing.T) {
+	ctx := context.Background()
+	database, err := Open(ctx, filepath.Join(t.TempDir(), "check-retention.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	if _, err := database.CreateService(ctx, model.Service{ID: "svc_tls", Name: "TLS", DisplayURL: "https://tls.example"}); err != nil {
+		t.Fatal(err)
+	}
+	old := now.Add(-operationalEventRetention - time.Second)
+	if err := database.UpsertCertificateObservation(ctx, healthchecks.CertificateObservation{ServiceID: "svc_tls", CheckedAt: old}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpsertBackupObservation(ctx, "local", model.BackupStatus{Job: "old-local", Status: "success", CompletedAt: old}, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpsertBackupObservation(ctx, "node_missing", model.BackupStatus{Job: "orphaned", Status: "success", CompletedAt: now}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RetainOperationalData(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	if certificates, err := database.ListCertificateObservations(ctx); err != nil || len(certificates) != 0 {
+		t.Fatalf("retained certificates = %#v err=%v", certificates, err)
+	}
+	if backups, err := database.ListBackupObservations(ctx, ""); err != nil || len(backups) != 0 {
+		t.Fatalf("retained backups = %#v err=%v", backups, err)
 	}
 }

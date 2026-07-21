@@ -13,6 +13,8 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/binhminh/HomeLab-Minh/internal/slo"
+	"github.com/binhminh/HomeLab-Minh/internal/topology"
 )
 
 func (s *Store) LoadDashboardConfig(ctx context.Context) (dashboardconfig.Snapshot, error) {
@@ -128,12 +130,19 @@ func (s *Store) ApplyDashboardConfig(
 	now := s.now().UTC()
 	counts := map[string]int{
 		"services": len(incoming.Services), "alertRules": len(incoming.AlertRules),
+		"sloPolicies": len(incoming.SLOPolicies), "topologyDependencies": len(incoming.Dependencies),
 		"nodes": len(incoming.Nodes),
 	}
 	if err := applyConfigServices(ctx, tx, current.Services, incoming.Services, mode, now); err != nil {
 		return err
 	}
 	if err := applyConfigAlertRules(ctx, tx, current.AlertRules, incoming.AlertRules, mode, now); err != nil {
+		return err
+	}
+	if err := applyConfigSLOPolicies(ctx, tx, current.SLOPolicies, incoming.SLOPolicies, mode, now); err != nil {
+		return err
+	}
+	if err := applyConfigTopologyDependencies(ctx, tx, current.Dependencies, incoming.Dependencies, mode, now); err != nil {
 		return err
 	}
 	if current.UIPreferences != incoming.UIPreferences {
@@ -172,6 +181,7 @@ func (s *Store) ApplyDashboardConfig(
 func loadDashboardConfigTx(ctx context.Context, tx *sql.Tx) (dashboardconfig.Snapshot, error) {
 	snapshot := dashboardconfig.Snapshot{
 		Services: make([]model.Service, 0), AlertRules: make([]alerts.AlertRule, 0),
+		SLOPolicies: make([]slo.Policy, 0), Dependencies: make([]topology.Dependency, 0),
 		Nodes: make([]nodes.Node, 0),
 	}
 	serviceRows, err := tx.QueryContext(ctx, `
@@ -193,6 +203,49 @@ func loadDashboardConfigTx(ctx context.Context, tx *sql.Tx) (dashboardconfig.Sna
 	}
 	if err := serviceRows.Err(); err != nil {
 		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard config services: %w", err)
+	}
+
+	policyRows, err := tx.QueryContext(ctx, `
+		SELECT service_id, target_percent, window_days, updated_at
+		FROM service_slo_policies ORDER BY service_id`)
+	if err != nil {
+		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard config SLO policies: %w", err)
+	}
+	for policyRows.Next() {
+		policy, scanErr := scanSLOPolicy(policyRows)
+		if scanErr != nil {
+			policyRows.Close()
+			return dashboardconfig.Snapshot{}, fmt.Errorf("scan dashboard config SLO policy: %w", scanErr)
+		}
+		snapshot.SLOPolicies = append(snapshot.SLOPolicies, policy)
+	}
+	if err := policyRows.Close(); err != nil {
+		return dashboardconfig.Snapshot{}, fmt.Errorf("close dashboard config SLO policies: %w", err)
+	}
+	if err := policyRows.Err(); err != nil {
+		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard config SLO policies: %w", err)
+	}
+
+	dependencyRows, err := tx.QueryContext(ctx, `
+		SELECT id, node_id, dependent_service_id, dependency_service_id, label, created_at, updated_at
+		FROM topology_dependencies
+		ORDER BY node_id, dependent_service_id, dependency_service_id`)
+	if err != nil {
+		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard config topology dependencies: %w", err)
+	}
+	for dependencyRows.Next() {
+		dependency, scanErr := scanTopologyDependency(dependencyRows)
+		if scanErr != nil {
+			dependencyRows.Close()
+			return dashboardconfig.Snapshot{}, fmt.Errorf("scan dashboard config topology dependency: %w", scanErr)
+		}
+		snapshot.Dependencies = append(snapshot.Dependencies, dependency)
+	}
+	if err := dependencyRows.Close(); err != nil {
+		return dashboardconfig.Snapshot{}, fmt.Errorf("close dashboard config topology dependencies: %w", err)
+	}
+	if err := dependencyRows.Err(); err != nil {
+		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard config topology dependencies: %w", err)
 	}
 
 	ruleRows, err := tx.QueryContext(ctx, `
@@ -368,6 +421,115 @@ func applyConfigAlertRules(
 	return nil
 }
 
+func applyConfigSLOPolicies(
+	ctx context.Context,
+	tx *sql.Tx,
+	current []slo.Policy,
+	incoming []slo.Policy,
+	mode dashboardconfig.ImportMode,
+	now time.Time,
+) error {
+	currentByService := make(map[string]slo.Policy, len(current))
+	incomingByService := make(map[string]slo.Policy, len(incoming))
+	for _, policy := range current {
+		currentByService[policy.ServiceID] = policy
+	}
+	for _, policy := range incoming {
+		incomingByService[policy.ServiceID] = policy
+		existing, exists := currentByService[policy.ServiceID]
+		if exists && sameSLOPolicyDefinition(existing, policy) {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO service_slo_policies(service_id, target_percent, window_days, updated_at)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(service_id) DO UPDATE SET
+				target_percent = excluded.target_percent,
+				window_days = excluded.window_days,
+				updated_at = excluded.updated_at`,
+			policy.ServiceID, policy.TargetPercent, policy.WindowDays, now.Unix()); err != nil {
+			return fmt.Errorf("upsert imported SLO policy %s: %w", policy.ServiceID, err)
+		}
+	}
+	if mode == dashboardconfig.ImportReplace {
+		for _, policy := range current {
+			if _, retained := incomingByService[policy.ServiceID]; retained {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM service_slo_policies WHERE service_id = ?", policy.ServiceID); err != nil {
+				return fmt.Errorf("delete replaced SLO policy %s: %w", policy.ServiceID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func applyConfigTopologyDependencies(
+	ctx context.Context,
+	tx *sql.Tx,
+	current []topology.Dependency,
+	incoming []topology.Dependency,
+	mode dashboardconfig.ImportMode,
+	now time.Time,
+) error {
+	currentByKey := make(map[string]topology.Dependency, len(current))
+	incomingByKey := make(map[string]topology.Dependency, len(incoming))
+	for _, dependency := range current {
+		currentByKey[topologyDependencyKey(dependency)] = dependency
+	}
+	for _, dependency := range incoming {
+		if err := validateTopologyDependencyNodeTx(ctx, tx, dependency.NodeID); err != nil {
+			return err
+		}
+		key := topologyDependencyKey(dependency)
+		incomingByKey[key] = dependency
+		existing, exists := currentByKey[key]
+		if exists && sameTopologyDependencyDefinition(existing, dependency) {
+			continue
+		}
+		if exists {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE topology_dependencies SET label = ?, updated_at = ? WHERE id = ?`,
+				dependency.Label, now.Format(time.RFC3339Nano), existing.ID); err != nil {
+				return fmt.Errorf("update imported topology dependency %s: %w", key, err)
+			}
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO topology_dependencies(
+				node_id, dependent_service_id, dependency_service_id, label, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?)`,
+			dependency.NodeID, dependency.DependentServiceID, dependency.DependencyServiceID,
+			dependency.Label, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+			return fmt.Errorf("insert imported topology dependency %s: %w", key, err)
+		}
+	}
+	if mode == dashboardconfig.ImportReplace {
+		for _, dependency := range current {
+			if _, retained := incomingByKey[topologyDependencyKey(dependency)]; retained {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM topology_dependencies WHERE id = ?", dependency.ID); err != nil {
+				return fmt.Errorf("delete replaced topology dependency %d: %w", dependency.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func topologyDependencyKey(dependency topology.Dependency) string {
+	return dependency.NodeID + "\x00" + dependency.DependentServiceID + "\x00" + dependency.DependencyServiceID
+}
+
+func sameSLOPolicyDefinition(left, right slo.Policy) bool {
+	return left.ServiceID == right.ServiceID && left.TargetPercent == right.TargetPercent && left.WindowDays == right.WindowDays
+}
+
+func sameTopologyDependencyDefinition(left, right topology.Dependency) bool {
+	return left.NodeID == right.NodeID && left.DependentServiceID == right.DependentServiceID &&
+		left.DependencyServiceID == right.DependencyServiceID && left.Label == right.Label
+}
+
 func clearImportedAlertRuntime(ctx context.Context, tx *sql.Tx, ruleID string) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM alert_states WHERE rule_id = ?", ruleID); err != nil {
 		return fmt.Errorf("reset imported alert state %s: %w", ruleID, err)
@@ -393,6 +555,27 @@ func validateDashboardDefaultNodeTx(ctx context.Context, tx *sql.Tx, nodeID stri
 	if exists == 0 {
 		return &dashboardconfig.ValidationError{
 			Path:    "uiPreferences.defaultNodeId",
+			Message: "must reference local or an actively enrolled node",
+		}
+	}
+	return nil
+}
+
+// validateTopologyDependencyNodeTx repeats the active-node invariant inside
+// the import transaction. Preview performs the same user-facing validation,
+// but a node can be revoked after preview and before the write transaction.
+func validateTopologyDependencyNodeTx(ctx context.Context, tx *sql.Tx, nodeID string) error {
+	if nodeID == "local" {
+		return nil
+	}
+	var exists int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ? AND revoked_at IS NULL)`, nodeID).Scan(&exists); err != nil {
+		return fmt.Errorf("validate imported topology node: %w", err)
+	}
+	if exists == 0 {
+		return &dashboardconfig.ValidationError{
+			Path:    "topologyDependencies",
 			Message: "must reference local or an actively enrolled node",
 		}
 	}

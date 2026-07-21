@@ -254,6 +254,8 @@ func SupportedMetric(resourceType, metric string) bool {
 		return metric == MetricServiceConsecutiveFailures
 	case "container":
 		return metric == MetricContainerHealthy || metric == MetricContainerRestarts
+	case "backup":
+		return metric == MetricBackupHealthy
 	default:
 		return false
 	}

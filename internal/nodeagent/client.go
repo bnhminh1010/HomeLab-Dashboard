@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/binhminh/HomeLab-Minh/internal/containers"
+	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
 	"github.com/binhminh/HomeLab-Minh/internal/metrics"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 	"github.com/binhminh/HomeLab-Minh/internal/nodes"
@@ -36,6 +37,7 @@ type RunOptions struct {
 	SysPath          string
 	RootPath         string
 	NetworkInterface string
+	BackupStatusFile string
 	MaxSessions      int
 	AgentVersion     string
 }
@@ -63,7 +65,11 @@ func Run(ctx context.Context, options RunOptions) error {
 		return err
 	}
 	defer podmanClient.CloseIdleConnections()
-	collector, err := NewLocalCollector(hostCollector, containers.New(podmanClient))
+	backupSource, err := healthchecks.NewBackupFileSource(options.BackupStatusFile)
+	if err != nil {
+		return fmt.Errorf("node agent: configure backup status source: %w", err)
+	}
+	collector, err := NewLocalCollector(hostCollector, containers.New(podmanClient), backupSource)
 	if err != nil {
 		return err
 	}

@@ -9,8 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/binhminh/HomeLab-Minh/internal/alerts"
 	"github.com/binhminh/HomeLab-Minh/internal/hostagent"
+	"github.com/binhminh/HomeLab-Minh/internal/model"
+	"github.com/binhminh/HomeLab-Minh/internal/monitoring"
 	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/binhminh/HomeLab-Minh/internal/store"
 	"github.com/binhminh/HomeLab-Minh/internal/terminal"
 )
 
@@ -166,6 +170,132 @@ func TestWorkerGroupWaitHonorsShutdownDeadline(t *testing.T) {
 	close(release)
 	if err := group.Wait(context.Background()); err != nil {
 		t.Fatalf("Wait() after worker exit: %v", err)
+	}
+}
+
+func TestDashboardAlertSourceRetainsLastBackupAlertWhenReportDisappears(t *testing.T) {
+	database, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "dashboard.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	now := time.Now().UTC()
+	if err := database.UpsertBackupObservation(context.Background(), "local", model.BackupStatus{
+		Job: "nightly", Status: "success", CompletedAt: now.Add(-48 * time.Hour), ExpectedWithinSeconds: 24 * 60 * 60,
+	}, now.Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	source := dashboardAlertSource{runtime: &podmanSource{}, repository: database}
+	items, err := source.alertsSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.ID == "backup:local:nightly" && item.Source == "local/backup" {
+			return
+		}
+	}
+	t.Fatalf("persisted overdue backup alert disappeared: %#v", items)
+}
+
+func TestDashboardAlertSourceIncludesOverdueBackupOnActiveRemoteNode(t *testing.T) {
+	database, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "dashboard.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	nodeService, err := nodes.NewService(database, nodes.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrollment, err := nodeService.CreateEnrollment(context.Background(), "admin@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, _, err := nodeService.Enroll(context.Background(), enrollment.Token, "Storage node", "storage-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := database.UpsertBackupObservation(context.Background(), remote.ID, model.BackupStatus{
+		Job: "nightly", Status: "success", CompletedAt: now.Add(-48 * time.Hour), ExpectedWithinSeconds: 24 * 60 * 60,
+	}, now.Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	source := dashboardAlertSource{runtime: &podmanSource{}, repository: database}
+	items, err := source.alertsSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantID := "backup:" + remote.ID + ":nightly"
+	wantSource := remote.ID + "/backup"
+	for _, item := range items {
+		if item.ID == wantID && item.Source == wantSource {
+			return
+		}
+	}
+	t.Fatalf("active remote overdue backup alert was omitted: %#v", items)
+}
+
+func TestBackupFreshnessQueuesNodeScopedDeliveriesForLocalAndActiveRemote(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "backup-freshness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := database.SeedDefaultAlertRules(ctx, alerts.DefaultRules()); err != nil {
+		t.Fatal(err)
+	}
+
+	nodeService, err := nodes.NewService(database, nodes.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrollment, err := nodeService.CreateEnrollment(ctx, "admin@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, _, err := nodeService.Enroll(ctx, enrollment.Token, "Storage node", "storage-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	for _, nodeID := range []string{"local", remote.ID, "revoked-or-unknown"} {
+		if err := database.UpsertBackupObservation(ctx, nodeID, model.BackupStatus{
+			Job: "nightly", Status: "success", CompletedAt: now.Add(-48 * time.Hour), ExpectedWithinSeconds: 24 * 60 * 60,
+		}, now.Add(-48*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	engine, err := alerts.NewEngineWithOptions(database, alerts.ClockFunc(func() time.Time { return now }), alerts.EngineOptions{DeliveryEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline, err := monitoring.New(monitoring.Options{Alerts: engine})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := evaluateBackupFreshness(ctx, database, pipeline, now); err != nil {
+		t.Fatal(err)
+	}
+
+	deliveries, err := database.ClaimDueAlertDeliveries(ctx, now, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deliveries) != 2 {
+		t.Fatalf("backup deliveries = %#v", deliveries)
+	}
+	for _, delivery := range deliveries {
+		if delivery.RuleID != "default_backup_unhealthy" || delivery.ResourceType != "backup" || delivery.ResourceID != "nightly" {
+			t.Fatalf("unexpected backup delivery = %#v", delivery)
+		}
+		if delivery.NodeID != "local" && delivery.NodeID != remote.ID {
+			t.Fatalf("inactive node was queued for delivery = %#v", delivery)
+		}
 	}
 }
 

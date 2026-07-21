@@ -49,6 +49,9 @@ services:
       # Empty means anonymous ntfy delivery. When the host path is configured,
       # expose only the fixed in-container secret path to the dashboard.
       NTFY_TOKEN_FILE: ${NTFY_TOKEN_FILE:+/run/secrets/ntfy-token}
+      # A host-side backup job may atomically write its latest status JSON.
+      # Keep the user-controlled host path out of the container environment.
+      BACKUP_STATUS_FILE: ${BACKUP_STATUS_FILE:+/backup-status.json}
     volumes:
       - dashboard-data:/data
       - ${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/podman/podman.sock:/run/podman/podman.sock
@@ -57,6 +60,7 @@ services:
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave
       - ${NTFY_TOKEN_FILE:-/dev/null}:/run/secrets/ntfy-token:ro
+      - ${BACKUP_STATUS_FILE:-/dev/null}:/backup-status.json:ro
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=16m

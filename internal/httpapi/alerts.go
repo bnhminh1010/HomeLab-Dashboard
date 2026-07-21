@@ -11,6 +11,7 @@ import (
 
 	"github.com/binhminh/HomeLab-Minh/internal/alerts"
 	"github.com/binhminh/HomeLab-Minh/internal/auth"
+	"github.com/binhminh/HomeLab-Minh/internal/operations"
 	"github.com/binhminh/HomeLab-Minh/internal/store"
 	"github.com/gin-gonic/gin"
 )
@@ -97,6 +98,10 @@ func (s *Server) createAlertRule(c *gin.Context) {
 		return
 	}
 	s.audit(c, principal, "alert_rule.create", created.ID, "success")
+	s.recordAutomaticEvent(c.Request.Context(), operations.Event{
+		Type: operations.EventAlertRuleChanged, Title: "Alert rule created", Summary: created.Name,
+		Actor: principal.Login,
+	})
 	c.JSON(http.StatusCreated, alertRuleView(created))
 }
 
@@ -124,6 +129,10 @@ func (s *Server) updateAlertRule(c *gin.Context) {
 		return
 	}
 	s.audit(c, principal, "alert_rule.update", id, "success")
+	s.recordAutomaticEvent(c.Request.Context(), operations.Event{
+		Type: operations.EventAlertRuleChanged, Title: "Alert rule updated", Summary: updated.Name,
+		Actor: principal.Login,
+	})
 	c.JSON(http.StatusOK, alertRuleView(updated))
 }
 
@@ -139,6 +148,10 @@ func (s *Server) deleteAlertRule(c *gin.Context) {
 		return
 	}
 	s.audit(c, principal, "alert_rule.delete", id, "success")
+	s.recordAutomaticEvent(c.Request.Context(), operations.Event{
+		Type: operations.EventAlertRuleChanged, Title: "Alert rule removed", Summary: id,
+		Actor: principal.Login,
+	})
 	c.Status(http.StatusNoContent)
 }
 

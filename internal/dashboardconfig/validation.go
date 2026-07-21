@@ -10,6 +10,8 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/alerts"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 	"github.com/binhminh/HomeLab-Minh/internal/services"
+	"github.com/binhminh/HomeLab-Minh/internal/slo"
+	"github.com/binhminh/HomeLab-Minh/internal/topology"
 )
 
 const (
@@ -52,6 +54,12 @@ func validateDocument(document Document) error {
 	if document.Nodes == nil {
 		return invalid("nodes", "field is required and must be an array")
 	}
+	if document.SLOPolicies == nil {
+		return invalid("sloPolicies", "field is required and must be an array")
+	}
+	if document.Dependencies == nil {
+		return invalid("topologyDependencies", "field is required and must be an array")
+	}
 	if len(document.Services) > maxServices {
 		return invalid("services", fmt.Sprintf("must contain at most %d entries", maxServices))
 	}
@@ -60,6 +68,9 @@ func validateDocument(document Document) error {
 	}
 	if len(document.Nodes) > maxNodes {
 		return invalid("nodes", "must contain at most 4 remote entries")
+	}
+	if len(document.SLOPolicies) > maxServices {
+		return invalid("sloPolicies", fmt.Sprintf("must contain at most %d entries", maxServices))
 	}
 
 	serviceIDs := make(map[string]struct{}, len(document.Services))
@@ -84,6 +95,43 @@ func validateDocument(document Document) error {
 		}); err != nil {
 			return invalid(path, err.Error())
 		}
+	}
+
+	policyServiceIDs := make(map[string]struct{}, len(document.SLOPolicies))
+	for index, policy := range document.SLOPolicies {
+		path := fmt.Sprintf("sloPolicies[%d]", index)
+		if !validID(policy.ServiceID, 128) {
+			return invalid(path+".serviceId", "must be a non-empty identifier of at most 128 bytes")
+		}
+		if _, duplicate := policyServiceIDs[policy.ServiceID]; duplicate {
+			return invalid(path+".serviceId", "duplicate service id")
+		}
+		policyServiceIDs[policy.ServiceID] = struct{}{}
+		if err := (slo.Policy{
+			ServiceID: policy.ServiceID, TargetPercent: policy.TargetPercent, WindowDays: policy.WindowDays,
+		}).Validate(); err != nil {
+			return invalid(path, err.Error())
+		}
+	}
+
+	dependencyIDs := make(map[string]struct{}, len(document.Dependencies))
+	for index, dependency := range document.Dependencies {
+		path := fmt.Sprintf("topologyDependencies[%d]", index)
+		input := topology.DependencyInput{
+			NodeID: dependency.NodeID, DependentServiceID: dependency.DependentServiceID,
+			DependencyServiceID: dependency.DependencyServiceID, Label: dependency.Label,
+		}
+		if input != topology.NormalizeInput(input) {
+			return invalid(path, "values must be trimmed")
+		}
+		if err := topology.ValidateInput(input); err != nil {
+			return invalid(path, err.Error())
+		}
+		key := topologyDependencyID(dependency)
+		if _, duplicate := dependencyIDs[key]; duplicate {
+			return invalid(path, "duplicate dependency")
+		}
+		dependencyIDs[key] = struct{}{}
 	}
 
 	ruleIDs := make(map[string]struct{}, len(document.AlertRules))

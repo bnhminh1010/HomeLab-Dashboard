@@ -118,6 +118,49 @@ export class DashboardApi {
     return this.request(`/api/v1/history/resources?${query}`, { signal });
   }
 
+  listSLOs({ node = "local", window = 30, signal } = {}) {
+    const query = new URLSearchParams({ node, window: String(window) });
+    return this.request(`/api/v1/slos?${query}`, { signal });
+  }
+
+  updateServiceSLO(id, policy) {
+    return this.request(`/api/v1/services/${encodeURIComponent(id)}/slo`, { method: "PATCH", mutation: true, body: policy });
+  }
+
+  listOperationalEvents({ node = "", service = "", from = "", to = "", limit = 100, signal } = {}) {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (node) query.set("node", node);
+    if (service) query.set("service", service);
+    if (from) query.set("from", from);
+    if (to) query.set("to", to);
+    return this.request(`/api/v1/events?${query}`, { signal });
+  }
+
+  createOperationalEvent(event) {
+    return this.request("/api/v1/events", { method: "POST", mutation: true, body: event });
+  }
+
+  listTopology(node = "local", signal) {
+    const query = new URLSearchParams({ node });
+    return this.request(`/api/v1/topology/dependencies?${query}`, { signal });
+  }
+
+  createTopologyDependency(input) {
+    return this.request("/api/v1/topology/dependencies", { method: "POST", mutation: true, body: input });
+  }
+
+  deleteTopologyDependency(id, node = "local") {
+    const query = new URLSearchParams({ node });
+    return this.request(`/api/v1/topology/dependencies/${encodeURIComponent(id)}?${query}`, { method: "DELETE", mutation: true });
+  }
+
+  operationalChecks(node = "", signal) {
+    const query = new URLSearchParams();
+    if (node) query.set("node", node);
+    const suffix = query.size ? `?${query}` : "";
+    return this.request(`/api/v1/operations/checks${suffix}`, { signal });
+  }
+
   listAlertRules(signal) {
     return this.request("/api/v1/alert-rules", { signal });
   }

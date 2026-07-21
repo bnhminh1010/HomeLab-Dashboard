@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
+	"github.com/binhminh/HomeLab-Minh/internal/model"
 	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/binhminh/HomeLab-Minh/internal/topology"
 )
 
 func TestNodeEnrollmentPersistsOnlyCredentialHash(t *testing.T) {
@@ -52,6 +54,24 @@ func TestNodeEnrollmentPersistsOnlyCredentialHash(t *testing.T) {
 	if _, err := database.UpdateDashboardUIPreferences(ctx, preferences, "admin@example.com"); err != nil {
 		t.Fatal(err)
 	}
+	for _, item := range []model.Service{
+		{ID: "svc_node_api", Name: "API", DisplayURL: "https://api.example"},
+		{ID: "svc_node_db", Name: "Database", DisplayURL: "https://db.example"},
+	} {
+		if _, err := database.CreateService(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := database.CreateTopologyDependency(ctx, topology.DependencyInput{
+		NodeID: node.ID, DependentServiceID: "svc_node_api", DependencyServiceID: "svc_node_db",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpsertBackupObservation(ctx, node.ID, model.BackupStatus{
+		Job: "nightly", Status: "success", CompletedAt: now, ExpectedWithinSeconds: 86400,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
 	alertTime := now.Format(time.RFC3339Nano)
 	if _, err := database.db.ExecContext(ctx, `
 		INSERT INTO alert_states(rule_id, node_id, resource_type, resource_id, status, last_evaluated_at, last_value)
@@ -90,6 +110,12 @@ func TestNodeEnrollmentPersistsOnlyCredentialHash(t *testing.T) {
 	}
 	if len(listed) != 0 {
 		t.Fatalf("revoked nodes must not appear in active inventory: %#v", listed)
+	}
+	if dependencies, err := database.ListTopologyDependencies(ctx, node.ID); err != nil || len(dependencies) != 0 {
+		t.Fatalf("revoked node topology = %#v err=%v", dependencies, err)
+	}
+	if backups, err := database.ListBackupObservations(ctx, node.ID); err != nil || len(backups) != 0 {
+		t.Fatalf("revoked node backups = %#v err=%v", backups, err)
 	}
 	replacementEnrollment, err := service.CreateEnrollment(ctx, "admin@example.com")
 	if err != nil {

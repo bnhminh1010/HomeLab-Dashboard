@@ -34,6 +34,7 @@ type Config struct {
 	NTFYURL                string
 	NTFYTopic              string
 	NTFYTokenFile          string
+	BackupStatusFile       string
 }
 
 func Load() (Config, error) {
@@ -62,6 +63,7 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		NTFYURL:                strings.TrimSpace(getenv("NTFY_URL")),
 		NTFYTopic:              strings.TrimSpace(getenv("NTFY_TOPIC")),
 		NTFYTokenFile:          strings.TrimSpace(getenv("NTFY_TOKEN_FILE")),
+		BackupStatusFile:       strings.TrimSpace(getenv("BACKUP_STATUS_FILE")),
 	}
 
 	var err error
@@ -124,6 +126,9 @@ func (c Config) Validate() error {
 	}
 	if c.NTFYTokenFile != "" && !filepath.IsAbs(c.NTFYTokenFile) {
 		return fmt.Errorf("NTFY_TOKEN_FILE must be an absolute path")
+	}
+	if c.BackupStatusFile != "" && !filepath.IsAbs(c.BackupStatusFile) {
+		return fmt.Errorf("BACKUP_STATUS_FILE must be an absolute path")
 	}
 	if (c.NTFYURL == "") != (c.NTFYTopic == "") {
 		return fmt.Errorf("NTFY_URL and NTFY_TOPIC must be configured together")

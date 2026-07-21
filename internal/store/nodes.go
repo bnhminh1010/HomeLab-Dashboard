@@ -139,6 +139,12 @@ func (s *Store) RevokeNode(ctx context.Context, id string, now time.Time) error 
 		WHERE singleton_id = 1 AND default_node_id = ?`, id); err != nil {
 		return fmt.Errorf("reset revoked default node: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM backup_observations WHERE node_id = ?`, id); err != nil {
+		return fmt.Errorf("clear revoked node backup observations: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM topology_dependencies WHERE node_id = ?`, id); err != nil {
+		return fmt.Errorf("clear revoked node topology dependencies: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit node revocation: %w", err)
 	}

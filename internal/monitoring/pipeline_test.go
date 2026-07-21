@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/binhminh/HomeLab-Minh/internal/alerts"
+	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
 	"github.com/binhminh/HomeLab-Minh/internal/history"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 )
@@ -258,6 +259,40 @@ func TestPipelineTreatsIntentionalContainerStopAsHealthy(t *testing.T) {
 	}
 	if got := sampleValue(e.samples[1], alerts.MetricContainerHealthy); got != 0 {
 		t.Fatalf("crashed container healthy metric = %.1f, want 0", got)
+	}
+}
+
+func TestPipelineEvaluatesBackupFreshnessPerNodeAndJob(t *testing.T) {
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	engine := &memoryAlertEngine{}
+	pipeline, err := New(Options{Alerts: engine})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pipeline.HandleBackupFreshness(context.Background(), []healthchecks.BackupObservation{
+		{
+			NodeID: "local",
+			Status: model.BackupStatus{Job: "nightly", Status: "success", CompletedAt: now.Add(-48 * time.Hour), ExpectedWithinSeconds: 24 * 60 * 60},
+		},
+		{
+			NodeID: "remote-a",
+			Status: model.BackupStatus{Job: "nightly", Status: "success", CompletedAt: now.Add(-time.Hour), ExpectedWithinSeconds: 24 * 60 * 60},
+		},
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(engine.samples) != 1 || len(engine.samples[0]) != 2 {
+		t.Fatalf("backup samples = %#v", engine.samples)
+	}
+	values := make(map[string]float64, len(engine.samples[0]))
+	for _, sample := range engine.samples[0] {
+		if sample.ResourceType != "backup" || sample.ResourceID != "nightly" || sample.Metric != alerts.MetricBackupHealthy {
+			t.Fatalf("unexpected backup sample = %#v", sample)
+		}
+		values[sample.NodeID] = sample.Value
+	}
+	if values["local"] != 0 || values["remote-a"] != 1 {
+		t.Fatalf("backup freshness values = %#v", values)
 	}
 }
 

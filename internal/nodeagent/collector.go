@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/binhminh/HomeLab-Minh/internal/containers"
+	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
 	"github.com/binhminh/HomeLab-Minh/internal/metrics"
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 )
@@ -23,6 +24,7 @@ type SnapshotCollector interface {
 type LocalCollector struct {
 	host       metrics.HostCollector
 	containers ContainerCollector
+	backups    metrics.BackupSource
 	cores      int
 	now        func() time.Time
 
@@ -31,11 +33,15 @@ type LocalCollector struct {
 	previous model.SnapshotData
 }
 
-func NewLocalCollector(host metrics.HostCollector, containerCollector *containers.Collector) (*LocalCollector, error) {
+func NewLocalCollector(host metrics.HostCollector, containerCollector *containers.Collector, backupSources ...metrics.BackupSource) (*LocalCollector, error) {
 	if host == nil || containerCollector == nil {
 		return nil, fmt.Errorf("node agent: host and container collectors are required")
 	}
-	return &LocalCollector{host: host, containers: containerCollector, cores: runtime.NumCPU(), now: time.Now}, nil
+	var backups metrics.BackupSource
+	if len(backupSources) > 0 {
+		backups = backupSources[0]
+	}
+	return &LocalCollector{host: host, containers: containerCollector, backups: backups, cores: runtime.NumCPU(), now: time.Now}, nil
 }
 
 // Collect keeps the last valid component when either /proc or Podman is
@@ -71,6 +77,17 @@ func (collector *LocalCollector) Collect(ctx context.Context) (model.SnapshotEnv
 		data.Containers = containerItems
 		data.Alerts = append(data.Alerts, containerAlerts...)
 	}
+	if collector.backups != nil {
+		backupItems, backupErr := collector.backups.Backups(ctx)
+		if backupErr != nil {
+			collectionErrors = append(collectionErrors, fmt.Errorf("backup status: %w", backupErr))
+			staleSources = append(staleSources, "backups")
+			data.Alerts = append(data.Alerts, collectionAlert("backups", now))
+		} else {
+			data.Backups = backupItems
+			data.Alerts = append(data.Alerts, healthchecks.BackupAlerts(backupItems, now)...)
+		}
+	}
 	if data.Disks == nil {
 		data.Disks = make([]model.DiskStats, 0)
 	}
@@ -100,6 +117,7 @@ func cloneSnapshotData(data model.SnapshotData) model.SnapshotData {
 	data.Disks = append([]model.DiskStats(nil), data.Disks...)
 	data.Services = append([]model.Service(nil), data.Services...)
 	data.Containers = append([]model.Container(nil), data.Containers...)
+	data.Backups = append([]model.BackupStatus(nil), data.Backups...)
 	data.Alerts = append([]model.Alert(nil), data.Alerts...)
 	for index := range data.Containers {
 		data.Containers[index].Ports = append([]string(nil), data.Containers[index].Ports...)

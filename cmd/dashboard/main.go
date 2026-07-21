@@ -21,6 +21,7 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/config"
 	"github.com/binhminh/HomeLab-Minh/internal/containers"
 	"github.com/binhminh/HomeLab-Minh/internal/dashboardconfig"
+	"github.com/binhminh/HomeLab-Minh/internal/healthchecks"
 	"github.com/binhminh/HomeLab-Minh/internal/history"
 	"github.com/binhminh/HomeLab-Minh/internal/hostagent"
 	"github.com/binhminh/HomeLab-Minh/internal/httpapi"
@@ -28,8 +29,10 @@ import (
 	"github.com/binhminh/HomeLab-Minh/internal/model"
 	"github.com/binhminh/HomeLab-Minh/internal/monitoring"
 	"github.com/binhminh/HomeLab-Minh/internal/nodes"
+	"github.com/binhminh/HomeLab-Minh/internal/operations"
 	"github.com/binhminh/HomeLab-Minh/internal/podman"
 	"github.com/binhminh/HomeLab-Minh/internal/services"
+	"github.com/binhminh/HomeLab-Minh/internal/slo"
 	"github.com/binhminh/HomeLab-Minh/internal/store"
 	"github.com/binhminh/HomeLab-Minh/internal/terminal"
 )
@@ -72,6 +75,10 @@ func run() error {
 	}()
 
 	serviceManager := services.NewManager(database)
+	sloService, err := slo.NewService(database, database, slo.Options{})
+	if err != nil {
+		return fmt.Errorf("configure service objectives: %w", err)
+	}
 	dashboardConfig, err := dashboardconfig.NewService(database)
 	if err != nil {
 		return fmt.Errorf("configure dashboard import/export: %w", err)
@@ -82,6 +89,21 @@ func run() error {
 	})
 	if err != nil {
 		return fmt.Errorf("configure service probes: %w", err)
+	}
+	tlsInspector, err := services.NewTLSInspector(services.ProbePolicy{
+		AllowedPrefixes: cfg.ProbeAllowCIDRs,
+		SOCKS5Address:   cfg.TailscaleSOCKS5Address,
+	})
+	if err != nil {
+		return fmt.Errorf("configure TLS inspection: %w", err)
+	}
+	tlsScanner, err := services.NewTLSScanner(serviceManager, tlsInspector, database)
+	if err != nil {
+		return fmt.Errorf("configure TLS scanner: %w", err)
+	}
+	backupSource, err := healthchecks.NewBackupFileSource(cfg.BackupStatusFile)
+	if err != nil {
+		return fmt.Errorf("configure backup status source: %w", err)
 	}
 	probeScheduler := services.NewScheduler(serviceManager, prober, services.SchedulerOptions{
 		Interval: cfg.ProbeInterval, Timeout: cfg.ProbeTimeout, Concurrency: cfg.ProbeConcurrency,
@@ -105,6 +127,7 @@ func run() error {
 		Host:       hostCollector,
 		Services:   serviceManager,
 		Containers: metrics.ContainerSourceFunc(runtimeSource.containers),
+		Backups:    backupSource,
 		Alerts:     metrics.AlertSourceFunc(dashboardAlerts.alertsSnapshot),
 	}, cfg.MetricsInterval)
 
@@ -128,7 +151,7 @@ func run() error {
 		return fmt.Errorf("configure alert engine: %w", err)
 	}
 	pipeline, err := monitoring.New(monitoring.Options{
-		History: historyWriter, Alerts: alertEngine, ActiveAlertStates: activeAlertStates,
+		History: historyWriter, Alerts: alertEngine, Operations: database, Backups: database, ActiveAlertStates: activeAlertStates,
 		OnError: func(err error) { slog.Warn("monitoring snapshot processing failed", "error", err) },
 	})
 	if err != nil {
@@ -139,6 +162,14 @@ func run() error {
 		return fmt.Errorf("configure node enrollment: %w", err)
 	}
 	nodeRegistry, err := nodes.NewRegistry(nodeService, nodes.RegistryOptions{
+		OnConnectionOpen: func(nodeID string) {
+			if _, err := database.RecordOperationalEvent(context.Background(), operations.Event{
+				Type: operations.EventNodeConnected, Source: operations.SourceAutomatic,
+				Title: "Node connected", Summary: "Monitoring agent connected", NodeID: nodeID,
+			}); err != nil {
+				slog.Warn("record node connection event", "node", nodeID, "error", err)
+			}
+		},
 		OnSnapshot: func(snapshotContext context.Context, nodeID string, snapshot model.SnapshotEnvelope) error {
 			if err := pipeline.Handle(snapshotContext, nodeID, snapshot); err != nil {
 				slog.Warn("remote monitoring snapshot processing failed", "node", nodeID, "error", err)
@@ -153,6 +184,12 @@ func run() error {
 			defer cancel()
 			if err := pipeline.HandleNodeOffline(offlineContext, nodeID, time.Now().UTC()); err != nil {
 				slog.Warn("remote node offline alert failed", "node", nodeID, "error", err)
+			}
+			if _, err := database.RecordOperationalEvent(offlineContext, operations.Event{
+				Type: operations.EventNodeDisconnected, Source: operations.SourceAutomatic,
+				Title: "Node disconnected", Summary: "Monitoring agent connection closed", NodeID: nodeID,
+			}); err != nil {
+				slog.Warn("record node disconnection event", "node", nodeID, "error", err)
 			}
 		},
 	})
@@ -212,6 +249,10 @@ func run() error {
 		DashboardConfig:        dashboardConfig,
 		DashboardConfigApplied: serviceManager.InvalidateHealth,
 		Preferences:            database,
+		SLO:                    sloService,
+		Operations:             database,
+		Topology:               database,
+		Checks:                 database,
 		Ready: func(readyContext context.Context) error {
 			if err := database.Ping(readyContext); err != nil {
 				return err
@@ -248,11 +289,15 @@ func run() error {
 	collectors.Go(collectorContext, workerErrors, "probe scheduler", probeScheduler.Run)
 	writerWorkers.Go(writerContext, workerErrors, "history writer", historyWriter.Run)
 	backgroundWorkers.Go(backgroundContext, workerErrors, "history maintenance", historyMaintenance.Run)
+	backgroundWorkers.Go(backgroundContext, workerErrors, "TLS certificate scanner", tlsScanner.Run)
 	backgroundWorkers.Go(backgroundContext, workerErrors, "operational retention", func(ctx context.Context) error {
 		return runOperationalRetention(ctx, database, 24*time.Hour)
 	})
 	backgroundWorkers.Go(backgroundContext, workerErrors, "node availability", func(ctx context.Context) error {
 		return runNodeAvailability(ctx, nodeRegistry, pipeline, 10*time.Second)
+	})
+	backgroundWorkers.Go(backgroundContext, workerErrors, "backup freshness", func(ctx context.Context) error {
+		return runBackupFreshness(ctx, database, pipeline, 30*time.Second)
 	})
 	pipelineWorkers.Go(pipelineContext, workerErrors, "monitoring pipeline", func(ctx context.Context) error {
 		return runMonitoringPipeline(ctx, pipeline, hub)
@@ -409,6 +454,11 @@ type nodeStateSource interface {
 	States(context.Context) ([]nodes.NodeState, error)
 }
 
+type backupFreshnessSource interface {
+	ListNodes(context.Context) ([]nodes.Node, error)
+	ListBackupObservations(context.Context, string) ([]healthchecks.BackupObservation, error)
+}
+
 const initialNodeConnectionGrace = 2 * time.Minute
 
 func shouldEvaluateNodeAvailability(state nodes.NodeState, at time.Time) bool {
@@ -458,6 +508,59 @@ func runNodeAvailability(ctx context.Context, source nodeStateSource, pipeline *
 			}
 		}
 	}
+}
+
+// runBackupFreshness evaluates persisted reports independently from incoming
+// snapshots. This lets a missed report become an alert while retaining the
+// latest known report, including reports from every active remote node.
+func runBackupFreshness(ctx context.Context, source backupFreshnessSource, pipeline *monitoring.Pipeline, interval time.Duration) error {
+	if source == nil || pipeline == nil || interval <= 0 {
+		return errors.New("backup freshness requires a source, pipeline, and positive interval")
+	}
+	evaluate := func(at time.Time) error {
+		return evaluateBackupFreshness(ctx, source, pipeline, at)
+	}
+	if err := evaluate(time.Now().UTC()); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case at := <-ticker.C:
+			if err := evaluate(at.UTC()); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func evaluateBackupFreshness(ctx context.Context, source backupFreshnessSource, pipeline *monitoring.Pipeline, at time.Time) error {
+	activeNodes, err := source.ListNodes(ctx)
+	if err != nil {
+		return fmt.Errorf("list active monitoring nodes for backup freshness: %w", err)
+	}
+	monitoredNodes := make(map[string]struct{}, len(activeNodes)+1)
+	monitoredNodes[history.LocalNodeID] = struct{}{}
+	for _, node := range activeNodes {
+		monitoredNodes[node.ID] = struct{}{}
+	}
+	observations, err := source.ListBackupObservations(ctx, "")
+	if err != nil {
+		return fmt.Errorf("list backup observations for freshness: %w", err)
+	}
+	activeObservations := make([]healthchecks.BackupObservation, 0, len(observations))
+	for _, observation := range observations {
+		if _, active := monitoredNodes[observation.NodeID]; active {
+			activeObservations = append(activeObservations, observation)
+		}
+	}
+	if err := pipeline.HandleBackupFreshness(ctx, activeObservations, at); err != nil {
+		return fmt.Errorf("evaluate backup freshness: %w", err)
+	}
+	return nil
 }
 
 // runMonitoringPipeline drains snapshots already queued by the metrics hub
@@ -685,7 +788,65 @@ func (source dashboardAlertSource) alertsSnapshot(ctx context.Context) ([]model.
 	if err != nil {
 		return nil, fmt.Errorf("list dashboard alert states: %w", err)
 	}
-	return append(runtimeAlerts, alerts.SnapshotAlerts(rules, states)...), nil
+	result := append(runtimeAlerts, alerts.SnapshotAlerts(rules, states)...)
+	activeNodes, nodesErr := source.repository.ListNodes(ctx)
+	if nodesErr != nil {
+		return nil, fmt.Errorf("list active monitoring nodes for backup alerts: %w", nodesErr)
+	}
+	monitoredNodes := make(map[string]struct{}, len(activeNodes)+1)
+	monitoredNodes[history.LocalNodeID] = struct{}{}
+	for _, node := range activeNodes {
+		monitoredNodes[node.ID] = struct{}{}
+	}
+	backupObservations, backupErr := source.repository.ListBackupObservations(ctx, "")
+	if backupErr != nil {
+		return nil, fmt.Errorf("list backup observations for alerts: %w", backupErr)
+	}
+	backupAlerts := make([]model.Alert, 0, len(backupObservations))
+	now := time.Now().UTC()
+	for _, observation := range backupObservations {
+		if _, monitored := monitoredNodes[observation.NodeID]; !monitored {
+			continue
+		}
+		if alert, unhealthy := backupAlertForNode(observation.NodeID, observation.Status, now); unhealthy {
+			backupAlerts = append(backupAlerts, alert)
+		}
+	}
+	result = append(result, backupAlerts...)
+	certificates, certErr := source.repository.ListCertificateObservations(ctx)
+	if certErr != nil {
+		return nil, fmt.Errorf("list certificate observations for alerts: %w", certErr)
+	}
+	for _, certificate := range certificates {
+		level, message := "", ""
+		switch {
+		case certificate.Error != "":
+			level, message = "error", "TLS certificate check failed"
+		case !certificate.NotAfter.IsZero() && certificate.NotAfter.Before(now.Add(7*24*time.Hour)):
+			level, message = "error", "TLS certificate expires in less than 7 days"
+		case !certificate.NotAfter.IsZero() && certificate.NotAfter.Before(now.Add(30*24*time.Hour)):
+			level, message = "warning", "TLS certificate expires in less than 30 days"
+		}
+		if level != "" {
+			result = append(result, model.Alert{ID: "tls:" + certificate.ServiceID, Level: level, Source: "tls", Message: message, OccurredAt: now})
+		}
+	}
+	return result, nil
+}
+
+func backupAlertForNode(nodeID string, status model.BackupStatus, now time.Time) (model.Alert, bool) {
+	healthy, _, reason := healthchecks.BackupFreshness(status, now)
+	if healthy {
+		return model.Alert{}, false
+	}
+	message := "Backup " + status.Job + " on " + nodeID + " needs attention"
+	if reason != "" {
+		message += ": " + reason
+	}
+	return model.Alert{
+		ID: "backup:" + nodeID + ":" + status.Job, Level: "warning", Source: nodeID + "/backup",
+		Message: message, OccurredAt: now.UTC(),
+	}, true
 }
 
 func newPodmanSource(collector *containers.Collector, cores int) *podmanSource {
