@@ -1,0 +1,9 @@
+# Local-development override. Keep compose.yml image-only so production hosts
+# never rebuild code implicitly. Use both files together when developing:
+# podman compose -f compose.yml -f compose.dev.yml up -d --build
+services:
+  dashboard:
+    image: homelab-dashboard:dev
+    build:
+      context: .
+      dockerfile: Containerfile

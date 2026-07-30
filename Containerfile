@@ -1,5 +1,10 @@
 # syntax=docker/dockerfile:1
-FROM docker.io/library/golang:1.26.5 AS build
+# Build on the runner's architecture, then cross-compile the static Go binaries
+# for the image platform selected by Buildx.
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.26.5 AS build
+
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -8,11 +13,11 @@ COPY . .
 RUN test ! -e package.json \
     && test ! -e package-lock.json \
     && test ! -d node_modules \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
        -ldflags="-s -w -buildid=" -o /out/dashboard ./cmd/dashboard \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
        -ldflags="-s -w -buildid=" -o /out/homelab-host-agent ./cmd/host-agent \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
        -ldflags="-s -w -buildid=" -o /out/homelab-node-agent ./cmd/node-agent
 
 # The installer extracts this static binary with rootless Podman. The stage is

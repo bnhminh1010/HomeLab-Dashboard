@@ -23,9 +23,10 @@ services:
       io.homelab.dashboard.hidden: "true"
 
   dashboard:
-    build:
-      context: .
-      dockerfile: Containerfile
+    # Production runs an immutable release image. The development override
+    # supplies a local build instead; see compose.dev.yml. The placeholder
+    # makes an omitted production tag fail on pull instead of selecting latest.
+    image: ${DASHBOARD_IMAGE:-ghcr.io/bnhminh1010/homelab-dashboard:replace-me}
     network_mode: service:tailscale
     depends_on:
       - tailscale

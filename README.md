@@ -134,17 +134,36 @@ a one-day cache lifetime with `must-revalidate`; application assets use a
 one-hour revalidation window. This keeps repeat loads small while ensuring a
 browser revalidates the committed vendor bundles after an upgrade.
 
-## Quick start with Podman Compose
+## Quick start with a release image and Podman Compose
 
 Prerequisites: Linux with systemd and `/bin/bash`, rootless Podman, a Compose
 provider (`podman-compose` or the Docker Compose plugin), and a tailnet with
-MagicDNS and HTTPS certificates enabled. Clone the repository, enable the user
-socket and make sure the runtime directory belongs to the account that owns
+MagicDNS and HTTPS certificates enabled. From the first container-enabled
+release onward, each `v*` tag publishes the same multi-architecture
+(`linux/amd64`, `linux/arm64`) dashboard image to GitHub Container Registry and
+Docker Hub. GitHub Container Registry is the canonical image source:
+
+```text
+ghcr.io/bnhminh1010/homelab-dashboard:<release-tag>
+```
+
+The Docker Hub mirror is named
+`docker.io/minhtuyetvoi/homelab-dashboard:<release-tag>`. Beta tags publish
+only their exact version and a `sha-<commit>` tag. Releases before `v1.0.0`
+also publish only exact version tags. Stable `v1+` releases additionally publish
+`v<major>.<minor>`, `v<major>`, and `latest`; production hosts should always
+use the exact version tag.
+
+Clone the configuration for the release you intend to run, enable the user
+socket, and make sure the runtime directory belongs to the account that owns
 Podman:
 
 ```bash
-git clone https://github.com/bnhminh1010/homelab-dashboard.git
+git clone https://github.com/bnhminh1010/HomeLab-Dashboard.git homelab-dashboard
 cd homelab-dashboard
+# Replace vX.Y.Z with an available container-enabled GitHub Release tag.
+export RELEASE_TAG=vX.Y.Z
+git checkout "$RELEASE_TAG"
 systemctl --user enable --now podman.socket
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 test -S "$XDG_RUNTIME_DIR/podman/podman.sock"
@@ -155,12 +174,44 @@ chmod 600 .env
 Edit `.env`, set `XDG_RUNTIME_DIR` to the value printed by
 `echo "$XDG_RUNTIME_DIR"`, set `TS_AUTHKEY`, and list the exact comma-separated
 Tailscale login names allowed to administer the dashboard in `ADMIN_USERS`.
-Then validate and start the project:
+Set `DASHBOARD_IMAGE` to the exact release image. Replace `vX.Y.Z` with a
+container-enabled tag shown on GitHub:
+
+```dotenv
+DASHBOARD_IMAGE=ghcr.io/bnhminh1010/homelab-dashboard:vX.Y.Z
+```
+
+Then validate, pull, and start the project:
 
 ```bash
 podman compose config
-podman compose up -d --build
+podman compose pull dashboard
+podman compose up -d
 podman compose ps
+```
+
+If the GitHub Container Registry package is private, authenticate with a
+GitHub personal access token that has `read:packages` before the pull. Once the
+package is made public, no registry login is required. The release workflow
+also publishes provenance and an SBOM alongside the image; inspect the manifest
+before a sensitive deployment with:
+
+```bash
+podman manifest inspect "ghcr.io/bnhminh1010/homelab-dashboard:$RELEASE_TAG"
+```
+
+For the first container release, a maintainer must set the new GHCR package and
+the Docker Hub repository to **Public** in their respective package settings.
+
+### Local development image
+
+`compose.yml` intentionally never builds source code. For local development,
+apply the companion override, which builds `homelab-dashboard:dev` from the
+checked-out `Containerfile`:
+
+```bash
+podman compose -f compose.yml -f compose.dev.yml config
+podman compose -f compose.yml -f compose.dev.yml up -d --build
 ```
 
 > [!IMPORTANT]
@@ -197,7 +248,8 @@ Set `HOST_SHELL_ENABLED=true` and list allowed Tailscale logins in
 otherwise startup fails. Recreate the dashboard after changing these values:
 
 ```bash
-podman compose up -d --build --force-recreate dashboard
+podman compose pull dashboard
+podman compose up -d --force-recreate dashboard
 ```
 
 Run the installer again after pulling a revision that changes the host agent.
@@ -300,21 +352,22 @@ revision returns `428 Precondition Required`.
 
 ### Update an existing installation
 
-Production installations should run an immutable release tag. SQLite migrations
-run during startup, so export the `dashboard-data` named volume with your
-normal Podman backup process before an upgrade if you need a rollback point.
+Production installations should run an immutable release image tag. SQLite
+migrations run during startup, so export the `dashboard-data` named volume with
+your normal Podman backup process before an upgrade if you need a rollback
+point.
 
 ```bash
-git fetch --tags
-git checkout v0.1.0 # replace with the release you intend to run
-podman compose up -d --build
+# In .env, change DASHBOARD_IMAGE to the next exact vX.Y.Z tag first.
+podman compose pull dashboard
+podman compose up -d --force-recreate dashboard
 podman compose ps
 ```
 
-To follow unreleased development changes instead, switch to `develop` and
-fast-forward it explicitly with `git pull --ff-only` before rebuilding. To
-roll back, check out the previous release tag and recreate the dashboard; do
-not discard the persistent volume.
+To roll back, put the previous exact image tag back in `.env`, pull it, and
+recreate the dashboard; do not discard the persistent volume. To develop from
+source instead, use `compose.dev.yml` as shown above rather than rebuilding a
+production Compose deployment implicitly.
 
 If the pulled revision changes an agent, run the matching installer as the
 rootless account that owns the service. It preserves the remote node's existing
@@ -439,7 +492,9 @@ Browser tests use chromedp and a locally installed Chromium/Chrome. Unit tests
 use fake Podman/agent Unix sockets and do not touch the real host socket. A
 release should also validate `podman compose config`, build the image, and run
 an end-to-end smoke test on the target homelab because Tailscale identity,
-systemd user services and rootless Podman are host-specific.
+systemd user services and rootless Podman are host-specific. The GitHub release
+workflow performs the Go, browser, CodeQL, vulnerability, multi-architecture
+image and Compose checks before it pushes to either registry.
 
 ## Contributing and security
 
