@@ -198,6 +198,12 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
     }
   }
 
+  function setRange(nextRange, shouldRefresh = true) {
+    selectRange(nextRange);
+    onRangeChange?.(range, shouldRefresh);
+    if (shouldRefresh) refresh();
+  }
+
   function syncResourcePicker() {
     const system = kind === "system";
     resourcePicker.hidden = system;
@@ -378,11 +384,7 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
       window.requestAnimationFrame(() => chart?.resize());
     },
     refresh,
-    setRange(nextRange, shouldRefresh = true) {
-      selectRange(nextRange);
-      onRangeChange?.(range, shouldRefresh);
-      if (shouldRefresh) refresh();
-    },
+    setRange,
     range: () => range,
     destroy() { request?.abort(); catalogRequest?.abort(); chart?.destroy(); panel?.removeAttribute("aria-busy"); },
   };

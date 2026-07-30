@@ -4,7 +4,9 @@ package browser_test
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +18,7 @@ import (
 
 	homelab "github.com/bnhminh1010/homelab-dashboard"
 	"github.com/bnhminh1010/homelab-dashboard/internal/httpapi"
+	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/network"
 	cdpruntime "github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
@@ -78,7 +81,7 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
 	for _, viewport := range viewports {
 		viewport := viewport
 		t.Run(viewport.name, func(t *testing.T) {
-			ctx, cancel := chromedp.NewContext(allocator)
+			ctx, cancel := newBrowserContext(allocator)
 			defer cancel()
 			ctx, timeout := context.WithTimeout(ctx, 20*time.Second)
 			defer timeout()
@@ -271,7 +274,7 @@ func TestDemoWorkspaceNavigationAndPersistence(t *testing.T) {
 		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
 	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 	defer cancelAllocator()
-	ctx, cancel := chromedp.NewContext(allocator)
+	ctx, cancel := newBrowserContext(allocator)
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
 	defer timeout()
@@ -384,7 +387,7 @@ func TestDemoMobileSidebarDrawer(t *testing.T) {
 		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
 	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 	defer cancelAllocator()
-	ctx, cancel := chromedp.NewContext(allocator)
+	ctx, cancel := newBrowserContext(allocator)
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, 25*time.Second)
 	defer timeout()
@@ -495,7 +498,7 @@ func TestDemoEdgeAlertsAndHistoryDoNotOverflow(t *testing.T) {
 	for _, viewport := range viewports {
 		viewport := viewport
 		t.Run(viewport.name, func(t *testing.T) {
-			ctx, cancel := chromedp.NewContext(allocator)
+			ctx, cancel := newBrowserContext(allocator)
 			defer cancel()
 			ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
 			defer timeout()
@@ -605,7 +608,7 @@ func TestDemoOverviewTriageActionsAndTrend(t *testing.T) {
 	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 	defer cancelAllocator()
 
-	ctx, cancel := chromedp.NewContext(allocator)
+	ctx, cancel := newBrowserContext(allocator)
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
 	defer timeout()
@@ -688,7 +691,7 @@ func TestDemoOverviewTriageActionsAndTrend(t *testing.T) {
 		t.Fatalf("overview triage/trend regression: %+v", report)
 	}
 
-	mobileCtx, cancelMobile := chromedp.NewContext(allocator)
+	mobileCtx, cancelMobile := newBrowserContext(allocator)
 	defer cancelMobile()
 	mobileCtx, mobileTimeout := context.WithTimeout(mobileCtx, 25*time.Second)
 	defer mobileTimeout()
@@ -822,7 +825,7 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
 	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 	defer cancelAllocator()
-	ctx, cancel := chromedp.NewContext(allocator)
+	ctx, cancel := newBrowserContext(allocator)
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, 40*time.Second)
 	defer timeout()
@@ -1087,7 +1090,7 @@ func TestOfflineDashboardKeepsTruthfulPlaceholders(t *testing.T) {
 		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
 	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 	defer cancelAllocator()
-	ctx, cancel := chromedp.NewContext(allocator)
+	ctx, cancel := newBrowserContext(allocator)
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, 15*time.Second)
 	defer timeout()
@@ -1160,7 +1163,7 @@ func TestDemoHostShellIsExplicitAndNeverSilentlyReopened(t *testing.T) {
 		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
 	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 	defer cancelAllocator()
-	ctx, cancel := chromedp.NewContext(allocator)
+	ctx, cancel := newBrowserContext(allocator)
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, 25*time.Second)
 	defer timeout()
@@ -1288,7 +1291,7 @@ func TestDemoMonitoringWorkbench(t *testing.T) {
 		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
 	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 	defer cancelAllocator()
-	ctx, cancel := chromedp.NewContext(allocator)
+	ctx, cancel := newBrowserContext(allocator)
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, 25*time.Second)
 	defer timeout()
@@ -1447,7 +1450,7 @@ func TestDemoMobileOperationsWorkspaces(t *testing.T) {
 		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
 	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 	defer cancelAllocator()
-	ctx, cancel := chromedp.NewContext(allocator)
+	ctx, cancel := newBrowserContext(allocator)
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
 	defer timeout()
@@ -1455,9 +1458,11 @@ func TestDemoMobileOperationsWorkspaces(t *testing.T) {
 	openWorkspace := func(workspace string) chromedp.Action {
 		return chromedp.Tasks{
 			chromedp.Click("#sidebar-open", chromedp.ByQuery),
+			assertMobileDrawerOpen(),
+			waitForMobileDrawerReady(),
 			chromedp.WaitVisible(`[data-workspace="`+workspace+`"]`, chromedp.ByQuery),
 			chromedp.Click(`[data-workspace="`+workspace+`"]`, chromedp.ByQuery),
-			chromedp.WaitVisible("#workspace-"+workspace, chromedp.ByQuery),
+			assertWorkspaceOpened(workspace),
 		}
 	}
 
@@ -1473,14 +1478,31 @@ func TestDemoMobileOperationsWorkspaces(t *testing.T) {
 		chromedp.EmulateViewport(375, 812),
 		chromedp.Navigate(server.URL+"/?demo=1"),
 		chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+		// The workspace markup is static, but its click handlers are attached by
+		// app.js. The xterm textarea is created only after the module graph has
+		// finished initializing, so it is a concrete readiness signal rather
+		// than an arbitrary sleep before exercising the mobile drawer.
+		chromedp.WaitReady("#terminal .xterm-helper-textarea", chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatalf("load mobile dashboard: %v", err)
+	}
+	if err = chromedp.Run(ctx,
 		openWorkspace("nodes"),
 		chromedp.WaitVisible(".node-workspace-card", chromedp.ByQuery),
 		chromedp.Evaluate(`document.querySelectorAll('.node-workspace-card').length > 0`, &report.NodesReady),
+	); err != nil {
+		t.Fatalf("open Nodes workspace: %v", err)
+	}
+	if err = chromedp.Run(ctx,
 		openWorkspace("history"),
 		chromedp.Click(`[data-history-range="7d"]`, chromedp.ByQuery),
-		chromedp.Poll(`document.querySelector('#history-timeline-context')?.textContent === '7D'`, nil,
-			chromedp.WithPollingInterval(25*time.Millisecond), chromedp.WithPollingTimeout(2*time.Second)),
+		assertHistoryRange("7D"),
 		chromedp.Evaluate(`document.querySelector('#history-timeline-context')?.textContent === '7D'`, &report.HistoryRangeSynced),
+	); err != nil {
+		t.Fatalf("open History workspace: %v", err)
+	}
+	if err = chromedp.Run(ctx,
 		openWorkspace("topology"),
 		chromedp.WaitVisible("#topology-form", chromedp.ByQuery),
 		chromedp.Evaluate(`(() => {
@@ -1495,13 +1517,95 @@ func TestDemoMobileOperationsWorkspaces(t *testing.T) {
             documentDoesNotOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
           };
         })()`, &report),
-	)
-	if err != nil {
-		t.Fatal(err)
+	); err != nil {
+		t.Fatalf("open Topology workspace: %v", err)
 	}
 	if !report.NodesReady || !report.HistoryRangeSynced || !report.TopologySemantics || !report.TopologyHintVisible || !report.TopologyActionTouch || !report.DocumentDoesNotOverflow {
 		t.Fatalf("mobile operations workspace regression: %+v", report)
 	}
+}
+
+func assertHistoryRange(expected string) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		var state struct {
+			Timeline string `json:"timeline"`
+			Active   string `json:"active"`
+		}
+		if err := chromedp.Evaluate(`(() => ({
+      timeline: document.querySelector('#history-timeline-context')?.textContent?.trim() || '',
+      active: document.querySelector('[data-history-range].is-active')?.dataset.historyRange || '',
+    }))()`, &state).Do(ctx); err != nil {
+			return err
+		}
+		if state.Timeline != expected || state.Active != strings.ToLower(expected) {
+			return fmt.Errorf("history range %q did not apply: %+v", expected, state)
+		}
+		return nil
+	})
+}
+
+func waitForMobileDrawerReady() chromedp.Action {
+	var ready bool
+	return chromedp.Poll(`(() => {
+      const sidebar = document.querySelector('#workspace-sidebar');
+      const target = sidebar?.querySelector('[data-workspace]');
+      const rect = target?.getBoundingClientRect();
+      return !sidebar?.inert
+        && rect?.width > 0
+        && rect?.height > 0
+        && rect.left >= 0
+        && rect.right <= innerWidth;
+    })()`, &ready,
+		chromedp.WithPollingInterval(25*time.Millisecond),
+		chromedp.WithPollingTimeout(2*time.Second))
+}
+
+func assertMobileDrawerOpen() chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		var state struct {
+			Drawer           bool   `json:"drawer"`
+			Expanded         string `json:"expanded"`
+			DrawerBreakpoint bool   `json:"drawerBreakpoint"`
+		}
+		if err := chromedp.Evaluate(`(() => {
+      return {
+        drawer: document.body.classList.contains('sidebar-drawer-open'),
+        expanded: document.querySelector('#sidebar-open')?.getAttribute('aria-expanded') || '',
+        drawerBreakpoint: matchMedia('(max-width: 899px)').matches,
+      };
+    })()`, &state).Do(ctx); err != nil {
+			return err
+		}
+		if !state.Drawer || !state.DrawerBreakpoint || state.Expanded != "true" {
+			return fmt.Errorf("mobile drawer did not open: %+v", state)
+		}
+		return nil
+	})
+}
+
+func assertWorkspaceOpened(workspace string) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		var state struct {
+			DrawerOpen   bool `json:"drawerOpen"`
+			SidebarInert bool `json:"sidebarInert"`
+			PanelHidden  bool `json:"panelHidden"`
+		}
+		if err := chromedp.Evaluate(`(() => {
+      const sidebar = document.querySelector('#workspace-sidebar');
+      const panel = document.querySelector('#workspace-`+workspace+`');
+      return {
+        drawerOpen: document.body.classList.contains('sidebar-drawer-open'),
+        sidebarInert: sidebar?.hasAttribute('inert'),
+        panelHidden: panel?.hidden,
+      };
+    })()`, &state).Do(ctx); err != nil {
+			return err
+		}
+		if state.DrawerOpen || !state.SidebarInert || state.PanelHidden {
+			return fmt.Errorf("workspace %q did not open cleanly: %+v", workspace, state)
+		}
+		return nil
+	})
 }
 
 func chromePath(t *testing.T) string {
@@ -1513,6 +1617,19 @@ func chromePath(t *testing.T) string {
 	}
 	t.Skip("Chrome/Chromium is not installed")
 	return ""
+}
+
+func newBrowserContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return chromedp.NewContext(parent, chromedp.WithErrorf(browserErrorf))
+}
+
+func browserErrorf(format string, args ...any) {
+	if format == "unhandled node event %T" && len(args) == 1 {
+		if _, ok := args[0].(*dom.EventTopLayerElementsUpdated); ok {
+			return
+		}
+	}
+	log.Printf(format, args...)
 }
 
 func near(left, right, tolerance float64) bool {

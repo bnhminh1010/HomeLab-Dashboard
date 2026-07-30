@@ -38,6 +38,7 @@ jobs:
 
   go-race:
     name: Go race
+    needs: browser-ui
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -74,7 +75,9 @@ jobs:
 
   browser-ui:
     name: Browser UI
+    needs: go-quality
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -94,10 +97,11 @@ jobs:
           test -n "$browser"
           "$browser" --version
       - name: Browser UI regression tests
-        run: go test -tags=browser ./tests/browser -count=1 -timeout=180s
+        run: go test -tags=browser ./tests/browser -count=1 -v -timeout=180s
 
   container-compose:
     name: Container build and Compose config
+    needs: govulncheck
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -118,6 +122,7 @@ jobs:
 
   govulncheck:
     name: Govulncheck
+    needs: go-race
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
