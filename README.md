@@ -1,21 +1,50 @@
 <h1 align="center">HomeLab Dashboard</h1>
 
-<p align="center"><strong>A quiet operations workbench for a Tailscale-connected, rootless Podman homelab.</strong></p>
+<p align="center"><strong>A Tailscale-only operations console for 1–5 rootless Podman homelab nodes: observe services and backup freshness, then open the correct container or host shell — no inbound ports, no monitoring stack.</strong></p>
 
 <p align="center"><code>Go</code> · <code>SQLite</code> · <code>Podman</code> · <code>Tailscale</code> · <code>WebSocket</code> · <code>Vanilla JS</code></p>
 
-<p align="center"><sub>One binary. No Node.js. No npm. No CDN runtime dependencies.</sub></p>
+<p align="center"><sub>Three static Go binaries. No Node.js. No npm. No CDN runtime dependencies.</sub></p>
 
 <p align="center"><a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#packages">Packages</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#operations-and-troubleshooting">Operations</a> · <a href="#development-and-verification">Development</a></p>
 
 > [!NOTE]
-> This is an intentionally small, single-instance operations console—not a
+> This is an intentionally small operations console for 1–5 nodes—not a
 > replacement for Grafana, Prometheus, Loki, or an enterprise control plane.
 > It favors direct visibility and safe everyday action on a personal homelab.
 
 | Observe | Act | Retain | Trust |
 |---|---|---|---|
 | Host, services, containers, TLS, backups and up to five nodes | Logs, container shells and explicitly confirmed host Bash | Tiered metrics, SLOs, alerts and operational events for up to 90 days | Tailscale identity, viewer/admin roles, CSRF and same-origin mutation guards |
+
+## Why this is different
+
+Not a bookmark grid, not a Grafana stack, not a generic "works with Tailscale"
+project. It focuses on one loop homelab operators actually run: *see a problem,
+understand it, act on it safely.*
+
+| Compared to | This dashboard |
+|---|---|
+| Start pages (Homepage, Homarr, Dashy) | Real host/container/service state, not link tiles |
+| Monitors (Beszel, Netdata, Uptime Kuma) | First-party SLOs, backup freshness, and a shell to act on findings |
+| Admin consoles (Cockpit, Portainer) | 1–5 nodes, rootless Podman-first, no inbound agent port |
+| Browser terminals (ttyd, WeTTY) | Identity-aware, context-linked terminal inside the ops console |
+
+Key differentiators, each implemented in code (see `internal/`):
+
+- **No inbound agent port.** Local host access runs through a Unix-socket host
+  agent; remote nodes dial out over Tailscale HTTPS/WSS. No SSH, agent listener,
+  or reverse proxy to secure on any node.
+- **Tailscale identity is the auth plane.** Viewer/admin roles come from Tailnet
+  identity, sessions and mutations are CSRF/`SameSite` guarded, and identity
+  headers are trusted only from loopback.
+- **Operate, not just observe.** Container shells and an explicitly confirmed
+  host Bash login are context-linked to the alert, log or metric that sent you
+  there.
+- **Bounded operational memory.** Tiered 1h–90d SQLite history with a visible
+  quota and an archived-resource picker — no Prometheus required.
+- **Backup freshness and SLO error budgets** without owning backup credentials
+  or running a metrics stack.
 
 ## Capabilities
 
