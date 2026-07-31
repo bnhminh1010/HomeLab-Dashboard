@@ -6,7 +6,7 @@
 
 <p align="center"><sub>One binary. No Node.js. No npm. No CDN runtime dependencies.</sub></p>
 
-<p align="center"><a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#operations-and-troubleshooting">Operations</a> · <a href="#development-and-verification">Development</a></p>
+<p align="center"><a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#packages">Packages</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#operations-and-troubleshooting">Operations</a> · <a href="#development-and-verification">Development</a></p>
 
 > [!NOTE]
 > This is an intentionally small, single-instance operations console—not a
@@ -202,6 +202,23 @@ podman manifest inspect "ghcr.io/bnhminh1010/homelab-dashboard:$RELEASE_TAG"
 
 For the first container release, a maintainer must set the new GHCR package and
 the Docker Hub repository to **Public** in their respective package settings.
+
+## Packages
+
+<p>
+  <a href="https://github.com/bnhminh1010/HomeLab-Dashboard/releases/latest"><img src="https://img.shields.io/github/v/release/bnhminh1010/HomeLab-Dashboard?display_name=tag&sort=semver" alt="Latest release"></a>
+  <a href="https://github.com/bnhminh1010/HomeLab-Dashboard/blob/main/LICENSE"><img src="https://img.shields.io/github/license/bnhminh1010/HomeLab-Dashboard" alt="License"></a>
+  <a href="https://ghcr.io/bnhminh1010/homelab-dashboard"><img src="https://img.shields.io/badge/GHCR-ghcr.io%2Fbnhminh1010%2Fhomelab--dashboard-181717?logo=github" alt="GHCR image"></a>
+  <a href="https://hub.docker.com/r/minhtuyetvoi/homelab-dashboard"><img src="https://img.shields.io/badge/Docker%20Hub-minhtuyetvoi%2Fhomelab--dashboard-2496ED?logo=docker&logoColor=white" alt="Docker Hub image"></a>
+</p>
+
+| Registry | Image | Architectures | Tag policy | Production use |
+|---|---|---|---|---|
+| [GitHub Container Registry](https://ghcr.io/bnhminh1010/homelab-dashboard) | `ghcr.io/bnhminh1010/homelab-dashboard` | `linux/amd64`, `linux/arm64` | Exact semver and `sha-<commit>`; stable v1+ also publish `v<major>.<minor>`, `v<major>`, `latest` | `DASHBOARD_IMAGE=ghcr.io/bnhminh1010/homelab-dashboard:vX.Y.Z` |
+| [Docker Hub](https://hub.docker.com/r/minhtuyetvoi/homelab-dashboard) | `docker.io/minhtuyetvoi/homelab-dashboard` | `linux/amd64`, `linux/arm64` | Mirrors GHCR | `DASHBOARD_IMAGE=docker.io/minhtuyetvoi/homelab-dashboard:vX.Y.Z` |
+
+Use an exact release tag in production. Beta and pre-v1 tags publish only their
+exact version plus a commit-SHA tag; never deploy `latest`.
 
 ### Local development image
 
