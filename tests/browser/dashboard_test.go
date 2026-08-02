@@ -288,7 +288,7 @@ func TestDemoWorkspaceNavigationAndPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, workspace := range []string{"services", "containers", "nodes", "history", "alerts", "topology", "overview"} {
+	for _, workspace := range []string{"services", "containers", "nodes", "history", "logs", "alerts", "topology", "overview"} {
 		workspace := workspace
 		selector := `[data-workspace="` + workspace + `"]`
 		panelSelector := `#workspace-` + workspace
@@ -333,6 +333,16 @@ func TestDemoWorkspaceNavigationAndPersistence(t *testing.T) {
           })()`, nil, chromedp.WithPollingTimeout(3*time.Second)))
 			if err != nil {
 				t.Fatalf("history chart was not resized after workspace activation: %v", err)
+			}
+		}
+		if workspace == "logs" {
+			err = chromedp.Run(ctx, chromedp.Poll(`(() => {
+            const list = document.querySelector('#logs-list');
+            return document.querySelector('#logs-status')?.textContent.includes('ENTRIES')
+              && list?.querySelectorAll('.historical-log-entry').length > 0;
+          })()`, nil, chromedp.WithPollingTimeout(3*time.Second)))
+			if err != nil {
+				t.Fatalf("logs workspace did not render retained entries after activation: %v", err)
 			}
 		}
 	}

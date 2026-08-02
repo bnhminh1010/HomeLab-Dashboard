@@ -87,6 +87,9 @@
         <button class="workspace-nav-item" type="button" data-workspace="history" aria-current="false" aria-label="History workspace" title="History">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5M12 7v5l3 2"/></svg><span class="sidebar-label">History</span>
         </button>
+        <button class="workspace-nav-item" type="button" data-workspace="logs" aria-current="false" aria-label="Logs workspace" title="Logs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="18" cy="18" r="3"/></svg><span class="sidebar-label">Logs</span>
+        </button>
         <button class="workspace-nav-item" type="button" data-workspace="alerts" aria-current="false" aria-label="Alerts workspace" title="Alerts">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.4 2.9 17a2 2 0 0 0 1.8 3h14.6a2 2 0 0 0 1.8-3L13.7 3.4a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg><span class="sidebar-label">Alerts</span>
         </button>
@@ -287,6 +290,36 @@
           </section>
         </div>
       </section>
+      </section>
+
+      <section id="workspace-logs" class="dashboard-workspace workspace-logs" data-workspace-panel="logs" aria-labelledby="logs-title" hidden>
+        <section id="logs-panel" class="panel logs-panel" aria-labelledby="logs-title" aria-busy="false" data-workspace-focus tabindex="-1">
+          <header class="panel-header compact">
+            <div>
+              <span class="eyebrow mono">LOCAL RETAINED LOGS</span>
+              <h2 id="logs-title" tabindex="-1">Logs</h2>
+            </div>
+            <div class="panel-actions"><span id="logs-status" class="badge badge-muted" data-state="muted">CHECKING</span></div>
+          </header>
+          <div class="logs-toolbar">
+            <div class="history-controls" role="group" aria-label="Logs range">
+              <button class="range-button" type="button" data-logs-range="15m" aria-pressed="false">15M</button>
+              <button class="range-button is-active" type="button" data-logs-range="1h" aria-pressed="true">1H</button>
+              <button class="range-button" type="button" data-logs-range="6h" aria-pressed="false">6H</button>
+              <button class="range-button" type="button" data-logs-range="24h" aria-pressed="false">24H</button>
+              <button class="range-button" type="button" data-logs-range="7d" aria-pressed="false">7D</button>
+            </div>
+            <label><span class="visually-hidden">Service</span><select id="logs-service" aria-label="Filter logs by service"><option value="">All services</option></select></label>
+            <label><span class="visually-hidden">Container</span><select id="logs-container" aria-label="Filter logs by container"><option value="">All containers</option></select></label>
+            <label><span class="visually-hidden">Log level</span><select id="logs-level" aria-label="Filter logs by level"><option value="">All levels</option><option value="debug">Debug</option><option value="info">Info</option><option value="warn">Warn</option><option value="error">Error</option></select></label>
+            <label class="logs-search"><span class="visually-hidden">Search log text</span><input id="logs-search" type="search" maxlength="160" placeholder="Search text; press Enter" autocomplete="off"></label>
+            <button id="logs-refresh" class="text-button" type="button">REFRESH</button>
+          </div>
+          <p class="logs-note">Searches retained logs from the local node. Use the container terminal for a live Podman stream.</p>
+          <div id="logs-list" class="historical-logs-list" aria-live="polite"></div>
+          <p id="logs-empty" class="logs-empty" role="status">Select a range to query retained logs.</p>
+          <footer class="logs-footer mono"><span id="logs-context">1H · LOCAL</span><span>MAX 200 ENTRIES · 7D RETENTION</span></footer>
+        </section>
       </section>
 
       <section id="workspace-alerts" class="dashboard-workspace workspace-alerts" data-workspace-panel="alerts" aria-labelledby="alerts-title" hidden>

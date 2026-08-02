@@ -208,6 +208,26 @@ button:disabled { opacity: 0.48; cursor: not-allowed; }
 .history-quota[data-level="full"] { color: var(--red); }
 .history-footer .text-button { min-height: 30px; padding-block: 3px; }
 
+.logs-panel { overflow: hidden; }
+.logs-toolbar { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 12px 0; }
+.logs-toolbar select, .logs-toolbar input { min-height: 32px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--bg-surface); font: 10px/1.2 var(--font-mono); }
+.logs-toolbar select { max-width: 160px; padding: 4px 24px 4px 8px; }
+.logs-search { min-width: 160px; flex: 1 1 220px; }
+.logs-search input { width: 100%; padding: 4px 8px; }
+.logs-note { margin: 9px 12px; color: var(--text-dim); font: 10px/1.45 var(--font-mono); }
+.historical-logs-list { display: grid; min-height: 238px; max-height: min(54dvh, 650px); overflow: auto; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); background: var(--bg-deep); scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
+.historical-log-entry { display: grid; min-width: 0; grid-template-columns: 220px minmax(0, 1fr); gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--border-subtle); }
+.historical-log-entry:last-child { border-bottom: 0; }
+.historical-log-meta { display: grid; min-width: 0; align-content: start; gap: 3px; color: var(--text-dim); font-size: 10px; }
+.historical-log-meta span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.historical-log-line { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text-secondary); white-space: pre-wrap; font: 11px/1.45 var(--font-mono); }
+.logs-empty { min-height: 72px; margin: 0; padding: 20px 12px; color: var(--text-dim); background: var(--bg-deep); text-align: center; font: 11px/1.45 var(--font-mono); }
+.logs-footer { display: flex; min-width: 0; justify-content: space-between; gap: 10px; padding: 9px 12px; color: var(--text-dim); font-size: 10px; letter-spacing: 0.05em; }
+.logs-footer > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#logs-status[data-state="ready"] { color: var(--green); border-color: var(--green); background: var(--green-soft); }
+#logs-status[data-state="pending"] { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-soft); }
+#logs-status[data-state="error"] { color: var(--red); border-color: var(--red); background: var(--red-soft); }
+
 .system-panel { flex: 0 0 auto; }
 .metric-block, .network-block { padding: 11px 14px 0; }
 .metric-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-secondary); font: 11px/1.35 var(--font-mono); letter-spacing: 0.04em; }
@@ -524,6 +544,13 @@ button:disabled { opacity: 0.48; cursor: not-allowed; }
   .history-footer { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; }
   .history-footer > span:nth-child(3), .history-footer > span:nth-child(4) { grid-column: 1; }
   .history-footer .text-button { grid-column: 2; grid-row: 1 / span 4; }
+  .logs-toolbar { align-items: stretch; }
+  .logs-toolbar .history-controls { width: 100%; justify-content: flex-start; }
+  .logs-toolbar select, .logs-search { min-width: 0; max-width: none; flex: 1 1 calc(50% - 6px); }
+  .logs-toolbar .text-button { min-height: 44px; }
+  .historical-log-entry { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .historical-log-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .logs-footer { align-items: flex-start; flex-direction: column; }
   .form-grid-rules { grid-template-columns: minmax(0, 1fr); }
   .form-grid-rules .full { grid-column: 1; }
   .settings-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -591,7 +618,7 @@ button:disabled { opacity: 0.48; cursor: not-allowed; }
 
 /* Production operations workspaces: keep dense data grouped by decision,
    while retaining a single calm visual rhythm across SLO, fleet and maps. */
-.workspace-nodes, .workspace-topology { grid-template-columns: minmax(0, 1fr) !important; }
+.workspace-nodes, .workspace-topology, .workspace-logs { grid-template-columns: minmax(0, 1fr) !important; }
 .workspace-nodes { grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr) !important; align-items: start; }
 .nodes-workspace-panel, .checks-panel, .topology-panel { min-width: 0; }
 .panel-status { min-height: 34px; margin: 0; padding: 8px 12px 10px; color: var(--text-dim); border-top: 1px solid var(--border-subtle); font-size: 10px; }

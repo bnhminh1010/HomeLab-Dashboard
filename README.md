@@ -6,7 +6,7 @@
 
 <p align="center"><sub>Three static Go binaries. No Node.js. No npm. No CDN runtime dependencies.</sub></p>
 
-<p align="center"><a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#packages">Packages</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#operations-and-troubleshooting">Operations</a> · <a href="#development-and-verification">Development</a></p>
+<p align="center"><a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#packages">Packages</a> · <a href="#centralized-container-logs-optional">Logging</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#operations-and-troubleshooting">Operations</a> · <a href="#development-and-verification">Development</a></p>
 
 > [!NOTE]
 > This is an intentionally small operations console for 1–5 nodes—not a
@@ -329,6 +329,75 @@ Leave `NTFY_TOKEN_FILE` empty for anonymous delivery. The Compose file mounts
 the configured token at a fixed read-only path; the token is never exported in
 dashboard configuration. After recreating the dashboard, use **Settings → ntfy
 delivery → Test push** as an administrator.
+
+### Centralized container logs (optional)
+
+The built-in log viewer always reads live `stdout`/`stderr` from Podman. For
+local historical search, enable the optional **Loki + Vector** overlay. Vector
+reads the existing rootless Podman Docker-compatible socket and writes only to
+Loki; the dashboard queries Loki through its internal Compose URL. It does not
+replace application logging, nor does it collect remote-node logs in v1.
+
+The overlay has no published host ports. Loki and Vector share an internal
+Compose network with the Tailscale container; Tailscale Serve does not expose
+Loki. Loki is configured for seven-day retention in the `loki-data` named
+volume; compaction applies deletion asynchronously.
+Start it explicitly after the base dashboard is healthy:
+
+```bash
+podman compose -f compose.yml -f compose.logging.yml config
+podman compose -f compose.yml -f compose.logging.yml up -d
+podman compose -f compose.yml -f compose.logging.yml ps
+```
+
+Collection is opt-in. Add these labels to each workload whose container logs
+may be retained. The second label gives the dashboard a stable service grouping
+even if a container is recreated with a new name:
+
+```yaml
+services:
+  my-service:
+    image: example/my-service:1.2.3
+    labels:
+      io.homelab.dashboard.logs: "enabled"
+      io.homelab.dashboard.log.service: "my-service"
+```
+
+For a container started outside Compose, use the equivalent labels:
+
+```bash
+podman run \
+  --label io.homelab.dashboard.logs=enabled \
+  --label io.homelab.dashboard.log.service=my-service \
+  example/my-service:1.2.3
+```
+
+Do not put container IDs, image digests, request IDs, trace IDs, users, URLs
+or secrets in the service label: it is a Loki index label. Vector keeps
+container ID, name, image and stream as per-entry structured metadata instead.
+Applications you own should write newline-delimited JSON to stdout with fields
+such as `timestamp`, `level`, `message`, `service`, `request_id` and `trace_id`;
+never log credentials, bearer tokens, cookies or authorization headers.
+
+To remove this optional historical store, first stop the overlay, then remove
+only its named volumes if the seven-day log history is no longer needed:
+
+```bash
+podman compose -f compose.yml -f compose.logging.yml down
+podman volume rm homelab-dashboard_loki-data homelab-dashboard_vector-data
+```
+
+The Vector socket mount is intentionally powerful: anyone who can modify
+`compose.logging.yml` can make requests as the rootless Podman owner. Keep the
+repository checkout and `.env` private to that account. If Vector cannot read
+the socket, confirm the user service is active and that `XDG_RUNTIME_DIR`
+matches the account that owns Podman:
+
+```bash
+systemctl --user enable --now podman.socket
+test -S "$XDG_RUNTIME_DIR/podman/podman.sock"
+podman compose -f compose.yml -f compose.logging.yml logs vector loki
+```
 
 ### Backup status reports
 

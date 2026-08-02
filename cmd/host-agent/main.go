@@ -11,9 +11,11 @@ import (
 	"syscall"
 
 	"github.com/bnhminh1010/homelab-dashboard/internal/hostagent"
+	"github.com/bnhminh1010/homelab-dashboard/internal/logging"
 )
 
 func main() {
+	logging.Configure("host-agent")
 	if err := run(); err != nil {
 		slog.Error("host agent stopped", "error", err)
 		os.Exit(1)

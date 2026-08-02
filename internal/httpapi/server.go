@@ -16,6 +16,7 @@ import (
 	"github.com/bnhminh1010/homelab-dashboard/internal/dashboardconfig"
 	"github.com/bnhminh1010/homelab-dashboard/internal/healthchecks"
 	"github.com/bnhminh1010/homelab-dashboard/internal/history"
+	"github.com/bnhminh1010/homelab-dashboard/internal/logs"
 	"github.com/bnhminh1010/homelab-dashboard/internal/metrics"
 	"github.com/bnhminh1010/homelab-dashboard/internal/model"
 	"github.com/bnhminh1010/homelab-dashboard/internal/nodes"
@@ -93,6 +94,7 @@ type Options struct {
 	Operations             operations.Repository
 	Topology               TopologyRepository
 	Checks                 CheckRepository
+	Logs                   logs.Reader
 }
 
 type Server struct {
@@ -199,6 +201,8 @@ func (s *Server) routes() {
 		authenticatedAPI.GET("/history/containers/:id", s.getContainerHistory)
 		authenticatedAPI.GET("/history/services/:id", s.getServiceHistory)
 	}
+	authenticatedAPI.GET("/logs/status", s.getLogsStatus)
+	authenticatedAPI.GET("/logs/query", s.queryLogs)
 	if s.options.Alerts != nil {
 		authenticatedAPI.GET("/alert-rules", s.listAlertRules)
 		authenticatedAPI.POST("/alert-rules", s.createAlertRule)

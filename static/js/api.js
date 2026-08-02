@@ -118,6 +118,21 @@ export class DashboardApi {
     return this.request(`/api/v1/history/resources?${query}`, { signal });
   }
 
+  logsStatus(signal) {
+    return this.request("/api/v1/logs/status", { signal });
+  }
+
+  queryLogs({ node = "local", from = "", to = "", service = "", container = "", level = "", q = "", limit = 200, signal } = {}) {
+    const query = new URLSearchParams({ node, limit: String(limit) });
+    if (from) query.set("from", from);
+    if (to) query.set("to", to);
+    if (service) query.set("service", service);
+    if (container) query.set("container", container);
+    if (level) query.set("level", level);
+    if (q) query.set("q", q);
+    return this.request(`/api/v1/logs/query?${query}`, { signal });
+  }
+
   listSLOs({ node = "local", window = 30, signal } = {}) {
     const query = new URLSearchParams({ node, window: String(window) });
     return this.request(`/api/v1/slos?${query}`, { signal });

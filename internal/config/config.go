@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bnhminh1010/homelab-dashboard/internal/logs"
 )
 
 type Config struct {
@@ -35,6 +38,8 @@ type Config struct {
 	NTFYTopic              string
 	NTFYTokenFile          string
 	BackupStatusFile       string
+	LogsBackend            string
+	LokiURL                string
 }
 
 func Load() (Config, error) {
@@ -64,6 +69,8 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		NTFYTopic:              strings.TrimSpace(getenv("NTFY_TOPIC")),
 		NTFYTokenFile:          strings.TrimSpace(getenv("NTFY_TOKEN_FILE")),
 		BackupStatusFile:       strings.TrimSpace(getenv("BACKUP_STATUS_FILE")),
+		LogsBackend:            strings.ToLower(strings.TrimSpace(valueOr(getenv("LOGS_BACKEND"), logs.BackendDisabled))),
+		LokiURL:                strings.TrimSpace(getenv("LOKI_URL")),
 	}
 
 	var err error
@@ -129,6 +136,15 @@ func (c Config) Validate() error {
 	}
 	if c.BackupStatusFile != "" && !filepath.IsAbs(c.BackupStatusFile) {
 		return fmt.Errorf("BACKUP_STATUS_FILE must be an absolute path")
+	}
+	if c.LogsBackend != logs.BackendDisabled && c.LogsBackend != logs.BackendLoki {
+		return fmt.Errorf("LOGS_BACKEND must be disabled or loki")
+	}
+	if c.LogsBackend == logs.BackendLoki {
+		endpoint, err := url.Parse(c.LokiURL)
+		if err != nil || endpoint.Scheme == "" || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
+			return fmt.Errorf("LOKI_URL must be an absolute HTTP or HTTPS URL when LOGS_BACKEND is loki")
+		}
 	}
 	if (c.NTFYURL == "") != (c.NTFYTopic == "") {
 		return fmt.Errorf("NTFY_URL and NTFY_TOPIC must be configured together")

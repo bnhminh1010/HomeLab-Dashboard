@@ -1,0 +1,78 @@
+# Optional centralized logs for the local rootless Podman host only.
+# Enable explicitly with:
+#   podman compose -f compose.yml -f compose.logging.yml up -d
+#
+# No service below publishes a host port. Loki is reachable only from the
+# private Compose network, including the dashboard through its Tailscale
+# network namespace.
+services:
+  tailscale:
+    networks:
+      # Retain the default egress network so userspace Tailscale can reach the
+      # control plane; `logging` is only the private Loki path.
+      - default
+      - logging
+
+  dashboard:
+    environment:
+      # The dashboard receives this only when the logging overlay is enabled.
+      # It is an internal URL, never a user-configurable browser endpoint.
+      LOGS_BACKEND: loki
+      LOKI_URL: http://loki:3100
+
+  loki:
+    image: docker.io/grafana/loki:3.4.2
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./deploy/logging/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    networks:
+      - logging
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges
+    restart: unless-stopped
+    labels:
+      io.homelab.dashboard.protected: "true"
+      io.homelab.dashboard.hidden: "true"
+
+  vector:
+    image: docker.io/timberio/vector:0.46.1-alpine
+    command: ["--config", "/etc/vector/vector.yml", "--require-healthy"]
+    depends_on:
+      - loki
+    environment:
+      VECTOR_LOG: warn
+    volumes:
+      # This is the existing rootless Podman API socket, exposed read-only.
+      - ${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/podman/podman.sock:/run/podman/podman.sock:ro
+      - ./deploy/logging/vector.yml:/etc/vector/vector.yml:ro
+      - vector-data:/var/lib/vector
+    networks:
+      - logging
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges
+      # Required for a rootless Podman Unix-socket mount on SELinux hosts.
+      - label=disable
+    pids_limit: 128
+    restart: unless-stopped
+    labels:
+      io.homelab.dashboard.protected: "true"
+      io.homelab.dashboard.hidden: "true"
+
+volumes:
+  loki-data:
+  vector-data:
+
+networks:
+  logging:
+    internal: true

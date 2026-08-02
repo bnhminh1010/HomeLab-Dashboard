@@ -25,6 +25,8 @@ import (
 	"github.com/bnhminh1010/homelab-dashboard/internal/history"
 	"github.com/bnhminh1010/homelab-dashboard/internal/hostagent"
 	"github.com/bnhminh1010/homelab-dashboard/internal/httpapi"
+	"github.com/bnhminh1010/homelab-dashboard/internal/logging"
+	"github.com/bnhminh1010/homelab-dashboard/internal/logs"
 	"github.com/bnhminh1010/homelab-dashboard/internal/metrics"
 	"github.com/bnhminh1010/homelab-dashboard/internal/model"
 	"github.com/bnhminh1010/homelab-dashboard/internal/monitoring"
@@ -38,6 +40,7 @@ import (
 )
 
 func main() {
+	logging.Configure("dashboard")
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		url := "http://127.0.0.1:8082/health/live"
 		if len(os.Args) > 2 {
@@ -59,6 +62,13 @@ func run() error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
+	}
+	var logReader logs.Reader
+	if cfg.LogsBackend == logs.BackendLoki {
+		logReader, err = logs.NewLoki(cfg.LokiURL, nil)
+		if err != nil {
+			return fmt.Errorf("configure Loki logs: %w", err)
+		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -253,6 +263,7 @@ func run() error {
 		Operations:             database,
 		Topology:               database,
 		Checks:                 database,
+		Logs:                   logReader,
 		Ready: func(readyContext context.Context) error {
 			if err := database.Ping(readyContext); err != nil {
 				return err

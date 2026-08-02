@@ -1,0 +1,54 @@
+# Vector reads the Docker-compatible rootless Podman API socket. Only
+# containers explicitly opted in with io.homelab.dashboard.logs=enabled are
+# collected. This is a local-node collector; remote nodes are out of scope.
+data_dir: /var/lib/vector
+
+sources:
+  podman:
+    type: docker_logs
+    docker_host: unix:///run/podman/podman.sock
+    auto_partial_merge: true
+    include_labels:
+      - io.homelab.dashboard.logs=enabled
+
+transforms:
+  prepare_for_loki:
+    type: remap
+    inputs:
+      - podman
+    source: |-
+      # Use the operator-owned service label when present; container name is a
+      # safe fallback. Neither ID nor image becomes a Loki index label.
+      .service_name = to_string(.label."io.homelab.dashboard.log.service") ?? .container_name
+      .node = "local"
+      .job = "podman"
+      del(.label)
+
+      # Preserve raw text, then expose a level from applications that emit a
+      # JSON object to stdout. Plain-text logs remain searchable unchanged.
+      .raw_message = string!(.message)
+      structured, err = parse_json(.raw_message)
+      if err == null && is_object(structured) {
+        .level = to_string(structured.level) ?? to_string(structured.severity) ?? ""
+        .message = to_string(structured.message) ?? to_string(structured.msg) ?? .raw_message
+      }
+
+sinks:
+  loki:
+    type: loki
+    inputs:
+      - prepare_for_loki
+    endpoint: http://loki:3100
+    encoding:
+      codec: json
+    # Keep index cardinality bounded. Container ID, name, image and stream are
+    # retained in each JSON event / Loki structured metadata rather than labels.
+    labels:
+      job: "{{ job }}"
+      node: "{{ node }}"
+      service_name: "{{ service_name }}"
+    structured_metadata:
+      container_name: "{{ container_name }}"
+      container_id: "{{ container_id }}"
+      image: "{{ image }}"
+      stream: "{{ stream }}"

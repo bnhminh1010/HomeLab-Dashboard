@@ -18,6 +18,8 @@ func TestLoadFromDefaultsAndOverrides(t *testing.T) {
 		"NTFY_URL":              "https://ntfy.example.com",
 		"NTFY_TOPIC":            "homelab-alerts",
 		"NTFY_TOKEN_FILE":       "/run/secrets/ntfy-token",
+		"LOGS_BACKEND":          "loki",
+		"LOKI_URL":              "http://loki:3100",
 	}
 	cfg, err := LoadFrom(func(key string) string { return values[key] })
 	if err != nil {
@@ -43,6 +45,9 @@ func TestLoadFromDefaultsAndOverrides(t *testing.T) {
 	}
 	if cfg.HistoryQuotaBytes != 1<<30 || cfg.NTFYURL != "https://ntfy.example.com" || cfg.NTFYTokenFile != "/run/secrets/ntfy-token" {
 		t.Fatalf("unexpected history/ntfy config: %+v", cfg)
+	}
+	if cfg.LogsBackend != "loki" || cfg.LokiURL != "http://loki:3100" {
+		t.Fatalf("unexpected logs config: %+v", cfg)
 	}
 }
 
@@ -104,6 +109,7 @@ func TestLoadFromRejectsBadValues(t *testing.T) {
 		"TAILSCALE_SOCKS5_ADDR": "10.0.0.2:1055",
 		"HISTORY_QUOTA_BYTES":   "1024",
 		"NTFY_TOKEN_FILE":       "token.txt",
+		"LOGS_BACKEND":          "unsupported",
 	} {
 		t.Run(key, func(t *testing.T) {
 			_, err := LoadFrom(func(candidate string) string {
@@ -116,6 +122,17 @@ func TestLoadFromRejectsBadValues(t *testing.T) {
 				t.Fatal("expected an error")
 			}
 		})
+	}
+}
+
+func TestLoadFromRequiresHTTPURLForLoki(t *testing.T) {
+	for _, values := range []map[string]string{
+		{"LOGS_BACKEND": "loki"},
+		{"LOGS_BACKEND": "loki", "LOKI_URL": "file:///tmp/loki"},
+	} {
+		if _, err := LoadFrom(func(key string) string { return values[key] }); err == nil {
+			t.Fatalf("expected invalid Loki configuration: %#v", values)
+		}
 	}
 }
 

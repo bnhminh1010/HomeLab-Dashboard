@@ -85,6 +85,25 @@ export class DemoApi {
 
   async snapshot() { return snapshot(); }
 
+  async logsStatus() {
+    return { enabled: true, backend: "loki", nodeId: "local", retentionHours: 168 };
+  }
+
+  async queryLogs({ service = "", container = "", level = "", q = "" } = {}) {
+    const entries = [
+      { timestamp: new Date(Date.now() - 18_000).toISOString(), labels: { job: "podman", node: "local", service_name: "Immich", container_name: "immich_server" }, line: '{"level":"info","msg":"health check completed","request_id":"demo-18"}' },
+      { timestamp: new Date(Date.now() - 47_000).toISOString(), labels: { job: "podman", node: "local", service_name: "fastCRW", container_name: "crw" }, line: '{"level":"warn","msg":"upstream response exceeded target","latency_ms":842}' },
+      { timestamp: new Date(Date.now() - 92_000).toISOString(), labels: { job: "podman", node: "local", service_name: "Immich", container_name: "immich_redis" }, line: 'Ready to accept connections' },
+    ];
+    const needle = q.trim().toLowerCase();
+    return { entries: entries.filter((entry) => {
+      if (service && entry.labels.service_name !== service) return false;
+      if (container && entry.labels.container_name !== container) return false;
+      if (level && !entry.line.toLowerCase().includes(`\"level\":\"${level.toLowerCase()}\"`)) return false;
+      return !needle || entry.line.toLowerCase().includes(needle);
+    }) };
+  }
+
   async systemHistory(node, range) {
     const count = 60;
     const span = 24 * 60 * 60 * 1000;

@@ -14,12 +14,14 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/bnhminh1010/homelab-dashboard/internal/logging"
 	"github.com/bnhminh1010/homelab-dashboard/internal/nodeagent"
 )
 
 var version = "dev"
 
 func main() {
+	logging.Configure("node-agent")
 	if err := execute(os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
 		slog.Error("node agent stopped", "error", err)
 		os.Exit(1)

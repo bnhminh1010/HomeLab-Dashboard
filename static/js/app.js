@@ -4,6 +4,7 @@ import { createContainersController } from "./containers.js";
 import { DemoApi, startDemoFeed } from "./demo.js";
 import { bytes, clamp, number, percent, rate, setProgress, setText, timeAgo, uptime } from "./format.js";
 import { createHistoryController } from "./history.js";
+import { createLogsController } from "./logs.js";
 import { createMetricCharts } from "./metrics.js";
 import { createNodesController } from "./nodes.js";
 import { createOperationsController } from "./operations.js";
@@ -40,7 +41,7 @@ let latestOverviewData = { system: {}, disks: [], services: [], containers: [], 
 const alertNodes = new Map();
 const WORKSPACE_STORAGE_KEY = "homelab.workspace.active";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "homelab.sidebar.collapsed";
-const WORKSPACES = new Set(["overview", "services", "containers", "nodes", "history", "alerts", "topology"]);
+const WORKSPACES = new Set(["overview", "services", "containers", "nodes", "history", "logs", "alerts", "topology"]);
 const overviewSummary = {
   services: { total: 0, up: 0, down: 0, unknown: 0 },
   containers: { total: 0, running: 0, issue: 0, stopped: 0 },
@@ -82,6 +83,7 @@ const servicesController = createServicesController({
     latestOverviewData = { ...latestOverviewData, services };
     overviewSummary.services = summary;
     if (selectedNodeId === "local") historyController.setResources(latestSelectedContainers, latestServices);
+    logsController.setResources(latestSelectedContainers, latestServices);
     updateOverview();
   },
 });
@@ -92,6 +94,7 @@ const historyController = createHistoryController({
   toast,
   onRangeChange: (range, shouldRefresh) => operationsController?.setTimelineRange(range, shouldRefresh),
 });
+const logsController = createLogsController({ api, demo, toast });
 const overviewController = createOverviewController({
   api,
   toast,
@@ -218,6 +221,7 @@ function createWorkspaceNavigation() {
     }
     storeValue(WORKSPACE_STORAGE_KEY, workspace);
     if (workspace === "history") window.requestAnimationFrame(() => historyController.activate());
+    if (workspace === "logs") window.requestAnimationFrame(() => logsController.activate());
     if (workspace === "nodes" || workspace === "topology") window.requestAnimationFrame(() => operationsController.activate(workspace));
     if (workspace === "overview") window.requestAnimationFrame(() => overviewController.activate());
     else overviewController.deactivate();
@@ -471,6 +475,7 @@ function renderSelectedSnapshot(payload, state = "online") {
   overviewSummary.containers = containersController.render(data.containers);
   operationsController.setServices(selectedServices);
   historyController.setResources(data.containers, data.services);
+  logsController.setResources(data.containers, selectedServices);
   renderAlerts(data.alerts);
   setConnectionState(state, { collectedAt: latestCollectedAt });
 }
@@ -523,6 +528,7 @@ function renderUnavailableNode(state) {
   latestSelectedContainers = [];
   latestOverviewData = { system: {}, disks: [], services: latestServices, containers: [], alerts: [] };
   historyController.setResources([], []);
+  logsController.setResources([], latestServices);
   renderAlerts([]);
   updateOverview();
 }
@@ -538,6 +544,7 @@ function selectNode({ id, state }) {
   containersController.setNode(selectedNodeId);
   overviewController.setNode(selectedNodeId, nodeLabel);
   terminal.setNode?.(selectedNodeId, nodeLabel);
+  logsController.setNode(selectedNodeId);
   if (nodeChanged) {
     charts.reset();
     historyController.setNode(selectedNodeId);
@@ -854,6 +861,7 @@ window.addEventListener("beforeunload", () => {
   charts.destroy();
   overviewController.destroy();
   historyController.destroy();
+  logsController.destroy();
   operationsController.destroy();
   nodesController.destroy();
   window.clearInterval(sessionKeepalive);
