@@ -9,4 +9,5 @@ bin/
 .claude/
 .hallmark/
 .omc/
+Docs/
 secrets/
