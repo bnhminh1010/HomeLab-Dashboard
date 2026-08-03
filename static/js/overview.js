@@ -184,6 +184,7 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
   let requestNode = "";
   let eventRequest = null;
   let eventRequestNode = "";
+  let renderedEventsKey = "";
   let active = false;
   let node = "local";
   let nodeName = "local";
@@ -357,31 +358,43 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
       .sort((left, right) => new Date(right?.occurredAt || right?.timestamp || 0) - new Date(left?.occurredAt || left?.timestamp || 0))
       .slice(0, MAX_RECENT_CHANGES);
     changesEmpty.textContent = "No recorded operational changes in the last 24 hours.";
-    const rows = events.map((event) => {
-      const article = document.createElement("article");
-      article.className = "overview-action-item";
-      article.dataset.kind = "change";
-      const dot = document.createElement("span");
-      dot.className = "status-dot";
-      dot.setAttribute("aria-hidden", "true");
-      const copy = document.createElement("div");
-      copy.className = "overview-action-copy";
-      const title = document.createElement("strong");
-      title.className = "overview-action-title";
-      title.textContent = String(event?.title || event?.type || "Operational change");
-      const detail = document.createElement("span");
-      detail.className = "overview-action-detail";
-      const occurredAt = event?.occurredAt || event?.timestamp;
-      detail.textContent = [event?.summary, occurredAt ? timeAgo(occurredAt) : "time unavailable"].filter(Boolean).join(" · ");
-      copy.append(title, detail);
-      const actions = document.createElement("div");
-      actions.className = "overview-action-actions";
-      actions.append(actionButton("VIEW", () => onNavigate?.(eventRoute(event))));
-      article.append(dot, copy, actions);
-      return article;
-    });
-    changesList.replaceChildren(...rows);
-    changesEmpty.hidden = rows.length > 0;
+    const eventKey = events.map((event) => [
+      event?.id,
+      event?.type,
+      event?.title,
+      event?.summary,
+      event?.occurredAt || event?.timestamp,
+      event?.containerId || event?.containerID,
+      event?.serviceId || event?.serviceID,
+    ].map((value) => String(value ?? "")).join("\u001f")).join("\u001e");
+    if (eventKey !== renderedEventsKey) {
+      const rows = events.map((event) => {
+        const article = document.createElement("article");
+        article.className = "overview-action-item";
+        article.dataset.kind = "change";
+        const dot = document.createElement("span");
+        dot.className = "status-dot";
+        dot.setAttribute("aria-hidden", "true");
+        const copy = document.createElement("div");
+        copy.className = "overview-action-copy";
+        const title = document.createElement("strong");
+        title.className = "overview-action-title";
+        title.textContent = String(event?.title || event?.type || "Operational change");
+        const detail = document.createElement("span");
+        detail.className = "overview-action-detail";
+        const occurredAt = event?.occurredAt || event?.timestamp;
+        detail.textContent = [event?.summary, occurredAt ? timeAgo(occurredAt) : "time unavailable"].filter(Boolean).join(" · ");
+        copy.append(title, detail);
+        const actions = document.createElement("div");
+        actions.className = "overview-action-actions";
+        actions.append(actionButton("VIEW", () => onNavigate?.(eventRoute(event))));
+        article.append(dot, copy, actions);
+        return article;
+      });
+      changesList.replaceChildren(...rows);
+      renderedEventsKey = eventKey;
+    }
+    changesEmpty.hidden = events.length > 0;
     changesStatus.textContent = stale ? "24H · STALE" : `24H · ${events.length} RECORDED`;
   }
 
@@ -417,6 +430,7 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
         changesEmpty.textContent = "The latest refresh failed; showing the last successful operational history.";
       } else {
         changesList.replaceChildren();
+        renderedEventsKey = "";
         changesEmpty.hidden = false;
         changesEmpty.textContent = error?.message || "Operational change history is unavailable.";
         changesStatus.textContent = "24H · UNAVAILABLE";
@@ -511,6 +525,7 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
       if (next !== node) {
         cancelTrendRequest();
         cancelEventRequest();
+        renderedEventsKey = "";
         clearTrend();
         setTrendStatus("Loading 24-hour history…");
         const cachedEvents = eventCache.get(next);

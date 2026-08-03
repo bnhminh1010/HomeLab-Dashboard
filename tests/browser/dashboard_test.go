@@ -458,7 +458,11 @@ func TestDemoContextRoutesRestoreFiltersAndHistory(t *testing.T) {
           && document.querySelector('[data-history-kind="system"]').getAttribute('aria-pressed') === 'true'`, nil, chromedp.WithPollingTimeout(3*time.Second)),
 		chromedp.Evaluate(`location.hash = '#overview'`, nil),
 		chromedp.Poll(`document.querySelectorAll('#overview-recent-changes-list .overview-action-item').length === 3`, nil, chromedp.WithPollingTimeout(3*time.Second)),
-		chromedp.Click("#overview-recent-changes-list .overview-action-item:first-child .text-button", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+          const button = document.querySelector("#overview-recent-changes-list .overview-action-item:first-child .text-button");
+          if (!button) throw new Error("recent-change VIEW action is unavailable");
+          button.click();
+        })()`, nil),
 		chromedp.Poll(`!document.querySelector('#workspace-containers').hidden
           && document.querySelector('#containers-filter-input').value === 'immich_redis'
           && document.querySelector('#containers-filter-count').textContent === '1 / 4 SHOWN'`, nil, chromedp.WithPollingTimeout(3*time.Second)),
