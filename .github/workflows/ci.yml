@@ -133,10 +133,9 @@ jobs:
           ADMIN_USERS: ci@example.invalid
           TS_AUTHKEY: tskey-auth-ci
           XDG_RUNTIME_DIR: /tmp/homelab-dashboard-runtime
+          PODMAN_SOCKET_PATH: /var/run/docker.sock
         run: |
           set -euo pipefail
-          mkdir -p "$XDG_RUNTIME_DIR/podman"
-          ln -sf /var/run/docker.sock "$XDG_RUNTIME_DIR/podman/podman.sock"
           docker compose --file compose.yml --file compose.logging.yml config --quiet
           docker run --rm \
             -v "$PWD/deploy/logging/vector.yml:/etc/vector/vector.yml:ro" \
@@ -147,19 +146,31 @@ jobs:
           ADMIN_USERS: ci@example.invalid
           TS_AUTHKEY: tskey-auth-ci
           XDG_RUNTIME_DIR: /tmp/homelab-dashboard-runtime
+          PODMAN_SOCKET_PATH: /var/run/docker.sock
         run: |
           set -euo pipefail
           project_args=(--file compose.yml --file compose.logging.yml)
           cleanup() {
+            status="$?"
+            trap - EXIT
+            if [ "$status" -ne 0 ]; then
+              docker compose "${project_args[@]}" logs --no-color vector loki || true
+              vector_id="$(docker compose "${project_args[@]}" ps --quiet vector 2>/dev/null || true)"
+              if [ -n "$vector_id" ]; then
+                docker exec "$vector_id" /bin/sh -c 'ls -lL /run/podman/podman.sock; test -S /run/podman/podman.sock' || true
+              fi
+            fi
             docker rm --force homelab-dashboard-logging-fixture homelab-dashboard-unlabeled-fixture 2>/dev/null || true
             docker compose "${project_args[@]}" down --volumes --remove-orphans 2>/dev/null || true
+            exit "$status"
           }
           trap cleanup EXIT
 
-          mkdir -p "$XDG_RUNTIME_DIR/podman"
-          ln -sf /var/run/docker.sock "$XDG_RUNTIME_DIR/podman/podman.sock"
-          docker compose "${project_args[@]}" up --detach loki vector
+          docker compose "${project_args[@]}" up --detach loki
 
+          # docker_logs applies label inclusion while it discovers containers.
+          # Starting fixtures first makes this deterministic rather than
+          # depending on a Docker event arriving during Vector initialization.
           docker run --detach --name homelab-dashboard-logging-fixture \
             --label io.homelab.dashboard.logs=enabled \
             --label io.homelab.dashboard.log.service=logging-fixture \
@@ -167,6 +178,7 @@ jobs:
             docker.io/library/busybox:1.36 sh /emit-logs.sh
           docker run --detach --name homelab-dashboard-unlabeled-fixture \
             docker.io/library/busybox:1.36 sh -c 'while :; do echo logging-pipeline-must-not-collect; sleep 1; done'
+          docker compose "${project_args[@]}" up --detach vector
 
           loki_id="$(docker compose "${project_args[@]}" ps --quiet loki)"
           test -n "$loki_id"

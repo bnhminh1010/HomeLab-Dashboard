@@ -58,8 +58,10 @@ services:
     environment:
       VECTOR_LOG: warn
     volumes:
-      # This is the existing rootless Podman API socket, exposed read-only.
-      - ${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/podman/podman.sock:/run/podman/podman.sock:ro
+      # This defaults to the existing rootless Podman API socket. CI overrides
+      # PODMAN_SOCKET_PATH with Docker's real socket rather than bind-mounting
+      # a symlink, which is not portable across container runtimes.
+      - ${PODMAN_SOCKET_PATH:-${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/podman/podman.sock}:/run/podman/podman.sock:ro
       - ./deploy/logging/vector.yml:/etc/vector/vector.yml:ro
       - vector-data:/var/lib/vector
     networks:
