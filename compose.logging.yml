@@ -56,7 +56,9 @@ services:
       loki:
         condition: service_healthy
     environment:
-      VECTOR_LOG: warn
+      # Keep normal deployments quiet; CI raises this to info for actionable
+      # docker_logs lifecycle diagnostics when the integration check fails.
+      VECTOR_LOG: ${VECTOR_LOG:-warn}
     volumes:
       # This defaults to the existing rootless Podman API socket. CI overrides
       # PODMAN_SOCKET_PATH with Docker's real socket rather than bind-mounting

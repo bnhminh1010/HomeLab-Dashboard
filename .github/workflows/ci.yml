@@ -134,6 +134,7 @@ jobs:
           TS_AUTHKEY: tskey-auth-ci
           XDG_RUNTIME_DIR: /tmp/homelab-dashboard-runtime
           PODMAN_SOCKET_PATH: /var/run/docker.sock
+          VECTOR_LOG: info
         run: |
           set -euo pipefail
           docker compose --file compose.yml --file compose.logging.yml config --quiet
@@ -147,6 +148,7 @@ jobs:
           TS_AUTHKEY: tskey-auth-ci
           XDG_RUNTIME_DIR: /tmp/homelab-dashboard-runtime
           PODMAN_SOCKET_PATH: /var/run/docker.sock
+          VECTOR_LOG: info
         run: |
           set -euo pipefail
           project_args=(--file compose.yml --file compose.logging.yml)
@@ -183,9 +185,11 @@ jobs:
           loki_id="$(docker compose "${project_args[@]}" ps --quiet loki)"
           test -n "$loki_id"
           query_start="$(( $(date +%s) - 120 ))000000000"
-          query_end="$(date +%s)000000000"
-          fixture_query="http://127.0.0.1:3100/loki/api/v1/query_range?query=%7Bjob%3D%22podman%22%2Cnode%3D%22local%22%2Cservice_name%3D%22logging-fixture%22%7D&start=${query_start}&end=${query_end}&limit=100&direction=forward"
           for attempt in $(seq 1 30); do
+            # Vector begins tailing after its container starts. Re-evaluate the
+            # range end on every retry so freshly collected entries are in scope.
+            query_end="$(date +%s)000000000"
+            fixture_query="http://127.0.0.1:3100/loki/api/v1/query_range?query=%7Bjob%3D%22podman%22%2Cnode%3D%22local%22%2Cservice_name%3D%22logging-fixture%22%7D&start=${query_start}&end=${query_end}&limit=100&direction=forward"
             payload="$(docker exec "$loki_id" /busybox/wget -q -O - "$fixture_query" || true)"
             if printf '%s' "$payload" | grep -Fq 'logging-pipeline-e2e'; then
               break
@@ -202,6 +206,7 @@ jobs:
           printf '%s' "$payload" | grep -Fq 'logging-pipeline-plaintext-e2e'
           printf '%s' "$payload" | grep -Fq 'container_name'
           printf '%s' "$payload" | grep -Fq 'fixture-request'
+          query_end="$(date +%s)000000000"
           all_podman_query="http://127.0.0.1:3100/loki/api/v1/query_range?query=%7Bjob%3D%22podman%22%2Cnode%3D%22local%22%7D&start=${query_start}&end=${query_end}&limit=200&direction=forward"
           all_podman_logs="$(docker exec "$loki_id" /busybox/wget -q -O - "$all_podman_query")"
           ! printf '%s' "$all_podman_logs" | grep -Fq 'logging-pipeline-must-not-collect'
