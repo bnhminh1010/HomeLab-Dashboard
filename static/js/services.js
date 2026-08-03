@@ -55,6 +55,11 @@ export function createServicesController({ api, toast, onChanged }) {
   const grid = document.getElementById("services-grid");
   const empty = document.getElementById("services-empty");
   const count = document.getElementById("services-count");
+  const filterCount = document.getElementById("services-filter-count");
+  const filterInput = document.getElementById("services-filter-input");
+  const filterButtons = [...document.querySelectorAll("[data-service-filter]")];
+  const filterBar = document.getElementById("services-filter-bar");
+  const filterToggle = document.getElementById("services-filter-toggle");
   const focusAdd = document.getElementById("focus-add-service");
   const menu = document.getElementById("context-menu");
   const serviceDialog = document.getElementById("service-dialog");
@@ -72,6 +77,8 @@ export function createServicesController({ api, toast, onChanged }) {
   let initialized = false;
   let menuTrigger = null;
   let dialogInvoker = null;
+  let filter = "all";
+  let filterText = "";
 
   function validate(payload) {
     let displayValue = payload.displayUrl.trim();
@@ -196,6 +203,48 @@ export function createServicesController({ api, toast, onChanged }) {
     return { total: services.length, up, down, unknown: Math.max(0, services.length - up - down) };
   }
 
+  function matchesFilter(service) {
+    const haystack = [service.name, service.displayUrl, service.probeUrl, service.status].join(" ").toLowerCase();
+    if (filterText && !haystack.includes(filterText)) return false;
+    if (filter === "up") return UP_STATES.has(service.status);
+    if (filter === "attention") return DOWN_STATES.has(service.status) || ["degraded", "warning"].includes(service.status);
+    if (filter === "unknown") return !UP_STATES.has(service.status) && !DOWN_STATES.has(service.status) && !["degraded", "warning"].includes(service.status);
+    return true;
+  }
+
+  function applyFilter() {
+    let visible = 0;
+    for (const service of services) {
+      const card = cards.get(service.key);
+      if (!card) continue;
+      const matches = matchesFilter(service);
+      card.hidden = !matches;
+      if (matches) visible += 1;
+    }
+    filterCount.textContent = `${visible} / ${services.length} SHOWN`;
+    const activeFilters = Number(filter !== "all") + Number(Boolean(filterText));
+    if (filterToggle) filterToggle.textContent = activeFilters ? `FILTERS · ${activeFilters}` : "FILTERS";
+    grid.hidden = services.length === 0;
+    empty.hidden = services.length !== 0 && visible !== 0;
+    if (services.length > 0 && visible === 0) {
+      empty.querySelector("strong").textContent = "No services match this filter";
+      empty.querySelector("span").textContent = "Choose All to restore the complete endpoint inventory.";
+    } else {
+      empty.querySelector("strong").textContent = "No services configured";
+      empty.querySelector("span").textContent = "Use Add Service to register your first endpoint.";
+    }
+  }
+
+  function setFilter(next) {
+    filter = ["all", "attention", "up", "unknown"].includes(next) ? next : "all";
+    for (const button of filterButtons) {
+      const active = button.dataset.serviceFilter === filter;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+    applyFilter();
+  }
+
   function render(nextServices) {
     initialized = true;
     const focused = grid.contains(document.activeElement) ? document.activeElement : null;
@@ -221,8 +270,7 @@ export function createServicesController({ api, toast, onChanged }) {
       updateCard(card, service);
       grid.append(card);
     }
-    grid.hidden = services.length === 0;
-    empty.hidden = services.length !== 0;
+    applyFilter();
     if (focused?.isConnected && document.activeElement !== focused) focused.focus({ preventScroll: true });
     return summary();
   }
@@ -372,6 +420,17 @@ export function createServicesController({ api, toast, onChanged }) {
   });
 
   focusAdd.addEventListener("click", () => openCreate(focusAdd));
+  filterToggle?.addEventListener("click", () => {
+    const expanded = filterToggle.getAttribute("aria-expanded") !== "true";
+    filterToggle.setAttribute("aria-expanded", String(expanded));
+    if (filterBar) filterBar.dataset.collapsed = String(!expanded);
+    if (expanded) window.requestAnimationFrame(() => filterInput?.focus({ preventScroll: true }));
+  });
+  for (const button of filterButtons) button.addEventListener("click", () => setFilter(button.dataset.serviceFilter));
+  filterInput?.addEventListener("input", () => {
+    filterText = filterInput.value.trim().toLowerCase();
+    applyFilter();
+  });
   document.addEventListener("pointerdown", (event) => {
     if (!menu.hidden && !menu.contains(event.target) && event.target !== menuTrigger) closeMenu(false);
   });
@@ -429,6 +488,23 @@ export function createServicesController({ api, toast, onChanged }) {
       admin = Boolean(value);
       if (initialized) return render(services);
       return summary();
+    },
+    focusFilter() {
+      if (filterToggle && filterBar) {
+        filterToggle.setAttribute("aria-expanded", "true");
+        filterBar.dataset.collapsed = "false";
+      }
+      filterInput?.focus({ preventScroll: true });
+    },
+    applyRoute({ state = "all", query = "" } = {}) {
+      const nextQuery = String(query || "").slice(0, 160);
+      if (filterInput) filterInput.value = nextQuery;
+      filterText = nextQuery.trim().toLowerCase();
+      setFilter(state);
+      if (filterToggle && filterBar && (filter !== "all" || filterText)) {
+        filterToggle.setAttribute("aria-expanded", "true");
+        filterBar.dataset.collapsed = "false";
+      }
     },
   };
 }

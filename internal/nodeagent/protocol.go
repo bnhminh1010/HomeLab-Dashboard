@@ -61,7 +61,7 @@ func agentCommandType(messageType string) bool {
 	switch messageType {
 	case nodes.MessageLogsOpen, nodes.MessageLogsCancel, nodes.MessageExecOpen,
 		nodes.MessageHostOpen, nodes.MessageStreamInput, nodes.MessageStreamResize,
-		nodes.MessageStreamCancel:
+		nodes.MessageStreamCancel, nodes.MessageContainerRestart, nodes.MessageContainerStop:
 		return true
 	default:
 		return false

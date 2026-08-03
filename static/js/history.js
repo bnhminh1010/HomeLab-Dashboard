@@ -187,6 +187,7 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
   let resources = { container: [], service: [] };
   let resourceSignatures = { container: "", service: "" };
   const selectedResources = { container: "", service: "" };
+  let requestedResource = "";
 
   function selectRange(next) {
     range = RANGE_LABELS.has(next) ? next : "24h";
@@ -213,7 +214,7 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
       return;
     }
     const available = resources[kind];
-    const prior = selectedResources[kind];
+    const prior = requestedResource || selectedResources[kind];
     resourceSelect.replaceChildren();
     for (const resource of available) {
       const option = document.createElement("option");
@@ -221,7 +222,9 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
       option.textContent = resource.label;
       resourceSelect.append(option);
     }
-    selectedResources[kind] = available.some((resource) => resource.id === prior) ? prior : (available[0]?.id || "");
+    const requestedAvailable = available.some((resource) => resource.id === prior);
+    selectedResources[kind] = requestedAvailable ? prior : (available[0]?.id || "");
+    if (requestedResource && (requestedAvailable || available.length > 0)) requestedResource = "";
     resourceSelect.value = selectedResources[kind];
     resourceSelect.disabled = available.length === 0;
     const selected = available.find((resource) => resource.id === selectedResources[kind]);
@@ -382,6 +385,15 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
     },
     activate() {
       window.requestAnimationFrame(() => chart?.resize());
+    },
+    applyRoute({ range: nextRange, kind: nextKind, resource = "", refresh: shouldRefresh = true } = {}) {
+      if (nextRange) selectRange(nextRange);
+      if (nextKind) selectKind(nextKind);
+      requestedResource = kind === "system" ? "" : String(resource || "").slice(0, 200);
+      if (requestedResource) selectedResources[kind] = requestedResource;
+      syncResourcePicker();
+      onRangeChange?.(range, false);
+      if (shouldRefresh) refresh();
     },
     refresh,
     setRange,

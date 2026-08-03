@@ -64,15 +64,22 @@ function updateMetric(metric, displayValue, progressValue) {
   setProgress(metric.refs.bar, progressValue);
 }
 
-export function createContainersController({ terminal, toast }) {
+export function createContainersController({ terminal, api, toast, onLifecycle }) {
   const list = document.getElementById("containers-list");
   const empty = document.getElementById("containers-empty");
   const count = document.getElementById("containers-count");
+  const filterCount = document.getElementById("containers-filter-count");
+  const filterInput = document.getElementById("containers-filter-input");
+  const filterButtons = [...document.querySelectorAll("[data-container-filter]")];
+  const filterBar = document.getElementById("containers-filter-bar");
+  const filterToggle = document.getElementById("containers-filter-toggle");
   const items = new Map();
   let admin = false;
   let nodeId = "local";
   let containers = [];
   let initialized = false;
+  let filter = "all";
+  let filterText = "";
 
   function createItem() {
     const article = document.createElement("article");
@@ -109,17 +116,27 @@ export function createContainersController({ terminal, toast }) {
     const logs = document.createElement("button");
     logs.type = "button";
     logs.className = "container-action";
-    logs.textContent = "▶ LOGS";
+    logs.textContent = "LIVE LOGS";
     logs.addEventListener("click", () => openTerminal(logs, article.container, "logs"));
     const exec = document.createElement("button");
     exec.type = "button";
     exec.className = "container-action";
-    exec.textContent = "⌁ CONTAINER SHELL";
+    exec.textContent = "SHELL";
     exec.addEventListener("click", () => openTerminal(exec, article.container, "exec"));
-    actions.append(logs, exec);
+    const restart = document.createElement("button");
+    restart.type = "button";
+    restart.className = "container-action";
+    restart.textContent = "RESTART";
+    restart.addEventListener("click", () => runLifecycle(restart, article.container, "restart"));
+    const stop = document.createElement("button");
+    stop.type = "button";
+    stop.className = "container-action container-action-danger";
+    stop.textContent = "STOP";
+    stop.addEventListener("click", () => runLifecycle(stop, article.container, "stop"));
+    actions.append(logs, exec, restart, stop);
 
     article.append(heading, subtitle, telemetry, actions);
-    article.refs = { name, state, stateLabel, subtitle, telemetry, metrics, cpu, memory, ports, logs, exec };
+    article.refs = { name, state, stateLabel, subtitle, telemetry, metrics, cpu, memory, ports, logs, exec, restart, stop };
     return article;
   }
 
@@ -127,7 +144,7 @@ export function createContainersController({ terminal, toast }) {
     article.container = container;
     article.dataset.containerId = container.id;
     article.dataset.state = container.state;
-    const { name, state, stateLabel, subtitle, telemetry, metrics, cpu, memory, ports, logs, exec } = article.refs;
+    const { name, state, stateLabel, subtitle, telemetry, metrics, cpu, memory, ports, logs, exec, restart, stop } = article.refs;
     name.textContent = container.name;
     name.title = container.name;
     state.dataset.state = container.state;
@@ -156,12 +173,62 @@ export function createContainersController({ terminal, toast }) {
     exec.disabled = !admin || !running || container.protected || container.actions.exec === false || !container.id;
     exec.title = !admin ? "Admin role required" : container.protected ? "Protected container" : !running ? "Container is not running" : "Open container shell";
     exec.setAttribute("aria-label", `Open shell in ${container.name}`);
+    const lifecycleAvailable = typeof api?.restartContainer === "function" && typeof api?.stopContainer === "function";
+    const lifecycleReason = !lifecycleAvailable ? "Dashboard version does not support lifecycle actions" : !admin ? "Admin role required" : container.protected ? "Protected container" : !running ? "Container is not running" : "";
+    restart.disabled = Boolean(lifecycleReason) || container.actions.restart !== true || !container.id;
+    stop.disabled = Boolean(lifecycleReason) || container.actions.stop !== true || !container.id;
+    restart.title = lifecycleReason || "Restart this container";
+    stop.title = lifecycleReason || "Stop this container";
+    restart.setAttribute("aria-label", `Restart ${container.name}`);
+    stop.setAttribute("aria-label", `Stop ${container.name}`);
   }
 
   function summary() {
     const running = containers.filter((container) => RUNNING_STATES.has(container.state)).length;
     const issue = containers.filter((container) => ISSUE_STATES.has(container.state)).length;
     return { total: containers.length, running, issue, stopped: Math.max(0, containers.length - running - issue) };
+  }
+
+  function matchesFilter(container) {
+    const haystack = [container.name, container.image, container.state].join(" ").toLowerCase();
+    if (filterText && !haystack.includes(filterText)) return false;
+    if (filter === "running") return RUNNING_STATES.has(container.state);
+    if (filter === "attention") return ISSUE_STATES.has(container.state);
+    if (filter === "stopped") return !RUNNING_STATES.has(container.state) && !ISSUE_STATES.has(container.state);
+    return true;
+  }
+
+  function applyFilter() {
+    let visible = 0;
+    for (const container of containers) {
+      const item = items.get(container.key);
+      if (!item) continue;
+      const matches = matchesFilter(container);
+      item.hidden = !matches;
+      if (matches) visible += 1;
+    }
+    filterCount.textContent = `${visible} / ${containers.length} SHOWN`;
+    const activeFilters = Number(filter !== "all") + Number(Boolean(filterText));
+    if (filterToggle) filterToggle.textContent = activeFilters ? `FILTERS · ${activeFilters}` : "FILTERS";
+    list.hidden = containers.length === 0;
+    empty.hidden = containers.length !== 0 && visible !== 0;
+    if (containers.length > 0 && visible === 0) {
+      empty.querySelector("strong").textContent = "No containers match this filter";
+      empty.querySelector("span").textContent = "Choose All to restore the complete Podman inventory.";
+    } else {
+      empty.querySelector("strong").textContent = "No containers running";
+      empty.querySelector("span").textContent = "The Podman host returned an empty inventory.";
+    }
+  }
+
+  function setFilter(next) {
+    filter = ["all", "attention", "running", "stopped"].includes(next) ? next : "all";
+    for (const button of filterButtons) {
+      const active = button.dataset.containerFilter === filter;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+    applyFilter();
   }
 
   function render(nextContainers) {
@@ -187,8 +254,7 @@ export function createContainersController({ terminal, toast }) {
       updateItem(item, container);
       list.append(item);
     }
-    list.hidden = containers.length === 0;
-    empty.hidden = containers.length !== 0;
+    applyFilter();
     return summary();
   }
 
@@ -205,6 +271,36 @@ export function createContainersController({ terminal, toast }) {
     }
   }
 
+  async function runLifecycle(control, container, action) {
+    if (!admin || !control || !container || control.disabled) return;
+    const verb = action === "stop" ? "Stop" : "Restart";
+    if (!window.confirm(`${verb} ${container.name} on ${nodeId}? This changes the running workload.`)) return;
+    control.disabled = true;
+    try {
+      if (action === "restart") await api.restartContainer(container.id, nodeId);
+      else await api.stopContainer(container.id, nodeId);
+      toast(`${container.name}: ${verb.toLowerCase()} requested.`, "success");
+      await onLifecycle?.();
+    } catch (error) {
+      toast(error?.message || `Unable to ${action} ${container.name}.`, "error");
+    } finally {
+      const item = control.closest(".container-item");
+      if (item?.container) updateItem(item, item.container);
+    }
+  }
+
+  for (const button of filterButtons) button.addEventListener("click", () => setFilter(button.dataset.containerFilter));
+  filterToggle?.addEventListener("click", () => {
+    const expanded = filterToggle.getAttribute("aria-expanded") !== "true";
+    filterToggle.setAttribute("aria-expanded", String(expanded));
+    if (filterBar) filterBar.dataset.collapsed = String(!expanded);
+    if (expanded) window.requestAnimationFrame(() => filterInput?.focus({ preventScroll: true }));
+  });
+  filterInput?.addEventListener("input", () => {
+    filterText = filterInput.value.trim().toLowerCase();
+    applyFilter();
+  });
+
   return {
     render,
     setAdmin(value) {
@@ -217,6 +313,23 @@ export function createContainersController({ terminal, toast }) {
     },
     open(container, mode, invoker) {
       return openTerminal(invoker, container, mode);
+    },
+    focusFilter() {
+      if (filterToggle && filterBar) {
+        filterToggle.setAttribute("aria-expanded", "true");
+        filterBar.dataset.collapsed = "false";
+      }
+      filterInput?.focus({ preventScroll: true });
+    },
+    applyRoute({ state = "all", query = "" } = {}) {
+      const nextQuery = String(query || "").slice(0, 160);
+      if (filterInput) filterInput.value = nextQuery;
+      filterText = nextQuery.trim().toLowerCase();
+      setFilter(state);
+      if (filterToggle && filterBar && (filter !== "all" || filterText)) {
+        filterToggle.setAttribute("aria-expanded", "true");
+        filterBar.dataset.collapsed = "false";
+      }
     },
   };
 }

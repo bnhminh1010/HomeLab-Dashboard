@@ -111,20 +111,25 @@
           <strong id="overview-health" class="health-value" data-state="waiting"><span class="status-dot" aria-hidden="true"></span>WAITING</strong>
           <span id="overview-health-detail" class="health-detail">Connecting to the dashboard</span>
         </div>
-        <div class="health-cell">
-          <span class="health-label">METRICS STREAM</span>
-          <strong id="overview-connection" class="health-value mono" data-state="connecting">CONNECTING</strong>
-          <span id="overview-updated" class="health-detail mono">No snapshot yet</span>
-        </div>
-        <div class="health-cell">
+        <button id="overview-attention-kpi" class="health-cell health-cell-action" type="button" aria-label="Open active alerts">
+          <span class="health-label">NEEDS ATTENTION</span>
+          <strong id="overview-attention-total" class="health-value mono">0 ACTIVE</strong>
+          <span id="overview-attention-detail" class="health-detail">No monitored incidents</span>
+        </button>
+        <button id="overview-services-kpi" class="health-cell health-cell-action" type="button" aria-label="Open services inventory">
           <span class="health-label">SERVICES</span>
           <strong id="overview-services" class="health-value mono">0 / 0 UP</strong>
           <span id="overview-services-detail" class="health-detail">Waiting for inventory</span>
-        </div>
-        <div class="health-cell">
+        </button>
+        <button id="overview-containers-kpi" class="health-cell health-cell-action" type="button" aria-label="Open containers inventory">
           <span class="health-label">CONTAINERS</span>
           <strong id="overview-containers" class="health-value mono">0 / 0 RUNNING</strong>
           <span id="overview-containers-detail" class="health-detail">Waiting for Podman</span>
+        </button>
+        <div class="health-cell">
+          <span class="health-label">DATA FRESHNESS</span>
+          <strong id="overview-connection" class="health-value mono" data-state="connecting">CONNECTING</strong>
+          <span id="overview-updated" class="health-detail mono">No snapshot yet</span>
         </div>
       </section>
 
@@ -147,19 +152,43 @@
           </div>
         </section>
 
-        <section id="overview-service-pulse" class="panel overview-service-pulse" aria-labelledby="overview-service-pulse-title" hidden>
+        <section id="overview-trend" class="panel overview-trend" aria-labelledby="overview-trend-title">
           <header class="panel-header compact">
             <div>
-              <h2 id="overview-service-pulse-title">Probe Results</h2>
+              <h2 id="overview-trend-title">Resource Trend</h2>
             </div>
-            <span id="overview-service-pulse-count" class="count-badge mono">0</span>
+            <div class="panel-actions">
+              <button id="overview-trend-open" class="text-button" type="button">OPEN HISTORY</button>
+              <button id="overview-trend-refresh" class="text-button" type="button">REFRESH</button>
+            </div>
           </header>
-          <div id="overview-service-pulse-list" class="overview-action-list"></div>
-          <div id="overview-service-pulse-empty" class="overview-empty-state">No services with a configured probe.</div>
+          <div id="overview-trend-chart-wrap" class="overview-trend-chart-wrap" aria-busy="false">
+            <canvas id="overview-trend-chart" width="640" height="190" aria-label="24-hour CPU, memory, and disk utilization trend"></canvas>
+            <div id="overview-trend-status" class="overview-trend-status" role="status">Open Overview to load 24-hour history.</div>
+          </div>
+          <footer class="overview-trend-footer mono">
+            <span id="overview-trend-node">NODE · LOCAL</span>
+            <span id="overview-trend-resolution">24H · WAITING</span>
+          </footer>
+        </section>
+
+        <section id="overview-recent-changes" class="panel overview-recent-changes" aria-labelledby="overview-recent-changes-title">
+          <header class="panel-header compact">
+            <div>
+              <h2 id="overview-recent-changes-title">Recent Changes</h2>
+            </div>
+            <button id="overview-recent-changes-refresh" class="text-button" type="button">REFRESH</button>
+          </header>
+          <div id="overview-recent-changes-list" class="overview-action-list" aria-label="Recent operational changes"></div>
+          <div id="overview-recent-changes-empty" class="overview-empty-state">No recorded operational changes in the last 24 hours.</div>
+          <footer class="overview-trend-footer mono">
+            <span id="overview-recent-changes-node">NODE · LOCAL</span>
+            <span id="overview-recent-changes-status" role="status" aria-live="polite" aria-atomic="true">24H · WAITING</span>
+          </footer>
         </section>
       </div>
 
-      <aside class="overview-secondary" aria-label="Host snapshot and 24-hour trend">
+      <aside class="overview-secondary" aria-label="Host snapshot and probe coverage">
         <section id="system-card" class="panel system-panel" aria-labelledby="system-title system-hostname" aria-busy="true">
           <header class="panel-header">
             <div>
@@ -218,21 +247,18 @@
           </footer>
         </section>
 
-        <section id="overview-trend" class="panel overview-trend" aria-labelledby="overview-trend-title">
+        <section id="overview-service-pulse" class="panel overview-service-pulse" aria-labelledby="overview-service-pulse-title">
           <header class="panel-header compact">
             <div>
-              <h2 id="overview-trend-title">Resource Trend</h2>
+              <h2 id="overview-service-pulse-title">Probe Coverage</h2>
             </div>
-            <button id="overview-trend-refresh" class="text-button" type="button">REFRESH</button>
+            <div class="panel-actions">
+              <span class="panel-context mono">CONFIGURED / TOTAL</span>
+              <span id="overview-service-pulse-count" class="count-badge mono">0 / 0</span>
+            </div>
           </header>
-          <div id="overview-trend-chart-wrap" class="overview-trend-chart-wrap" aria-busy="false">
-            <canvas id="overview-trend-chart" width="640" height="190" aria-label="24-hour CPU, memory, and disk utilization trend"></canvas>
-            <div id="overview-trend-status" class="overview-trend-status" role="status">Open Overview to load 24-hour history.</div>
-          </div>
-          <footer class="overview-trend-footer mono">
-            <span id="overview-trend-node">NODE · LOCAL</span>
-            <span id="overview-trend-resolution">24H · WAITING</span>
-          </footer>
+          <div id="overview-service-pulse-list" class="overview-action-list"></div>
+          <div id="overview-service-pulse-empty" class="overview-empty-state">No services have a configured health probe.</div>
         </section>
       </aside>
       </div>
@@ -349,9 +375,21 @@
             <div class="panel-actions">
               <span id="services-stale" class="badge badge-degraded" hidden>⚠ STALE</span>
               <span id="services-count" class="count-badge mono">0</span>
+              <button id="services-filter-toggle" class="text-button inventory-filter-toggle" type="button" aria-controls="services-filter-bar" aria-expanded="false">FILTERS</button>
               <button id="focus-add-service" class="button button-ghost button-small admin-only" type="button">+ ADD SERVICE</button>
             </div>
           </header>
+          <div id="services-filter-bar" class="inventory-filter-bar" role="group" aria-label="Filter services" data-collapsed="true">
+            <label class="visually-hidden" for="services-filter-input">Filter services by name, endpoint, or status</label>
+            <input id="services-filter-input" class="inventory-filter-input mono" data-workspace-filter type="search" placeholder="FILTER NAME OR ENDPOINT" autocomplete="off" />
+            <div class="inventory-filter-controls">
+              <button class="inventory-filter is-active" type="button" data-service-filter="all" aria-pressed="true">ALL</button>
+              <button class="inventory-filter" type="button" data-service-filter="attention" aria-pressed="false">NEEDS ATTENTION</button>
+              <button class="inventory-filter" type="button" data-service-filter="up" aria-pressed="false">UP</button>
+              <button class="inventory-filter" type="button" data-service-filter="unknown" aria-pressed="false">NO PROBE</button>
+            </div>
+            <span id="services-filter-count" class="inventory-filter-count mono" aria-live="polite">0 / 0 SHOWN</span>
+          </div>
           <div class="services-table-head mono" aria-hidden="true">
             <span>Service</span><span>Endpoint</span><span>Status</span><span>Latency</span><span>Checked</span><span></span>
           </div>
@@ -382,8 +420,22 @@
             <div>
               <h2 id="containers-title" tabindex="-1">Containers</h2>
             </div>
-            <span id="containers-count" class="count-badge mono">0</span>
+            <div class="panel-actions">
+              <span id="containers-count" class="count-badge mono">0</span>
+              <button id="containers-filter-toggle" class="text-button inventory-filter-toggle" type="button" aria-controls="containers-filter-bar" aria-expanded="false">FILTERS</button>
+            </div>
           </header>
+          <div id="containers-filter-bar" class="inventory-filter-bar" role="group" aria-label="Filter containers" data-collapsed="true">
+            <label class="visually-hidden" for="containers-filter-input">Filter containers by name, image, or state</label>
+            <input id="containers-filter-input" class="inventory-filter-input mono" data-workspace-filter type="search" placeholder="FILTER NAME, IMAGE, OR STATE" autocomplete="off" />
+            <div class="inventory-filter-controls">
+              <button class="inventory-filter is-active" type="button" data-container-filter="all" aria-pressed="true">ALL</button>
+              <button class="inventory-filter" type="button" data-container-filter="attention" aria-pressed="false">NEEDS ATTENTION</button>
+              <button class="inventory-filter" type="button" data-container-filter="running" aria-pressed="false">RUNNING</button>
+              <button class="inventory-filter" type="button" data-container-filter="stopped" aria-pressed="false">STOPPED</button>
+            </div>
+            <span id="containers-filter-count" class="inventory-filter-count mono" aria-live="polite">0 / 0 SHOWN</span>
+          </div>
           <div id="containers-list" class="containers-list" aria-busy="true">
             <div class="container-item skeleton-container" aria-hidden="true"></div>
             <div class="container-item skeleton-container" aria-hidden="true"></div>
@@ -514,6 +566,11 @@
           <div class="subsection-header"><h3 id="alert-rules-title">RULES</h3><button id="alert-rule-add" class="button button-ghost button-small admin-only" type="button">+ NEW RULE</button></div>
           <div id="alert-rules-list" class="management-list"><div class="skeleton-line"></div></div>
         </section>
+        <section aria-labelledby="maintenance-windows-title">
+          <div class="subsection-header"><h3 id="maintenance-windows-title">MAINTENANCE WINDOWS</h3><button id="maintenance-window-add" class="button button-ghost button-small admin-only" type="button">+ NEW WINDOW</button></div>
+          <p class="panel-context mono">Recurring local-time periods suppress delivery only; alert state remains visible.</p>
+          <div id="maintenance-windows-list" class="management-list"><div class="skeleton-line"></div></div>
+        </section>
         <section aria-labelledby="alert-events-title">
           <div class="subsection-header"><h3 id="alert-events-title">RECENT EVENTS</h3></div>
           <div id="alert-events-list" class="management-list"><div class="skeleton-line"></div></div>
@@ -541,10 +598,32 @@
         <label><span>FOR (SECONDS)</span><input name="forSeconds" type="number" min="0" max="2592000" value="300" required></label>
         <label><span>COOLDOWN (SECONDS)</span><input name="cooldownSeconds" type="number" min="0" max="2592000" value="1800" required></label>
         <label><span>SEVERITY</span><select name="severity"><option value="warning">Warning</option><option value="critical">Critical</option><option value="info">Info</option></select></label>
+        <label class="full"><span>RUNBOOK URL <small>(optional)</small></span><input name="runbookUrl" type="url" maxlength="2048" placeholder="https://wiki.example.net/runbooks/service-alert"></label>
         <label class="check-field"><input name="enabled" type="checkbox" checked><span>RULE ENABLED</span></label>
       </div>
       <p id="alert-rule-error" class="form-error" role="alert" hidden></p>
       <footer><button class="button button-ghost" type="button" data-dialog-close>CANCEL</button><button id="alert-rule-submit" class="button button-primary" type="submit">SAVE RULE</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="maintenance-window-dialog" class="modal" aria-labelledby="maintenance-window-dialog-title">
+    <form id="maintenance-window-form" class="modal-form" autocomplete="off">
+      <header><div><h2 id="maintenance-window-dialog-title">New maintenance window</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close maintenance editor">×</button></header>
+      <input name="id" type="hidden">
+      <p class="panel-context">The rule engine still evaluates alerts. Matching notifications are held until this recurring window ends.</p>
+      <div class="form-grid form-grid-rules">
+        <label class="full"><span>WINDOW NAME</span><input name="name" type="text" maxlength="160" required placeholder="e.g. Sunday storage maintenance"></label>
+        <label><span>RESOURCE</span><select name="resourceType"><option value="node">Node</option><option value="host">Host</option><option value="disk">Disk</option><option value="service">Service</option><option value="container">Container</option><option value="backup">Backup</option></select></label>
+        <label><span>TIMEZONE</span><input name="timezone" type="text" maxlength="128" required value="Asia/Ho_Chi_Minh" placeholder="Asia/Ho_Chi_Minh"></label>
+        <label><span>NODE SELECTOR</span><input name="nodeSelector" type="text" maxlength="256" value="*" required></label>
+        <label><span>RESOURCE SELECTOR</span><input name="resourceSelector" type="text" maxlength="256" value="*" required></label>
+        <label><span>START (LOCAL TIME)</span><input name="start" type="time" required value="01:00"></label>
+        <label><span>DURATION (MINUTES)</span><input name="durationMinutes" type="number" min="1" max="1440" required value="60"></label>
+        <fieldset class="weekday-field full"><legend>WEEKDAYS</legend><div><label><input name="weekday" type="checkbox" value="1" checked> MON</label><label><input name="weekday" type="checkbox" value="2" checked> TUE</label><label><input name="weekday" type="checkbox" value="3" checked> WED</label><label><input name="weekday" type="checkbox" value="4" checked> THU</label><label><input name="weekday" type="checkbox" value="5" checked> FRI</label><label><input name="weekday" type="checkbox" value="6"> SAT</label><label><input name="weekday" type="checkbox" value="0"> SUN</label></div></fieldset>
+        <label class="check-field"><input name="enabled" type="checkbox" checked><span>WINDOW ENABLED</span></label>
+      </div>
+      <p id="maintenance-window-error" class="form-error" role="alert" hidden></p>
+      <footer><button class="button button-ghost" type="button" data-dialog-close>CANCEL</button><button id="maintenance-window-submit" class="button button-primary" type="submit">SAVE WINDOW</button></footer>
     </form>
   </dialog>
 
@@ -569,13 +648,28 @@
       <header><div><h2 id="settings-title">Dashboard settings</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close settings">×</button></header>
       <section class="settings-section" aria-labelledby="config-transfer-title">
         <div class="subsection-header"><h3 id="config-transfer-title">EXPORT / IMPORT</h3><button id="config-export" class="button button-ghost button-small admin-only" type="button">EXPORT JSON</button></div>
-        <p>Transfers services, alert rules, UI preferences, and node display metadata. Secrets, credentials, metrics, logs, and audit records are never included.</p>
+        <p>Transfers services, alert rules, UI preferences, and node display metadata. Secrets, credentials, metrics, logs, audit records, and local maintenance schedules are never included.</p>
         <label class="file-picker admin-only"><span>CONFIG FILE (MAX 1 MIB)</span><input id="config-file" type="file" accept="application/json,.json"></label>
         <fieldset id="config-mode" class="mode-picker admin-only"><legend>IMPORT MODE</legend><label><input type="radio" name="config-import-mode" value="merge" checked> Merge (recommended)</label><label><input type="radio" name="config-import-mode" value="replace"> Replace existing configuration</label></fieldset>
         <div class="settings-actions admin-only"><button id="config-preview" class="button button-ghost" type="button" disabled>PREVIEW CHANGES</button><button id="config-apply" class="button button-danger" type="button" disabled>APPLY IMPORT</button></div>
         <div id="config-preview-result" class="config-preview" role="status"><span>Select a JSON file to preview an import.</span></div>
       </section>
       <p id="settings-status" class="dialog-status mono" role="status"></p>
+    </div>
+  </dialog>
+
+  <dialog id="keyboard-shortcuts-dialog" class="modal modal-small" aria-labelledby="keyboard-shortcuts-title" aria-describedby="keyboard-shortcuts-description">
+    <div class="modal-form shortcut-dialog">
+      <header><div><h2 id="keyboard-shortcuts-title">Keyboard shortcuts</h2></div><button id="keyboard-shortcuts-close" class="icon-button" type="button" aria-label="Close keyboard shortcuts">×</button></header>
+      <p id="keyboard-shortcuts-description">Shortcuts are disabled while typing in a field, using the terminal, or when another dialog is open.</p>
+      <dl class="shortcut-list">
+        <div><dt><kbd>g</kbd> then <kbd>o</kbd>/<kbd>s</kbd>/<kbd>c</kbd>/<kbd>n</kbd>/<kbd>h</kbd>/<kbd>l</kbd>/<kbd>a</kbd>/<kbd>t</kbd></dt><dd>Overview · Services · Containers · Nodes · History · Logs · Alerts · Topology</dd></div>
+        <div><dt><kbd>/</kbd></dt><dd>Focus the visible inventory filter</dd></div>
+        <div><dt><kbd>Ctrl</kbd> + <kbd>`</kbd></dt><dd>Focus terminal workbench</dd></div>
+        <div><dt><kbd>?</kbd></dt><dd>Show this list</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Close the current dialog or menu</dd></div>
+      </dl>
+      <footer><button id="keyboard-shortcuts-dismiss" class="button button-ghost" type="button">CLOSE</button></footer>
     </div>
   </dialog>
 

@@ -16,6 +16,17 @@ const (
 	remoteOutputBuffers = 16
 )
 
+type commandRequest struct {
+	nodeID     string
+	generation uint64
+	result     chan commandResponse
+}
+
+type commandResponse struct {
+	result CommandResult
+	err    error
+}
+
 var ErrStreamBackpressure = errors.New("nodes: remote stream output exceeded its buffer")
 
 type Stream struct {
@@ -112,6 +123,62 @@ func (r *Registry) OpenStream(ctx context.Context, nodeID, messageType string, p
 	case <-timer.C:
 		stream.closeWith(errors.New("nodes: remote stream open timed out"))
 		return nil, errors.New("nodes: remote stream open timed out")
+	}
+}
+
+// Execute sends one bounded, non-interactive container lifecycle command to a
+// connected node agent and waits for its typed command.result response.
+func (r *Registry) Execute(ctx context.Context, nodeID, messageType string, payload any) (CommandResult, error) {
+	switch messageType {
+	case MessageContainerRestart, MessageContainerStop:
+	default:
+		return CommandResult{}, ErrProtocolType
+	}
+	requestID, err := randomRequestID()
+	if err != nil {
+		return CommandResult{}, err
+	}
+	r.lifecycle.RLock()
+	r.mu.RLock()
+	connection := r.connections[nodeID]
+	if connection == nil || r.isOffline(connection, r.now().UTC()) {
+		r.mu.RUnlock()
+		r.lifecycle.RUnlock()
+		return CommandResult{}, ErrNodeOffline
+	}
+	generation := connection.generation
+	r.mu.RUnlock()
+	request := &commandRequest{nodeID: nodeID, generation: generation, result: make(chan commandResponse, 1)}
+	r.mu.Lock()
+	r.commands[requestID] = request
+	r.mu.Unlock()
+	err = r.Send(ctx, nodeID, messageType, requestID, payload)
+	r.lifecycle.RUnlock()
+	if err != nil {
+		r.unregisterCommand(requestID, request)
+		return CommandResult{}, err
+	}
+	timer := time.NewTimer(remoteOpenTimeout)
+	defer timer.Stop()
+	select {
+	case response := <-request.result:
+		if response.err != nil {
+			return CommandResult{}, response.err
+		}
+		if !response.result.OK {
+			message := response.result.Message
+			if message == "" {
+				message = "remote container action was rejected"
+			}
+			return CommandResult{}, fmt.Errorf("nodes: %s: %s", response.result.Code, message)
+		}
+		return response.result, nil
+	case <-ctx.Done():
+		r.unregisterCommand(requestID, request)
+		return CommandResult{}, ctx.Err()
+	case <-timer.C:
+		r.unregisterCommand(requestID, request)
+		return CommandResult{}, errors.New("nodes: remote container action timed out")
 	}
 }
 
@@ -291,10 +358,49 @@ func (stream *Stream) signalTerminal(err error) {
 	}
 }
 
+func (r *Registry) closeNodeCommands(nodeID string, err error) {
+	r.closeNodeCommandsGeneration(nodeID, 0, err)
+}
+
+func (r *Registry) closeNodeCommandsGeneration(nodeID string, generation uint64, err error) {
+	r.mu.Lock()
+	requests := make([]*commandRequest, 0)
+	for requestID, request := range r.commands {
+		if request.nodeID == nodeID && (generation == 0 || request.generation == generation) {
+			delete(r.commands, requestID)
+			requests = append(requests, request)
+		}
+	}
+	r.mu.Unlock()
+	for _, request := range requests {
+		request.result <- commandResponse{err: err}
+	}
+}
+
 func (r *Registry) deliverCommandResult(requestID string, result CommandResult) {
+	if request := r.takeCommand(requestID); request != nil {
+		request.result <- commandResponse{result: result}
+		return
+	}
 	if stream := r.lookupStream(requestID); stream != nil {
 		stream.acceptReady(result)
 	}
+}
+
+func (r *Registry) takeCommand(requestID string) *commandRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	request := r.commands[requestID]
+	delete(r.commands, requestID)
+	return request
+}
+
+func (r *Registry) unregisterCommand(requestID string, expected *commandRequest) {
+	r.mu.Lock()
+	if r.commands[requestID] == expected {
+		delete(r.commands, requestID)
+	}
+	r.mu.Unlock()
 }
 
 func (r *Registry) deliverStreamData(requestID string, payload []byte) {

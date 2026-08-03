@@ -28,6 +28,7 @@ type alertRulePayload struct {
 	ForSeconds       int64           `json:"forSeconds"`
 	Severity         alerts.Severity `json:"severity"`
 	CooldownSeconds  int64           `json:"cooldownSeconds"`
+	RunbookURL       string          `json:"runbookUrl,omitempty"`
 	Enabled          bool            `json:"enabled"`
 	CreatedAt        time.Time       `json:"createdAt,omitempty"`
 	UpdatedAt        time.Time       `json:"updatedAt,omitempty"`
@@ -46,7 +47,7 @@ func (payload alertRulePayload) rule() alerts.AlertRule {
 		NodeSelector: payload.NodeSelector, ResourceSelector: payload.ResourceSelector,
 		Metric: payload.Metric, Operator: payload.Operator, Threshold: payload.Threshold,
 		For: time.Duration(payload.ForSeconds) * time.Second, Severity: payload.Severity,
-		Cooldown: time.Duration(payload.CooldownSeconds) * time.Second, Enabled: payload.Enabled,
+		Cooldown: time.Duration(payload.CooldownSeconds) * time.Second, RunbookURL: payload.RunbookURL, Enabled: payload.Enabled,
 	}
 }
 
@@ -56,9 +57,46 @@ func alertRuleView(rule alerts.AlertRule) alertRulePayload {
 		NodeSelector: rule.NodeSelector, ResourceSelector: rule.ResourceSelector,
 		Metric: rule.Metric, Operator: rule.Operator, Threshold: rule.Threshold,
 		ForSeconds: int64(rule.For / time.Second), Severity: rule.Severity,
-		CooldownSeconds: int64(rule.Cooldown / time.Second), Enabled: rule.Enabled,
+		CooldownSeconds: int64(rule.Cooldown / time.Second), RunbookURL: rule.RunbookURL, Enabled: rule.Enabled,
 		CreatedAt: rule.CreatedAt, UpdatedAt: rule.UpdatedAt,
 	}
+}
+
+type maintenanceWindowPayload struct {
+	ID               string    `json:"id,omitempty"`
+	Name             string    `json:"name"`
+	NodeSelector     string    `json:"nodeSelector"`
+	ResourceType     string    `json:"resourceType"`
+	ResourceSelector string    `json:"resourceSelector"`
+	Weekdays         []int     `json:"weekdays"`
+	StartMinute      int       `json:"startMinute"`
+	DurationMinutes  int       `json:"durationMinutes"`
+	Timezone         string    `json:"timezone"`
+	Enabled          bool      `json:"enabled"`
+	CreatedAt        time.Time `json:"createdAt,omitempty"`
+	UpdatedAt        time.Time `json:"updatedAt,omitempty"`
+}
+
+func (payload maintenanceWindowPayload) window() alerts.MaintenanceWindow {
+	weekdays := make([]time.Weekday, len(payload.Weekdays))
+	for index, day := range payload.Weekdays {
+		weekdays[index] = time.Weekday(day)
+	}
+	return alerts.MaintenanceWindow{ID: payload.ID, Name: payload.Name, NodeSelector: payload.NodeSelector,
+		ResourceType: payload.ResourceType, ResourceSelector: payload.ResourceSelector, Weekdays: weekdays,
+		StartMinute: payload.StartMinute, Duration: time.Duration(payload.DurationMinutes) * time.Minute,
+		Timezone: payload.Timezone, Enabled: payload.Enabled}
+}
+
+func maintenanceWindowView(window alerts.MaintenanceWindow) maintenanceWindowPayload {
+	weekdays := make([]int, len(window.Weekdays))
+	for index, day := range window.Weekdays {
+		weekdays[index] = int(day)
+	}
+	return maintenanceWindowPayload{ID: window.ID, Name: window.Name, NodeSelector: window.NodeSelector,
+		ResourceType: window.ResourceType, ResourceSelector: window.ResourceSelector, Weekdays: weekdays,
+		StartMinute: window.StartMinute, DurationMinutes: int(window.Duration / time.Minute), Timezone: window.Timezone,
+		Enabled: window.Enabled, CreatedAt: window.CreatedAt, UpdatedAt: window.UpdatedAt}
 }
 
 func (s *Server) listAlertRules(c *gin.Context) {
@@ -72,6 +110,80 @@ func (s *Server) listAlertRules(c *gin.Context) {
 		views = append(views, alertRuleView(rule))
 	}
 	c.JSON(http.StatusOK, views)
+}
+
+func (s *Server) listMaintenanceWindows(c *gin.Context) {
+	windows, err := s.options.Alerts.ListMaintenanceWindows(c.Request.Context())
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "maintenance_windows_unavailable", "Unable to list maintenance windows.", nil)
+		return
+	}
+	result := make([]maintenanceWindowPayload, 0, len(windows))
+	for _, window := range windows {
+		result = append(result, maintenanceWindowView(window))
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (s *Server) createMaintenanceWindow(c *gin.Context) {
+	principal, ok := s.authorizeMutation(c, true)
+	if !ok {
+		return
+	}
+	var payload maintenanceWindowPayload
+	if !decodeJSON(c, &payload) {
+		return
+	}
+	window := payload.window()
+	if window.ID == "" {
+		window.ID = "maintenance_" + randomAlertRuleID()
+	}
+	created, err := s.options.Alerts.CreateMaintenanceWindow(c.Request.Context(), window)
+	if err != nil {
+		s.writeMaintenanceError(c, err)
+		s.audit(c, principal, "maintenance_window.create", window.ID, "failed")
+		return
+	}
+	s.audit(c, principal, "maintenance_window.create", created.ID, "success")
+	s.recordAutomaticEvent(c.Request.Context(), operations.Event{Type: operations.EventMaintenance, Title: "Maintenance window created", Summary: created.Name, Actor: principal.Login})
+	c.JSON(http.StatusCreated, maintenanceWindowView(created))
+}
+
+func (s *Server) updateMaintenanceWindow(c *gin.Context) {
+	principal, ok := s.authorizeMutation(c, true)
+	if !ok {
+		return
+	}
+	var payload maintenanceWindowPayload
+	if !decodeJSON(c, &payload) {
+		return
+	}
+	id := strings.TrimSpace(c.Param("id"))
+	updated, err := s.options.Alerts.UpdateMaintenanceWindow(c.Request.Context(), id, payload.window())
+	if err != nil {
+		s.writeMaintenanceError(c, err)
+		s.audit(c, principal, "maintenance_window.update", id, "failed")
+		return
+	}
+	s.audit(c, principal, "maintenance_window.update", id, "success")
+	s.recordAutomaticEvent(c.Request.Context(), operations.Event{Type: operations.EventMaintenance, Title: "Maintenance window updated", Summary: updated.Name, Actor: principal.Login})
+	c.JSON(http.StatusOK, maintenanceWindowView(updated))
+}
+
+func (s *Server) deleteMaintenanceWindow(c *gin.Context) {
+	principal, ok := s.authorizeMutation(c, true)
+	if !ok {
+		return
+	}
+	id := strings.TrimSpace(c.Param("id"))
+	if err := s.options.Alerts.DeleteMaintenanceWindow(c.Request.Context(), id); err != nil {
+		s.writeMaintenanceError(c, err)
+		s.audit(c, principal, "maintenance_window.delete", id, "failed")
+		return
+	}
+	s.audit(c, principal, "maintenance_window.delete", id, "success")
+	s.recordAutomaticEvent(c.Request.Context(), operations.Event{Type: operations.EventMaintenance, Title: "Maintenance window removed", Summary: id, Actor: principal.Login})
+	c.Status(http.StatusNoContent)
 }
 
 func (s *Server) createAlertRule(c *gin.Context) {
@@ -284,6 +396,17 @@ func (s *Server) writeAlertRuleError(c *gin.Context, err error) {
 		writeError(c, http.StatusNotFound, "alert_rule_not_found", "The alert rule does not exist.", nil)
 	default:
 		writeError(c, http.StatusInternalServerError, "alert_rule_failed", "Unable to save the alert rule.", nil)
+	}
+}
+
+func (s *Server) writeMaintenanceError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, alerts.ErrInvalidMaintenance):
+		writeError(c, http.StatusUnprocessableEntity, "invalid_maintenance_window", "The maintenance window is invalid.", nil)
+	case errors.Is(err, store.ErrNotFound):
+		writeError(c, http.StatusNotFound, "maintenance_window_not_found", "The maintenance window does not exist.", nil)
+	default:
+		writeError(c, http.StatusInternalServerError, "maintenance_window_failed", "Unable to save the maintenance window.", nil)
 	}
 }
 

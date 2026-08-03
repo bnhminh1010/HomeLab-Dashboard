@@ -78,8 +78,10 @@ type NetworkStats struct {
 }
 
 type ContainerActions struct {
-	Logs bool `json:"logs"`
-	Exec bool `json:"exec"`
+	Logs    bool `json:"logs"`
+	Exec    bool `json:"exec"`
+	Restart bool `json:"restart"`
+	Stop    bool `json:"stop"`
 }
 
 type Container struct {

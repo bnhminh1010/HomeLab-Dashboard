@@ -104,6 +104,15 @@ export class DemoApi {
     }) };
   }
 
+  async listOperationalEvents({ node = "local", limit = 100 } = {}) {
+    const events = [
+      { id: 3, type: "container.restarted", source: "automatic", visibility: "normal", title: "Immich Redis restarted", summary: "Podman reported a successful restart", nodeId: node, containerId: "demo-immich-redis", actor: "binhminh@tailnet", occurredAt: new Date(Date.now() - 18 * 60_000).toISOString() },
+      { id: 2, type: "deploy", source: "manual", visibility: "normal", title: "fastCRW image updated", summary: "Rolled forward to the latest local image", nodeId: node, serviceId: "svc_crw", actor: "binhminh@tailnet", occurredAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString() },
+      { id: 1, type: "backup.reported", source: "automatic", visibility: "normal", title: "Nightly backup completed", summary: "Snapshot retention check passed", nodeId: node, occurredAt: new Date(Date.now() - 9 * 60 * 60_000).toISOString() },
+    ];
+    return { items: events.slice(0, Math.max(0, Math.min(Number(limit) || 100, 100))) };
+  }
+
   async systemHistory(node, range) {
     const count = 60;
     const span = 24 * 60 * 60 * 1000;

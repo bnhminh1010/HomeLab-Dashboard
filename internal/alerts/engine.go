@@ -23,14 +23,24 @@ type Repository interface {
 	ApplyAlertTransition(context.Context, Transition) error
 }
 
+// MaintenanceProvider is deliberately narrow: it only decides whether a
+// matching alert delivery is suppressed at a given instant. The engine still
+// stores alert state and events during maintenance for truthful post-window
+// incident visibility.
+type MaintenanceProvider interface {
+	ListMaintenanceWindows(context.Context) ([]MaintenanceWindow, error)
+}
+
 type Engine struct {
 	repository      Repository
 	clock           Clock
 	deliveryEnabled bool
+	maintenance     MaintenanceProvider
 }
 
 type EngineOptions struct {
 	DeliveryEnabled bool
+	Maintenance     MaintenanceProvider
 }
 
 type EvaluationResult struct {
@@ -52,7 +62,7 @@ func NewEngineWithOptions(repository Repository, clock Clock, options EngineOpti
 	if clock == nil {
 		clock = ClockFunc(time.Now)
 	}
-	return &Engine{repository: repository, clock: clock, deliveryEnabled: options.DeliveryEnabled}, nil
+	return &Engine{repository: repository, clock: clock, deliveryEnabled: options.DeliveryEnabled, maintenance: options.Maintenance}, nil
 }
 
 // Evaluate compares one complete set of samples with all enabled rules. The
@@ -140,7 +150,25 @@ func (e *Engine) evaluateOne(ctx context.Context, rule AlertRule, sample Sample,
 	transition.ExpectedRevision = expectedRevision
 	transition.ExpectedRuleUpdatedAt = rule.UpdatedAt
 	transition.State.Revision = expectedRevision + 1
-	return e.withDeliveryPolicy(transition), nil
+	transition = e.withDeliveryPolicy(transition)
+	if transition.Delivery == nil || e.maintenance == nil {
+		return transition, nil
+	}
+	windows, err := e.maintenance.ListMaintenanceWindows(ctx)
+	if err != nil {
+		return Transition{}, fmt.Errorf("alerts: list maintenance windows: %w", err)
+	}
+	for _, window := range windows {
+		if window.ActiveFor(sample.NodeID, sample.ResourceType, sample.ResourceID, now) {
+			transition.Delivery = nil
+			// A suppressed notification must not consume the rule cooldown.
+			// Otherwise an incident that began during maintenance could stay
+			// silent after the window closes.
+			transition.State.LastNotifiedAt = state.LastNotifiedAt
+			break
+		}
+	}
+	return transition, nil
 }
 
 func (e *Engine) withDeliveryPolicy(transition Transition) Transition {

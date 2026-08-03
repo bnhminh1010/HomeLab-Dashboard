@@ -88,8 +88,10 @@ func (c *Collector) Collect(ctx context.Context, hostCores int) ([]model.Contain
 			Ports:                formatPorts(item.Ports),
 			RestartCount:         restarts,
 			Actions: model.ContainerActions{
-				Logs: !item.Protected,
-				Exec: runtimeState == "running" && restarts <= 3 && !item.Protected,
+				Logs:    !item.Protected,
+				Exec:    runtimeState == "running" && restarts <= 3 && !item.Protected,
+				Restart: runtimeState == "running" && !item.Protected,
+				Stop:    runtimeState == "running" && !item.Protected,
 			},
 		})
 		if health == "unhealthy" || runtimeState == "restarting" || restarts > 3 {

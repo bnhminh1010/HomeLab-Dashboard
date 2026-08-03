@@ -12,10 +12,19 @@ sources:
       - io.homelab.dashboard.logs=enabled
 
 transforms:
+  opted_in:
+    type: filter
+    inputs:
+      - podman
+    # `include_labels` avoids opening non-opted-in streams. Keep this explicit
+    # guard as the enforcement point for events that the source has already
+    # discovered while a container changes state.
+    condition: '.label."io.homelab.dashboard.logs" == "enabled"'
+
   prepare_for_loki:
     type: remap
     inputs:
-      - podman
+      - opted_in
     source: |-
       # Use the operator-owned service label when present; container name is a
       # safe fallback. Neither ID nor image becomes a Loki index label.
@@ -27,10 +36,16 @@ transforms:
       # Preserve raw text, then expose a level from applications that emit a
       # JSON object to stdout. Plain-text logs remain searchable unchanged.
       .raw_message = string!(.message)
+      # Structured metadata templates must always have a value. Keeping empty
+      # fields for plain text logs avoids a template error or dropped event.
+      .request_id = ""
+      .trace_id = ""
       structured, err = parse_json(.raw_message)
       if err == null && is_object(structured) {
         .level = to_string(structured.level) ?? to_string(structured.severity) ?? ""
         .message = to_string(structured.message) ?? to_string(structured.msg) ?? .raw_message
+        .request_id = to_string(structured.request_id) ?? ""
+        .trace_id = to_string(structured.trace_id) ?? ""
       }
 
 sinks:
@@ -52,3 +67,5 @@ sinks:
       container_id: "{{ container_id }}"
       image: "{{ image }}"
       stream: "{{ stream }}"
+      request_id: "{{ request_id }}"
+      trace_id: "{{ trace_id }}"

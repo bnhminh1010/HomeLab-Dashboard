@@ -319,6 +319,11 @@ func TestRuleValidationAndOperators(t *testing.T) {
 	if !errors.Is(ValidateRule(invalidResource), ErrInvalidRule) {
 		t.Fatal("resource type without emitted metrics was accepted")
 	}
+	credentialURL := normalized
+	credentialURL.RunbookURL = "https://operator:secret@runbooks.example.test/cpu"
+	if !errors.Is(ValidateRule(credentialURL), ErrInvalidRule) {
+		t.Fatal("runbook URL with credentials was accepted")
+	}
 }
 
 func testRule() AlertRule {
@@ -356,4 +361,37 @@ func assertResult(t *testing.T, result EvaluationResult, status AlertStatus, del
 
 func lastTransition(repository *memoryRepository) Transition {
 	return repository.transitions[len(repository.transitions)-1]
+}
+
+type maintenanceRepository struct{ windows []MaintenanceWindow }
+
+func (repository maintenanceRepository) ListMaintenanceWindows(context.Context) ([]MaintenanceWindow, error) {
+	return repository.windows, nil
+}
+
+func TestMaintenanceWindowSuppressesDeliveryWithoutHidingAlertState(t *testing.T) {
+	start := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{now: start}
+	rule := testRule()
+	rule.For = 0
+	repository := newMemoryRepository(rule)
+	window := MaintenanceWindow{ID: "weekly", Name: "Weekly patching", NodeSelector: "node-a", ResourceType: "host",
+		ResourceSelector: "node-a", Weekdays: []time.Weekday{start.Weekday()}, StartMinute: 12 * 60, Duration: time.Hour, Timezone: "UTC", Enabled: true}
+	engine, err := NewEngineWithOptions(repository, clock, EngineOptions{DeliveryEnabled: true, Maintenance: maintenanceRepository{windows: []MaintenanceWindow{window}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := evaluate(t, engine, testSample(95))
+	assertResult(t, result, StatusFiring, 0)
+	transition := lastTransition(repository)
+	if transition.State.Status != StatusFiring || transition.Delivery != nil || transition.State.LastNotifiedAt != nil {
+		t.Fatalf("maintenance must preserve firing state but suppress delivery: %+v", transition)
+	}
+}
+
+func TestMaintenanceWindowRejectsUnsafeSchedule(t *testing.T) {
+	window := MaintenanceWindow{ID: "bad", Name: "Bad", ResourceType: "host", Weekdays: []time.Weekday{time.Monday}, StartMinute: 0, Duration: time.Hour, Timezone: "not/a-zone", Enabled: true}
+	if !errors.Is(ValidateMaintenance(window), ErrInvalidMaintenance) {
+		t.Fatal("invalid timezone accepted")
+	}
 }

@@ -86,6 +86,14 @@ export class DashboardApi {
     return this.request(`/api/v1/terminal/sessions/${encodeURIComponent(id)}`, { method: "DELETE", mutation: true });
   }
 
+  restartContainer(id, nodeId = "local") {
+    return this.request(`/api/v1/containers/${encodeURIComponent(id)}/restart`, { method: "POST", mutation: true, body: { nodeId } });
+  }
+
+  stopContainer(id, nodeId = "local") {
+    return this.request(`/api/v1/containers/${encodeURIComponent(id)}/stop`, { method: "POST", mutation: true, body: { nodeId } });
+  }
+
   listNodes(signal) {
     return this.request("/api/v1/nodes", { signal });
   }
@@ -190,6 +198,22 @@ export class DashboardApi {
 
   deleteAlertRule(id) {
     return this.request(`/api/v1/alert-rules/${encodeURIComponent(id)}`, { method: "DELETE", mutation: true });
+  }
+
+  listMaintenanceWindows(signal) {
+    return this.request("/api/v1/maintenance-windows", { signal });
+  }
+
+  createMaintenanceWindow(window) {
+    return this.request("/api/v1/maintenance-windows", { method: "POST", mutation: true, body: window });
+  }
+
+  updateMaintenanceWindow(id, window) {
+    return this.request(`/api/v1/maintenance-windows/${encodeURIComponent(id)}`, { method: "PATCH", mutation: true, body: window });
+  }
+
+  deleteMaintenanceWindow(id) {
+    return this.request(`/api/v1/maintenance-windows/${encodeURIComponent(id)}`, { method: "DELETE", mutation: true });
   }
 
   listAlerts({ node = "", active = true, limit = 100, signal } = {}) {

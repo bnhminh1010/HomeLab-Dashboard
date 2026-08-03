@@ -30,6 +30,9 @@ const (
 	MessageStreamInput  = "stream.input"
 	MessageStreamResize = "stream.resize"
 	MessageStreamCancel = "stream.cancel"
+
+	MessageContainerRestart = "container.restart"
+	MessageContainerStop    = "container.stop"
 )
 
 var (
@@ -71,6 +74,13 @@ type ShellOpen struct {
 	ContainerID string `json:"containerId,omitempty"`
 	Cols        uint16 `json:"cols"`
 	Rows        uint16 `json:"rows"`
+}
+
+// ContainerAction has no free-form command field. It carries exactly one
+// canonical container identifier for the two lifecycle operations supported by
+// the operator workbench.
+type ContainerAction struct {
+	ContainerID string `json:"containerId"`
 }
 
 type StreamInput struct {
@@ -164,7 +174,7 @@ func knownMessageType(messageType string) bool {
 	case MessageHeartbeat, MessageMetricsSnapshot, MessageCommandResult,
 		MessageStreamData, MessageStreamClosed, MessageLogsOpen, MessageLogsCancel,
 		MessageExecOpen, MessageHostOpen, MessageStreamInput, MessageStreamResize,
-		MessageStreamCancel:
+		MessageStreamCancel, MessageContainerRestart, MessageContainerStop:
 		return true
 	default:
 		return false

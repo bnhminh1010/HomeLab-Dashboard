@@ -126,6 +126,33 @@ func TestSessionManagerMapsProtectedContainerAndClosesOnBackpressure(t *testing.
 	t.Fatal("stream did not close after outbound backpressure")
 }
 
+func TestSessionManagerRunsOnlyTypedContainerLifecycleActions(t *testing.T) {
+	backend := &fakeRuntime{logsStream: newBlockingStream(), execStream: newBlockingStream()}
+	sink := &recordingSink{}
+	manager, err := NewSessionManager(backend, &fakeHostOpener{stream: newBlockingStream()}, sink, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.CloseAll()
+
+	restart := commandMessage(t, nodes.MessageContainerRestart, "restart-1", nodes.ContainerAction{ContainerID: "app"})
+	if err := manager.Handle(t.Context(), restart); err != nil {
+		t.Fatal(err)
+	}
+	if backend.restartCalls != 1 || backend.containerID != "app" || !sink.lastResult("restart-1").OK {
+		t.Fatalf("restart request = calls %d container %q result %#v", backend.restartCalls, backend.containerID, sink.lastResult("restart-1"))
+	}
+
+	backend.stopErr = podman.ErrProtectedContainer
+	stop := commandMessage(t, nodes.MessageContainerStop, "stop-1", nodes.ContainerAction{ContainerID: "infra"})
+	if err := manager.Handle(t.Context(), stop); !errors.Is(err, podman.ErrProtectedContainer) {
+		t.Fatalf("stop error = %v", err)
+	}
+	if result := sink.lastResult("stop-1"); result.OK || result.Code != "container_protected" {
+		t.Fatalf("stop result = %#v", result)
+	}
+}
+
 func TestSplitIncompleteUTF8PreservesTrailingRune(t *testing.T) {
 	contents := []byte{'o', 'k', ' ', 0xe2, 0x82}
 	complete, pending := splitIncompleteUTF8(contents)
@@ -187,6 +214,26 @@ type fakeRuntime struct {
 	logCalls     int
 	logOptions   podman.LogsOptions
 	removedExecs int
+	restartCalls int
+	stopCalls    int
+	restartErr   error
+	stopErr      error
+}
+
+func (runtime *fakeRuntime) Restart(_ context.Context, containerID string) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	runtime.containerID = containerID
+	runtime.restartCalls++
+	return runtime.restartErr
+}
+
+func (runtime *fakeRuntime) Stop(_ context.Context, containerID string) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	runtime.containerID = containerID
+	runtime.stopCalls++
+	return runtime.stopErr
 }
 
 func (runtime *fakeRuntime) Logs(_ context.Context, containerID string, options podman.LogsOptions) (io.ReadCloser, error) {

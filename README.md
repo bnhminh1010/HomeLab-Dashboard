@@ -4,9 +4,20 @@
 
 <p align="center"><code>Go</code> · <code>SQLite</code> · <code>Podman</code> · <code>Tailscale</code> · <code>WebSocket</code> · <code>Vanilla JS</code></p>
 
+<p align="center">
+  <a href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/github/license/bnhminh1010/homelab-dashboard?color=blue"></a>
+  <a href="https://github.com/bnhminh1010/homelab-dashboard/releases"><img alt="Release" src="https://img.shields.io/github/v/release/bnhminh1010/homelab-dashboard?include_prereleases&label=release"></a>
+  <a href="https://github.com/bnhminh1010/homelab-dashboard/actions"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/bnhminh1010/homelab-dashboard/ci.yml?label=CI"></a>
+  <a href="https://github.com/bnhminh1010/homelab-dashboard"><img alt="Stars" src="https://img.shields.io/github/stars/bnhminh1010/homelab-dashboard?style=social"></a>
+</p>
+
 <p align="center"><sub>Three static Go binaries. No Node.js. No npm. No CDN runtime dependencies.</sub></p>
 
-<p align="center"><a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#packages">Packages</a> · <a href="#centralized-container-logs-optional">Logging</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#operations-and-troubleshooting">Operations</a> · <a href="#development-and-verification">Development</a></p>
+<p align="center">
+  <a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#packages">Packages</a> · <a href="#centralized-container-logs-optional">Logging</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#operations-and-troubleshooting">Operations</a> · <a href="#development-and-verification">Development</a>
+</p>
+
+<p align="center"><img alt="HomeLab Dashboard live demo" src="assets/screenshots/demo.gif" width="820"></p>
 
 > [!NOTE]
 > This is an intentionally small operations console for 1–5 nodes—not a
@@ -16,6 +27,22 @@
 | Observe | Act | Retain | Trust |
 |---|---|---|---|
 | Host, services, containers, TLS, backups and up to five nodes | Logs, container shells and explicitly confirmed host Bash | Tiered metrics, SLOs, alerts and operational events for up to 90 days | Tailscale identity, viewer/admin roles, CSRF and same-origin mutation guards |
+
+## Screenshots
+
+![HomeLab Dashboard overview — live health, host metrics and 24-hour trend](assets/screenshots/overview.png)
+
+| Services with SLO error budgets | Container inventory with logs & shells |
+|---|---|
+| ![Services workspace with per-service SLO error budgets](assets/screenshots/services.png) | ![Container inventory with logs and interactive shells](assets/screenshots/containers.png) |
+
+| 90-day history and operations timeline | Service dependency topology |
+|---|---|
+| ![History workspace with 90-day charts and operations timeline](assets/screenshots/history.png) | ![Service topology workspace showing curated dependencies](assets/screenshots/topology.png) |
+
+| Host shell inside the console | Alert center with ack/silence |
+|---|---|
+| ![Terminal workbench with an interactive host shell](assets/screenshots/terminal.png) | ![Alert center with incidents, acknowledge and silence controls](assets/screenshots/alerts.png) |
 
 ## Why this is different
 

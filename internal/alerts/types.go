@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -16,11 +17,12 @@ const (
 )
 
 var (
-	ErrInvalidRule     = errors.New("alerts: invalid rule")
-	ErrInvalidSample   = errors.New("alerts: invalid sample")
-	ErrAlertResolved   = errors.New("alerts: alert is already resolved")
-	ErrInvalidSilence  = errors.New("alerts: silence must be 1h, 6h, or 24h")
-	ErrStaleTransition = errors.New("alerts: stale transition")
+	ErrInvalidRule        = errors.New("alerts: invalid rule")
+	ErrInvalidSample      = errors.New("alerts: invalid sample")
+	ErrAlertResolved      = errors.New("alerts: alert is already resolved")
+	ErrInvalidSilence     = errors.New("alerts: silence must be 1h, 6h, or 24h")
+	ErrStaleTransition    = errors.New("alerts: stale transition")
+	ErrInvalidMaintenance = errors.New("alerts: invalid maintenance window")
 )
 
 type Operator string
@@ -93,9 +95,28 @@ type AlertRule struct {
 	For              time.Duration `json:"for"`
 	Severity         Severity      `json:"severity"`
 	Cooldown         time.Duration `json:"cooldown"`
+	RunbookURL       string        `json:"runbookUrl,omitempty"`
 	Enabled          bool          `json:"enabled"`
 	CreatedAt        time.Time     `json:"createdAt"`
 	UpdatedAt        time.Time     `json:"updatedAt"`
+}
+
+// MaintenanceWindow suppresses notification delivery for matching alert
+// resources during a recurring local-time weekly period. Alert state is still
+// evaluated so operators can see the real condition after maintenance ends.
+type MaintenanceWindow struct {
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	NodeSelector     string         `json:"nodeSelector"`
+	ResourceType     string         `json:"resourceType"`
+	ResourceSelector string         `json:"resourceSelector"`
+	Weekdays         []time.Weekday `json:"weekdays"`
+	StartMinute      int            `json:"startMinute"`
+	Duration         time.Duration  `json:"duration"`
+	Timezone         string         `json:"timezone"`
+	Enabled          bool           `json:"enabled"`
+	CreatedAt        time.Time      `json:"createdAt"`
+	UpdatedAt        time.Time      `json:"updatedAt"`
 }
 
 type Sample struct {
@@ -192,6 +213,7 @@ func NormalizeRule(rule AlertRule) AlertRule {
 	rule.NodeSelector = strings.TrimSpace(rule.NodeSelector)
 	rule.ResourceSelector = strings.TrimSpace(rule.ResourceSelector)
 	rule.Metric = strings.TrimSpace(rule.Metric)
+	rule.RunbookURL = strings.TrimSpace(rule.RunbookURL)
 	if rule.NodeSelector == "" {
 		rule.NodeSelector = WildcardSelector
 	}
@@ -236,7 +258,85 @@ func ValidateRule(rule AlertRule) error {
 	if rule.Cooldown < 0 || rule.Cooldown > 30*24*time.Hour {
 		return fmt.Errorf("%w: cooldown must be between 0 and 30 days", ErrInvalidRule)
 	}
+	if rule.RunbookURL != "" {
+		parsed, err := url.Parse(rule.RunbookURL)
+		if err != nil || parsed.Host == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || len(rule.RunbookURL) > 2048 {
+			return fmt.Errorf("%w: runbook URL must be an absolute HTTP or HTTPS URL of at most 2048 bytes", ErrInvalidRule)
+		}
+	}
 	return nil
+}
+
+func NormalizeMaintenance(window MaintenanceWindow) MaintenanceWindow {
+	window.ID = strings.TrimSpace(window.ID)
+	window.Name = strings.TrimSpace(window.Name)
+	window.NodeSelector = strings.TrimSpace(window.NodeSelector)
+	window.ResourceType = strings.TrimSpace(window.ResourceType)
+	window.ResourceSelector = strings.TrimSpace(window.ResourceSelector)
+	window.Timezone = strings.TrimSpace(window.Timezone)
+	if window.NodeSelector == "" {
+		window.NodeSelector = WildcardSelector
+	}
+	if window.ResourceSelector == "" {
+		window.ResourceSelector = WildcardSelector
+	}
+	return window
+}
+
+func ValidateMaintenance(window MaintenanceWindow) error {
+	window = NormalizeMaintenance(window)
+	if !validIdentifier(window.ID, 128) || !validSingleLineText(window.Name, 160) ||
+		!validSelector(window.NodeSelector) || !validIdentifier(window.ResourceType, 64) || !validSelector(window.ResourceSelector) {
+		return ErrInvalidMaintenance
+	}
+	if len(window.Weekdays) == 0 || len(window.Weekdays) > 7 || window.StartMinute < 0 || window.StartMinute >= 24*60 ||
+		window.Duration <= 0 || window.Duration > 24*time.Hour || window.Timezone == "" {
+		return ErrInvalidMaintenance
+	}
+	if _, err := time.LoadLocation(window.Timezone); err != nil {
+		return ErrInvalidMaintenance
+	}
+	seen := map[time.Weekday]struct{}{}
+	for _, weekday := range window.Weekdays {
+		if weekday < time.Sunday || weekday > time.Saturday {
+			return ErrInvalidMaintenance
+		}
+		if _, duplicate := seen[weekday]; duplicate {
+			return ErrInvalidMaintenance
+		}
+		seen[weekday] = struct{}{}
+	}
+	return nil
+}
+
+func (window MaintenanceWindow) ActiveFor(nodeID, resourceType, resourceID string, now time.Time) bool {
+	window = NormalizeMaintenance(window)
+	if !window.Enabled || !selectorMatches(window.NodeSelector, nodeID) || window.ResourceType != resourceType || !selectorMatches(window.ResourceSelector, resourceID) {
+		return false
+	}
+	location, err := time.LoadLocation(window.Timezone)
+	if err != nil {
+		return false
+	}
+	local := now.In(location)
+	for offset := 0; offset <= 1; offset++ {
+		day := local.AddDate(0, 0, -offset)
+		matchesDay := false
+		for _, weekday := range window.Weekdays {
+			if weekday == day.Weekday() {
+				matchesDay = true
+				break
+			}
+		}
+		if !matchesDay {
+			continue
+		}
+		start := time.Date(day.Year(), day.Month(), day.Day(), window.StartMinute/60, window.StartMinute%60, 0, 0, location)
+		if !local.Before(start) && local.Before(start.Add(window.Duration)) {
+			return true
+		}
+	}
+	return false
 }
 
 // SupportedMetric is the backend source of truth for rule authoring and

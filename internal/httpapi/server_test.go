@@ -415,9 +415,10 @@ func TestHostShellReservationFailsClosedAndMapsAvailability(t *testing.T) {
 }
 
 type testCapabilities struct {
-	ManageServices bool `json:"manageServices"`
-	ContainerExec  bool `json:"containerExec"`
-	HostShell      bool `json:"hostShell"`
+	ManageServices   bool `json:"manageServices"`
+	ManageContainers bool `json:"manageContainers"`
+	ContainerExec    bool `json:"containerExec"`
+	HostShell        bool `json:"hostShell"`
 }
 
 func newHostShellTestServer(t *testing.T, host terminal.HostBackend, audit AuditWriter) *Server {

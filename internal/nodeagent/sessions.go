@@ -23,6 +23,8 @@ const (
 
 type RuntimeBackend interface {
 	Logs(context.Context, string, podman.LogsOptions) (io.ReadCloser, error)
+	Restart(context.Context, string) error
+	Stop(context.Context, string) error
 	CreateShellExec(context.Context, string, podman.Shell, podman.TerminalSize) (string, error)
 	StartExec(context.Context, string, podman.TerminalSize) (io.ReadWriteCloser, error)
 	ResizeExec(context.Context, string, podman.TerminalSize) error
@@ -108,6 +110,12 @@ func (manager *SessionManager) Handle(ctx context.Context, message nodes.Message
 			return manager.reject(message.RequestID, "invalid_request", err)
 		}
 		return manager.openHost(ctx, message.RequestID, request)
+	case nodes.MessageContainerRestart, nodes.MessageContainerStop:
+		request, err := nodes.DecodePayload[nodes.ContainerAction](message)
+		if err != nil {
+			return manager.reject(message.RequestID, "invalid_request", err)
+		}
+		return manager.containerAction(ctx, message.RequestID, message.Type, request)
 	case nodes.MessageLogsCancel:
 		if !manager.cancel(message.RequestID, "logs") {
 			return manager.reject(message.RequestID, "session_not_found", errors.New("log stream is not active"))
@@ -133,6 +141,25 @@ func (manager *SessionManager) Handle(ctx context.Context, message nodes.Message
 	default:
 		return manager.reject(message.RequestID, "unsupported_command", ErrCommandType)
 	}
+}
+
+func (manager *SessionManager) containerAction(ctx context.Context, requestID, action string, request nodes.ContainerAction) error {
+	if request.ContainerID == "" {
+		return manager.reject(requestID, "invalid_request", errors.New("container ID is required"))
+	}
+	var err error
+	switch action {
+	case nodes.MessageContainerRestart:
+		err = manager.backend.Restart(ctx, request.ContainerID)
+	case nodes.MessageContainerStop:
+		err = manager.backend.Stop(ctx, request.ContainerID)
+	default:
+		return manager.reject(requestID, "unsupported_command", ErrCommandType)
+	}
+	if err != nil {
+		return manager.reject(requestID, runtimeErrorCode(err), err)
+	}
+	return manager.sink.Send(nodes.MessageCommandResult, requestID, nodes.CommandResult{OK: true})
 }
 
 func (manager *SessionManager) openLogs(ctx context.Context, requestID string, request nodes.LogsOpen) error {

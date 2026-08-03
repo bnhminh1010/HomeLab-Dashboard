@@ -71,6 +71,8 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
 		{"workbench-max-899", 899, 900},
 		{"tablet-min-900", 900, 900},
 		{"desktop-min-1280", 1280, 900},
+		{"desktop-1366", 1366, 900},
+		{"desktop-1440", 1440, 900},
 		{"wide-2048", 2048, 1080},
 	}
 	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
@@ -159,7 +161,7 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
             touchFailures: [...document.querySelectorAll('#sidebar-open, #sidebar-collapse, #terminal-toggle, .icon-button, #overview-alerts-open, #overview-trend-refresh')]
               .filter((node) => {
                 const bounds = node.getBoundingClientRect();
-                return isVisibleInViewport(node)
+                return window.innerWidth < 900 && isVisibleInViewport(node)
                   && (bounds.width < 44 || bounds.height < 44);
               })
               .map((node) => node.id || node.className),
@@ -339,12 +341,40 @@ func TestDemoWorkspaceNavigationAndPersistence(t *testing.T) {
 			err = chromedp.Run(ctx, chromedp.Poll(`(() => {
             const list = document.querySelector('#logs-list');
             return document.querySelector('#logs-status')?.textContent.includes('ENTRIES')
-              && list?.querySelectorAll('.historical-log-entry').length > 0;
+              && list?.querySelectorAll('.historical-log-entry').length > 0
+              && list?.querySelector('[data-severity="warn"] .historical-log-level')?.textContent === 'WARN';
           })()`, nil, chromedp.WithPollingTimeout(3*time.Second)))
 			if err != nil {
 				t.Fatalf("logs workspace did not render retained entries after activation: %v", err)
 			}
 		}
+	}
+
+	err = chromedp.Run(ctx,
+		chromedp.Click(`[data-workspace="services"]`, chromedp.ByQuery),
+		chromedp.Click(`[data-service-filter="unknown"]`, chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#services-filter-count')?.textContent === '1 / 4 SHOWN'`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Click(`[data-service-filter="all"]`, chromedp.ByQuery),
+		chromedp.Evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true }))`, nil),
+		chromedp.Poll(`document.activeElement === document.querySelector('#services-filter-input')`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`(() => { const input = document.querySelector('#services-filter-input'); input.value = 'immich'; input.dispatchEvent(new Event('input', { bubbles: true })); })()`, nil),
+		chromedp.Poll(`document.querySelector('#services-filter-count')?.textContent === '1 / 4 SHOWN'`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true }))`, nil),
+		chromedp.Evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true }))`, nil),
+		chromedp.Poll(`!document.querySelector('#workspace-containers').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Click(`[data-workspace="containers"]`, chromedp.ByQuery),
+		chromedp.Click(`[data-container-filter="attention"]`, chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#containers-filter-count')?.textContent === '1 / 4 SHOWN'`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }))`, nil),
+		chromedp.Poll(`document.querySelector('#keyboard-shortcuts-dialog')?.open === true`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Click("#keyboard-shortcuts-dismiss", chromedp.ByQuery),
+		chromedp.Click(`[data-workspace="logs"]`, chromedp.ByQuery),
+		chromedp.Focus("#logs-search", chromedp.ByQuery),
+		chromedp.Evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }))`, nil),
+		chromedp.Poll(`!document.querySelector('#workspace-logs').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+	)
+	if err != nil {
+		t.Fatalf("quick filters or keyboard shortcut safeguards failed: %v", err)
 	}
 
 	err = chromedp.Run(ctx,
@@ -377,6 +407,88 @@ func TestDemoWorkspaceNavigationAndPersistence(t *testing.T) {
 	}
 	if !persisted.Collapsed || !persisted.Active || persisted.UnnamedNavs != 0 {
 		t.Fatalf("workspace/sidebar preferences did not persist across reload: %+v", persisted)
+	}
+}
+
+func TestDemoContextRoutesRestoreFiltersAndHistory(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+
+	ctx, cancel := newBrowserContext(allocator)
+	defer cancel()
+	ctx, timeout := context.WithTimeout(ctx, 35*time.Second)
+	defer timeout()
+
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(1440, 900),
+		chromedp.Navigate(server.URL+"/?demo=1#services?state=unknown&q=Hermes"),
+		chromedp.Poll(`(() => !document.querySelector('#workspace-services').hidden
+          && document.querySelector('#services-filter-input').value === 'Hermes'
+          && document.querySelector('[data-service-filter="unknown"]').getAttribute('aria-pressed') === 'true'
+          && document.querySelector('#services-filter-count').textContent === '1 / 4 SHOWN')()`, nil, chromedp.WithPollingTimeout(3*time.Second)),
+		chromedp.Click(`[data-workspace="overview"]`, chromedp.ByQuery),
+		chromedp.Poll(`location.hash === '#overview' && !document.querySelector('#workspace-overview').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Click("#overview-containers-kpi", chromedp.ByQuery),
+		chromedp.Poll(`location.hash === '#containers?state=all&node=local' && !document.querySelector('#workspace-containers').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`history.back()`, nil),
+		chromedp.Poll(`location.hash === '#overview' && !document.querySelector('#workspace-overview').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`history.back()`, nil),
+		chromedp.Poll(`location.hash === '#services?state=unknown&q=Hermes'
+          && document.querySelector('#services-filter-input').value === 'Hermes'
+          && document.querySelector('[data-service-filter="unknown"]').getAttribute('aria-pressed') === 'true'`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`location.hash = '#not-a-workspace?state=oops'`, nil),
+		chromedp.Poll(`location.hash === '#overview' && !document.querySelector('#workspace-overview').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`location.hash = '#history?node=local&range=7d&kind=system'`, nil),
+		chromedp.Poll(`!document.querySelector('#workspace-history').hidden
+          && document.querySelector('[data-history-range="7d"]').getAttribute('aria-pressed') === 'true'
+          && document.querySelector('[data-history-kind="system"]').getAttribute('aria-pressed') === 'true'`, nil, chromedp.WithPollingTimeout(3*time.Second)),
+		chromedp.Evaluate(`location.hash = '#overview'`, nil),
+		chromedp.Poll(`document.querySelectorAll('#overview-recent-changes-list .overview-action-item').length === 3`, nil, chromedp.WithPollingTimeout(3*time.Second)),
+		chromedp.Click("#overview-recent-changes-list .overview-action-item:first-child .text-button", chromedp.ByQuery),
+		chromedp.Poll(`!document.querySelector('#workspace-containers').hidden
+          && document.querySelector('#containers-filter-input').value === 'immich_redis'
+          && document.querySelector('#containers-filter-count').textContent === '1 / 4 SHOWN'`, nil, chromedp.WithPollingTimeout(3*time.Second)),
+	)
+	if err != nil {
+		t.Fatalf("context route, history, or recent-change drill-down failed: %v", err)
+	}
+
+	mobileCtx, cancelMobile := newBrowserContext(allocator)
+	defer cancelMobile()
+	mobileCtx, mobileTimeout := context.WithTimeout(mobileCtx, 15*time.Second)
+	defer mobileTimeout()
+	err = chromedp.Run(mobileCtx,
+		chromedp.EmulateViewport(375, 812),
+		chromedp.Navigate(server.URL+"/?demo=1#services?state=unknown&q=Hermes"),
+		chromedp.Poll(`(() => {
+          const toggle = document.querySelector('#services-filter-toggle');
+          const bar = document.querySelector('#services-filter-bar');
+          return toggle.getAttribute('aria-expanded') === 'true' && getComputedStyle(bar).display !== 'none';
+        })()`, nil, chromedp.WithPollingTimeout(3*time.Second)),
+		chromedp.Click("#services-filter-toggle", chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#services-filter-toggle').getAttribute('aria-expanded') === 'false'
+          && getComputedStyle(document.querySelector('#services-filter-bar')).display === 'none'`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true }))`, nil),
+		chromedp.Poll(`document.querySelector('#services-filter-toggle').getAttribute('aria-expanded') === 'true'
+          && getComputedStyle(document.querySelector('#services-filter-bar')).display !== 'none'
+          && document.activeElement === document.querySelector('#services-filter-input')`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+	)
+	if err != nil {
+		t.Fatalf("mobile contextual filter disclosure failed: %v", err)
 	}
 }
 
@@ -715,7 +827,7 @@ func TestDemoOverviewTriageActionsAndTrend(t *testing.T) {
 		chromedp.WaitVisible("#overview-attention-list .overview-action-item", chromedp.ByQuery),
 		chromedp.Evaluate(`(() => ({
           overflow: document.documentElement.scrollWidth > innerWidth + 1,
-          touchFailures: [...document.querySelectorAll('#overview-attention .text-button, #overview-trend-refresh')]
+          touchFailures: [...document.querySelectorAll('.health-cell-action, #overview-attention .text-button, #overview-trend .text-button, #overview-recent-changes .text-button')]
             .filter((button) => {
               const rect = button.getBoundingClientRect();
               const style = getComputedStyle(button);
@@ -1025,7 +1137,7 @@ func TestDemoDashboardInteractionsAndEdgeStates(t *testing.T) {
 	if len(failures) > 0 {
 		t.Fatalf("browser failures: %s", strings.Join(failures, "; "))
 	}
-	if report.CPUText != "160.0%" || report.CPUMax != "800.0" || report.CPUProgress != "20.00" || !strings.Contains(report.CPUDetail, "🔥") {
+	if report.CPUText != "160.0%" || report.CPUMax != "800.0" || report.CPUProgress != "20.00" || !strings.Contains(report.CPUDetail, "HOT") {
 		t.Fatalf("multi-core/temperature edge state failed: %+v", report)
 	}
 	if !report.RAMOverLimit || !strings.Contains(report.RAMText, "⚠") {

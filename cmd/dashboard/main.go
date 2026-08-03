@@ -156,7 +156,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load active alert state for reconciliation: %w", err)
 	}
-	alertEngine, err := alerts.NewEngineWithOptions(database, nil, alerts.EngineOptions{DeliveryEnabled: cfg.NTFYURL != ""})
+	alertEngine, err := alerts.NewEngineWithOptions(database, nil, alerts.EngineOptions{DeliveryEnabled: cfg.NTFYURL != "", Maintenance: database})
 	if err != nil {
 		return fmt.Errorf("configure alert engine: %w", err)
 	}
@@ -264,6 +264,7 @@ func run() error {
 		Topology:               database,
 		Checks:                 database,
 		Logs:                   logReader,
+		ContainerLifecycle:     containerLifecycleAdapter{local: podmanClient, registry: nodeRegistry},
 		Ready: func(readyContext context.Context) error {
 			if err := database.Ping(readyContext); err != nil {
 				return err
@@ -657,6 +658,27 @@ type hostSessionAdapter struct {
 
 type nodeTerminalAdapter struct {
 	registry *nodes.Registry
+}
+
+type containerLifecycleAdapter struct {
+	local    *podman.Client
+	registry *nodes.Registry
+}
+
+func (adapter containerLifecycleAdapter) Restart(ctx context.Context, nodeID, containerID string) error {
+	if nodeID == "local" {
+		return adapter.local.Restart(ctx, containerID)
+	}
+	_, err := adapter.registry.Execute(ctx, nodeID, nodes.MessageContainerRestart, nodes.ContainerAction{ContainerID: containerID})
+	return err
+}
+
+func (adapter containerLifecycleAdapter) Stop(ctx context.Context, nodeID, containerID string) error {
+	if nodeID == "local" {
+		return adapter.local.Stop(ctx, containerID)
+	}
+	_, err := adapter.registry.Execute(ctx, nodeID, nodes.MessageContainerStop, nodes.ContainerAction{ContainerID: containerID})
+	return err
 }
 
 func (adapter nodeTerminalAdapter) Probe(_ context.Context, nodeID string) error {

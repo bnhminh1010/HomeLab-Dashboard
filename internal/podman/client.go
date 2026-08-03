@@ -228,6 +228,36 @@ func (c *Client) Logs(ctx context.Context, containerID string, options LogsOptio
 	return c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(containerID)+"/logs", query, nil, "")
 }
 
+// Restart stops and starts one running, operator-visible container. The
+// protected and hidden labels are enforced at the runtime boundary rather than
+// trusting a potentially stale dashboard snapshot.
+func (c *Client) Restart(ctx context.Context, containerID string) error {
+	return c.lifecycle(ctx, containerID, "restart")
+}
+
+// Stop stops one running, operator-visible container. It deliberately does
+// not expose start, remove, image, volume, or network operations.
+func (c *Client) Stop(ctx context.Context, containerID string) error {
+	return c.lifecycle(ctx, containerID, "stop")
+}
+
+func (c *Client) lifecycle(ctx context.Context, containerID, action string) error {
+	if err := validateIdentifier(containerID); err != nil {
+		return err
+	}
+	details, err := c.InspectContainer(ctx, containerID)
+	if err != nil {
+		return err
+	}
+	if details.Protected || IsHidden(details.Labels) {
+		return ErrProtectedContainer
+	}
+	if !details.Running {
+		return ErrContainerNotRunning
+	}
+	return c.doJSON(ctx, http.MethodPost, "/containers/"+url.PathEscape(containerID)+"/"+action, nil, nil, nil)
+}
+
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, query url.Values, input, output any) error {
 	var requestBody io.Reader
 	if input != nil {

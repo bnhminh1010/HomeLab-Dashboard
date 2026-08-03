@@ -17,7 +17,9 @@ concurrency:
 jobs:
   go-quality:
     name: Go quality
+    needs: branch-policy
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -40,6 +42,7 @@ jobs:
     name: Go race
     needs: browser-ui
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -54,17 +57,22 @@ jobs:
       - name: Race detector
         run: go test -race ./... -count=1 -timeout=240s
 
-  release-source:
-    name: Release source
-    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
+  branch-policy:
+    name: Branch policy
     runs-on: ubuntu-latest
+    timeout-minutes: 1
     steps:
       - name: Require develop or hotfix source branch
         shell: bash
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" || "$BASE_REF" != "main" ]]; then
+            exit 0
+          fi
           case "$HEAD_REF" in
             develop|hotfix/*) ;;
             *)
@@ -103,6 +111,7 @@ jobs:
     name: Container build and Compose config
     needs: govulncheck
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -119,11 +128,70 @@ jobs:
           set -euo pipefail
           mkdir -p "$XDG_RUNTIME_DIR"
           docker compose --file compose.yml config --quiet
+      - name: Validate optional logging overlay
+        env:
+          ADMIN_USERS: ci@example.invalid
+          TS_AUTHKEY: tskey-auth-ci
+          XDG_RUNTIME_DIR: /tmp/homelab-dashboard-runtime
+        run: |
+          set -euo pipefail
+          mkdir -p "$XDG_RUNTIME_DIR/podman"
+          ln -sf /var/run/docker.sock "$XDG_RUNTIME_DIR/podman/podman.sock"
+          docker compose --file compose.yml --file compose.logging.yml config --quiet
+          docker run --rm \
+            -v "$PWD/deploy/logging/vector.yml:/etc/vector/vector.yml:ro" \
+            docker.io/timberio/vector:0.46.1-alpine \
+            validate --skip-healthchecks /etc/vector/vector.yml
+      - name: Exercise Loki and Vector logging pipeline
+        env:
+          ADMIN_USERS: ci@example.invalid
+          TS_AUTHKEY: tskey-auth-ci
+          XDG_RUNTIME_DIR: /tmp/homelab-dashboard-runtime
+        run: |
+          set -euo pipefail
+          project_args=(--file compose.yml --file compose.logging.yml)
+          cleanup() {
+            docker rm --force homelab-dashboard-logging-fixture homelab-dashboard-unlabeled-fixture 2>/dev/null || true
+            docker compose "${project_args[@]}" down --volumes --remove-orphans 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          mkdir -p "$XDG_RUNTIME_DIR/podman"
+          ln -sf /var/run/docker.sock "$XDG_RUNTIME_DIR/podman/podman.sock"
+          docker compose "${project_args[@]}" up --detach loki vector
+
+          docker run --detach --name homelab-dashboard-logging-fixture \
+            --label io.homelab.dashboard.logs=enabled \
+            --label io.homelab.dashboard.log.service=logging-fixture \
+            --volume "$PWD/deploy/logging/fixtures/emit-logs.sh:/emit-logs.sh:ro" \
+            docker.io/library/busybox:1.36 sh /emit-logs.sh
+          docker run --detach --name homelab-dashboard-unlabeled-fixture \
+            docker.io/library/busybox:1.36 sh -c 'while :; do echo logging-pipeline-must-not-collect; sleep 1; done'
+
+          loki_id="$(docker compose "${project_args[@]}" ps --quiet loki)"
+          test -n "$loki_id"
+          for attempt in $(seq 1 30); do
+            payload="$(docker exec "$loki_id" /busybox/wget -q -O - 'http://127.0.0.1:3100/loki/api/v1/query?query=%7Bjob%3D%22podman%22%2Cnode%3D%22local%22%2Cservice_name%3D%22logging-fixture%22%7D&limit=20' || true)"
+            if printf '%s' "$payload" | grep -Fq 'logging-pipeline-e2e'; then
+              break
+            fi
+            sleep 1
+          done
+          printf '%s' "$payload" | grep -Fq 'logging-pipeline-e2e'
+
+          # A plain-text line must survive too: only JSON logs have request/
+          # trace identifiers, but Vector still emits bounded metadata.
+          printf '%s' "$payload" | grep -Fq 'logging-pipeline-plaintext-e2e'
+          printf '%s' "$payload" | grep -Fq 'container_name'
+          printf '%s' "$payload" | grep -Fq 'fixture-request'
+          all_podman_logs="$(docker exec "$loki_id" /busybox/wget -q -O - 'http://127.0.0.1:3100/loki/api/v1/query?query=%7Bjob%3D%22podman%22%2Cnode%3D%22local%22%7D&limit=200')"
+          ! printf '%s' "$all_podman_logs" | grep -Fq 'logging-pipeline-must-not-collect'
 
   govulncheck:
     name: Govulncheck
     needs: go-race
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

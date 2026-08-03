@@ -28,6 +28,12 @@ services:
       - loki-data:/loki
     networks:
       - logging
+    healthcheck:
+      test: ["CMD", "/busybox/wget", "-q", "-O", "-", "http://127.0.0.1:3100/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=16m
@@ -35,6 +41,9 @@ services:
       - ALL
     security_opt:
       - no-new-privileges
+      # Allows the read-only host configuration bind mount under rootless
+      # Podman on SELinux hosts; Loki still has no host-published port.
+      - label=disable
     restart: unless-stopped
     labels:
       io.homelab.dashboard.protected: "true"
@@ -42,9 +51,10 @@ services:
 
   vector:
     image: docker.io/timberio/vector:0.46.1-alpine
-    command: ["--config", "/etc/vector/vector.yml", "--require-healthy"]
+    command: ["--config", "/etc/vector/vector.yml"]
     depends_on:
-      - loki
+      loki:
+        condition: service_healthy
     environment:
       VECTOR_LOG: warn
     volumes:

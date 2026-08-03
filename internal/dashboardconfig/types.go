@@ -44,8 +44,11 @@ func (mode ImportMode) Valid() bool {
 	return mode == ImportMerge || mode == ImportReplace
 }
 
-// Document is the complete public schema. Do not add runtime or secret-bearing
-// fields here. Adding a field is a schema change and must be reviewed as such.
+// Document is the complete portable schema. Do not add runtime or secret-bearing
+// fields here. Local maintenance schedules are deliberately excluded: they are
+// node/timezone-specific operational controls and a cross-homelab import must
+// not silently suppress another operator's notifications. Adding a field is a
+// schema change and must be reviewed as such.
 type Document struct {
 	Version       string             `json:"version"`
 	Services      []ServiceConfig    `json:"services"`
@@ -81,6 +84,7 @@ type AlertRuleConfig struct {
 	ForMilliseconds  int64           `json:"forMs"`
 	Severity         alerts.Severity `json:"severity"`
 	CooldownMS       int64           `json:"cooldownMs"`
+	RunbookURL       string          `json:"runbookUrl,omitempty"`
 	Enabled          bool            `json:"enabled"`
 }
 
@@ -187,7 +191,7 @@ func alertRuleFromDomain(rule alerts.AlertRule) AlertRuleConfig {
 		NodeSelector: rule.NodeSelector, ResourceSelector: rule.ResourceSelector,
 		Metric: rule.Metric, Operator: rule.Operator, Threshold: rule.Threshold,
 		ForMilliseconds: rule.For.Milliseconds(), Severity: rule.Severity,
-		CooldownMS: rule.Cooldown.Milliseconds(), Enabled: rule.Enabled,
+		CooldownMS: rule.Cooldown.Milliseconds(), RunbookURL: rule.RunbookURL, Enabled: rule.Enabled,
 	}
 }
 
@@ -197,7 +201,7 @@ func (rule AlertRuleConfig) domain() alerts.AlertRule {
 		NodeSelector: rule.NodeSelector, ResourceSelector: rule.ResourceSelector,
 		Metric: rule.Metric, Operator: rule.Operator, Threshold: rule.Threshold,
 		For:      time.Duration(rule.ForMilliseconds) * time.Millisecond,
-		Severity: rule.Severity, Cooldown: time.Duration(rule.CooldownMS) * time.Millisecond,
+		Severity: rule.Severity, Cooldown: time.Duration(rule.CooldownMS) * time.Millisecond, RunbookURL: rule.RunbookURL,
 		Enabled: rule.Enabled,
 	}
 }

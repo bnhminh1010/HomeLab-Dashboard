@@ -250,7 +250,7 @@ func loadDashboardConfigTx(ctx context.Context, tx *sql.Tx) (dashboardconfig.Sna
 
 	ruleRows, err := tx.QueryContext(ctx, `
 		SELECT id, name, resource_type, node_selector, resource_selector, metric, operator,
-			threshold, duration_ms, severity, cooldown_ms, enabled, created_at, updated_at
+			threshold, duration_ms, severity, cooldown_ms, runbook_url, enabled, created_at, updated_at
 		FROM alert_rules ORDER BY id`)
 	if err != nil {
 		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard config alert rules: %w", err)
@@ -382,10 +382,10 @@ func applyConfigAlertRules(
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE alert_rules SET name = ?, resource_type = ?, node_selector = ?,
 					resource_selector = ?, metric = ?, operator = ?, threshold = ?, duration_ms = ?,
-					severity = ?, cooldown_ms = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+					severity = ?, cooldown_ms = ?, runbook_url = ?, enabled = ?, updated_at = ? WHERE id = ?`,
 				rule.Name, rule.ResourceType, rule.NodeSelector, rule.ResourceSelector,
 				rule.Metric, rule.Operator, rule.Threshold, rule.For.Milliseconds(),
-				rule.Severity, rule.Cooldown.Milliseconds(), rule.Enabled,
+				rule.Severity, rule.Cooldown.Milliseconds(), rule.RunbookURL, rule.Enabled,
 				formatAlertTime(now), rule.ID); err != nil {
 				return fmt.Errorf("update imported alert rule %s: %w", rule.ID, err)
 			}
@@ -397,11 +397,11 @@ func applyConfigAlertRules(
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO alert_rules (
 				id, name, resource_type, node_selector, resource_selector, metric, operator,
-				threshold, duration_ms, severity, cooldown_ms, enabled, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				threshold, duration_ms, severity, cooldown_ms, runbook_url, enabled, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			rule.ID, rule.Name, rule.ResourceType, rule.NodeSelector, rule.ResourceSelector,
 			rule.Metric, rule.Operator, rule.Threshold, rule.For.Milliseconds(), rule.Severity,
-			rule.Cooldown.Milliseconds(), rule.Enabled, formatAlertTime(now), formatAlertTime(now)); err != nil {
+			rule.Cooldown.Milliseconds(), rule.RunbookURL, rule.Enabled, formatAlertTime(now), formatAlertTime(now)); err != nil {
 			return fmt.Errorf("insert imported alert rule %s: %w", rule.ID, err)
 		}
 	}
@@ -622,5 +622,5 @@ func sameAlertRuleDefinition(left, right alerts.AlertRule) bool {
 		left.NodeSelector == right.NodeSelector && left.ResourceSelector == right.ResourceSelector &&
 		left.Metric == right.Metric && left.Operator == right.Operator && left.Threshold == right.Threshold &&
 		left.For == right.For && left.Severity == right.Severity && left.Cooldown == right.Cooldown &&
-		left.Enabled == right.Enabled
+		left.RunbookURL == right.RunbookURL && left.Enabled == right.Enabled
 }

@@ -42,6 +42,15 @@ const alertNodes = new Map();
 const WORKSPACE_STORAGE_KEY = "homelab.workspace.active";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "homelab.sidebar.collapsed";
 const WORKSPACES = new Set(["overview", "services", "containers", "nodes", "history", "logs", "alerts", "topology"]);
+const ROUTE_RANGES = new Set(["1h", "6h", "24h", "7d", "30d", "90d"]);
+const ROUTE_KINDS = new Set(["system", "container", "service"]);
+const ROUTE_STATES = {
+  services: new Set(["all", "attention", "up", "unknown"]),
+  containers: new Set(["all", "attention", "running", "stopped"]),
+  alerts: new Set(["firing"]),
+};
+let routeNodeSelectionReady = false;
+let activeAlertSource = "";
 const overviewSummary = {
   services: { total: 0, up: 0, down: 0, unknown: 0 },
   containers: { total: 0, running: 0, issue: 0, stopped: 0 },
@@ -56,7 +65,7 @@ const elements = Object.fromEntries([
   "io-write-progress", "alerts-list", "alerts-count", "alerts-empty", "alerts-partial",
   "services-stale", "alerts-card", "overview-health", "overview-health-detail",
   "overview-connection", "overview-updated", "overview-services", "overview-services-detail",
-  "overview-containers", "overview-containers-detail", "dashboard-status",
+  "overview-containers", "overview-containers-detail", "overview-attention-total", "overview-attention-detail", "dashboard-status",
   "snapshot-partial",
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -74,7 +83,7 @@ function setStateText(element, value) { setText(element, value, true); }
 function setMetricText(element, value) { setText(element, value, false); }
 
 const terminal = createTerminalController({ api, demo, toast });
-const containersController = createContainersController({ terminal, toast });
+const containersController = createContainersController({ terminal, api, toast, onLifecycle: () => refreshSnapshot() });
 const servicesController = createServicesController({
   api,
   toast,
@@ -97,8 +106,9 @@ const historyController = createHistoryController({
 const logsController = createLogsController({ api, demo, toast });
 const overviewController = createOverviewController({
   api,
+  demo,
   toast,
-  onOpenAlerts: () => document.querySelector("[data-workspace='alerts']")?.click(),
+  onNavigate: (route) => navigateTo(route),
   onOpenContainerTerminal: (container, mode, invoker) => containersController.open(container, mode, invoker),
 });
 const alertsController = createAlertsController({ api, demo, toast });
@@ -134,6 +144,68 @@ function storeValue(key, value) {
   try { localStorage.setItem(key, value); } catch { /* Storage is optional. */ }
 }
 
+function safeRouteValue(value, maxLength = 160) {
+  return String(value || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, maxLength);
+}
+
+function normalizeRoute(route = {}) {
+  const workspace = WORKSPACES.has(route.workspace) ? route.workspace : "overview";
+  const normalized = { workspace };
+  const state = safeRouteValue(route.state, 24).toLowerCase();
+  if (ROUTE_STATES[workspace]?.has(state)) normalized.state = state;
+  const query = safeRouteValue(route.query ?? route.q);
+  if (["services", "containers"].includes(workspace) && query) normalized.query = query;
+  const node = safeRouteValue(route.node, 128);
+  if (node && /^[A-Za-z0-9_.:-]+$/.test(node) && ["overview", "containers", "nodes", "history", "logs", "alerts", "topology"].includes(workspace)) normalized.node = node;
+  const range = safeRouteValue(route.range, 8).toLowerCase();
+  if (workspace === "history" && ROUTE_RANGES.has(range)) normalized.range = range;
+  const kind = safeRouteValue(route.kind, 16).toLowerCase();
+  if (workspace === "history" && ROUTE_KINDS.has(kind)) normalized.kind = kind;
+  const resource = safeRouteValue(route.resource, 200);
+  if (workspace === "history" && resource && ["container", "service"].includes(normalized.kind)) normalized.resource = resource;
+  const source = safeRouteValue(route.source, 200);
+  if (workspace === "alerts" && source) normalized.source = source;
+  return normalized;
+}
+
+function routeFromLocation() {
+  const raw = window.location.hash.replace(/^#/, "");
+  if (!raw) return normalizeRoute({ workspace: storageValue(WORKSPACE_STORAGE_KEY) || "overview" });
+  const separator = raw.indexOf("?");
+  let workspace = "overview";
+  try { workspace = decodeURIComponent(separator >= 0 ? raw.slice(0, separator) : raw); } catch { /* Invalid hashes fall back to Overview. */ }
+  const query = new URLSearchParams(separator >= 0 ? raw.slice(separator + 1) : "");
+  return normalizeRoute({
+    workspace,
+    state: query.get("state"),
+    query: query.get("q"),
+    node: query.get("node"),
+    range: query.get("range"),
+    kind: query.get("kind"),
+    resource: query.get("resource"),
+    source: query.get("source"),
+  });
+}
+
+function routeHash(route) {
+  const normalized = normalizeRoute(route);
+  const query = new URLSearchParams();
+  if (normalized.state) query.set("state", normalized.state);
+  if (normalized.query) query.set("q", normalized.query);
+  if (normalized.node) query.set("node", normalized.node);
+  if (normalized.range) query.set("range", normalized.range);
+  if (normalized.kind) query.set("kind", normalized.kind);
+  if (normalized.resource) query.set("resource", normalized.resource);
+  if (normalized.source) query.set("source", normalized.source);
+  return `#${encodeURIComponent(normalized.workspace)}${query.size ? `?${query}` : ""}`;
+}
+
+let currentRoute = routeFromLocation();
+
+function navigateTo(route, options) {
+  workspaceNavigation?.navigate(route, options);
+}
+
 function createWorkspaceNavigation() {
   const dashboard = document.getElementById("dashboard");
   const sidebar = document.getElementById("workspace-sidebar");
@@ -148,10 +220,7 @@ function createWorkspaceNavigation() {
   const workspaceButtons = [...document.querySelectorAll("[data-workspace]")];
   const workspacePanels = [...document.querySelectorAll("[data-workspace-panel]")];
   const drawerQuery = window.matchMedia("(max-width: 899px)");
-  const storedWorkspace = storageValue(WORKSPACE_STORAGE_KEY);
-  let activeWorkspace = WORKSPACES.has(storedWorkspace)
-    ? storedWorkspace
-    : "overview";
+  let activeWorkspace = currentRoute.workspace;
   let drawerOpener = null;
 
   function isDrawer() {
@@ -243,8 +312,28 @@ function createWorkspaceNavigation() {
       .filter((element) => !element.hidden && element.offsetParent !== null);
   }
 
+  function applyRoute(route, { focus = false, applyNode = routeNodeSelectionReady } = {}) {
+    const normalized = normalizeRoute(route);
+    currentRoute = normalized;
+    if (applyNode && normalized.node && nodesController.selectedNode() !== normalized.node) nodesController.setSelected(normalized.node);
+    selectWorkspace(normalized.workspace, { focus });
+    if (normalized.workspace === "services") servicesController.applyRoute({ state: normalized.state, query: normalized.query });
+    if (normalized.workspace === "containers") containersController.applyRoute({ state: normalized.state, query: normalized.query });
+    if (normalized.workspace === "history") historyController.applyRoute({ ...normalized, refresh: routeNodeSelectionReady });
+    if (normalized.workspace === "alerts") applyAlertRoute(normalized);
+  }
+
+  function navigate(route, { replace = false, focus = true } = {}) {
+    const normalized = normalizeRoute(route);
+    const hash = routeHash(normalized);
+    const method = replace ? "replaceState" : "pushState";
+    window.history[method](null, "", `${window.location.pathname}${window.location.search}${hash}`);
+    lastBrowserRoute = window.location.href;
+    applyRoute(normalized, { focus });
+  }
+
   workspaceButtons.forEach((button) => button.addEventListener("click", () => {
-    selectWorkspace(button.dataset.workspace, { focus: true });
+    navigate({ workspace: button.dataset.workspace }, { focus: true });
     closeDrawer();
   }));
   sidebar.querySelector("[data-sidebar-action='terminal']")?.addEventListener("click", focusTerminal);
@@ -288,9 +377,93 @@ function createWorkspaceNavigation() {
   setCollapsed(storageValue(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true");
   selectWorkspace(activeWorkspace);
   syncDrawerControls();
+
+  return { selectWorkspace, focusTerminal, navigate, applyRoute };
 }
 
-createWorkspaceNavigation();
+const workspaceNavigation = createWorkspaceNavigation();
+if (window.location.hash !== routeHash(currentRoute)) {
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${routeHash(currentRoute)}`);
+}
+workspaceNavigation.applyRoute(currentRoute, { applyNode: false });
+let lastBrowserRoute = window.location.href;
+function restoreBrowserRoute() {
+  if (lastBrowserRoute === window.location.href) return;
+  lastBrowserRoute = window.location.href;
+  const route = routeFromLocation();
+  const normalizedHash = routeHash(route);
+  if (window.location.hash !== normalizedHash) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${normalizedHash}`);
+  lastBrowserRoute = window.location.href;
+  workspaceNavigation.applyRoute(route, { focus: true });
+}
+window.addEventListener("popstate", restoreBrowserRoute);
+window.addEventListener("hashchange", restoreBrowserRoute);
+
+document.getElementById("overview-attention-kpi")?.addEventListener("click", () => navigateTo({ workspace: "alerts", node: selectedNodeId, state: "firing" }));
+document.getElementById("overview-services-kpi")?.addEventListener("click", () => navigateTo({ workspace: "services", state: "all" }));
+document.getElementById("overview-containers-kpi")?.addEventListener("click", () => navigateTo({ workspace: "containers", node: selectedNodeId, state: "all" }));
+
+function createKeyboardShortcuts() {
+  const dialog = document.getElementById("keyboard-shortcuts-dialog");
+  const closeButtons = [document.getElementById("keyboard-shortcuts-close"), document.getElementById("keyboard-shortcuts-dismiss")];
+  const workspaceByKey = { o: "overview", s: "services", c: "containers", n: "nodes", h: "history", l: "logs", a: "alerts", t: "topology" };
+  let navigationLeadUntil = 0;
+
+  function isTyping(target) {
+    if (!(target instanceof Element)) return false;
+    return Boolean(target.closest("input, textarea, select, [contenteditable='true'], .xterm"));
+  }
+
+  function hasOtherDialogOpen() {
+    return [...document.querySelectorAll("dialog[open]")].some((item) => item !== dialog);
+  }
+
+  function open() {
+    if (!dialog.open) dialog.showModal();
+    window.requestAnimationFrame(() => document.getElementById("keyboard-shortcuts-close")?.focus());
+  }
+
+  for (const button of closeButtons) button?.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+  document.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented || event.metaKey || event.altKey || isTyping(event.target)) return;
+    if (event.ctrlKey && event.key === "`") {
+      event.preventDefault();
+      workspaceNavigation.focusTerminal();
+      return;
+    }
+    if (event.ctrlKey) return;
+    if (hasOtherDialogOpen()) return;
+    if (event.key === "?") {
+      event.preventDefault();
+      open();
+      return;
+    }
+    if (dialog.open) return;
+    if (event.key === "/") {
+      event.preventDefault();
+      if (currentRoute.workspace === "services") servicesController.focusFilter();
+      else if (currentRoute.workspace === "containers") containersController.focusFilter();
+      else document.querySelector("[data-workspace-panel]:not([hidden]) [data-workspace-filter]")?.focus({ preventScroll: true });
+      return;
+    }
+    const key = event.key.toLowerCase();
+    if (key === "g") {
+      event.preventDefault();
+      navigationLeadUntil = Date.now() + 900;
+      return;
+    }
+    if (Date.now() <= navigationLeadUntil && workspaceByKey[key]) {
+      event.preventDefault();
+      navigationLeadUntil = 0;
+      workspaceNavigation.navigate({ workspace: workspaceByKey[key] }, { focus: true });
+      return;
+    }
+    navigationLeadUntil = 0;
+  });
+}
+
+createKeyboardShortcuts();
 
 function setSystemBadge(label, state) {
   const dot = document.createElement("span");
@@ -340,6 +513,12 @@ function updateOverview() {
     elements["overview-containers-detail"],
     containers.issue ? `${containers.issue} with runtime issues` : containers.stopped ? `${containers.stopped} stopped` : containers.total ? "Podman inventory healthy" : "No containers reported",
   );
+  setMetricText(elements["overview-attention-total"], `${attention.total} ACTIVE`);
+  setMetricText(
+    elements["overview-attention-detail"],
+    attention.critical ? `${attention.critical} critical` : attention.warning ? `${attention.warning} warning${attention.warning === 1 ? "" : "s"}` : "No monitored incidents",
+  );
+  document.getElementById("overview-attention-kpi")?.setAttribute("aria-label", attention.total ? `Open ${attention.total} active monitored incidents` : "Open active alerts");
 
   if (["stale", "offline"].includes(connectionState) && latestCollectedAt) {
     setOverviewHealth("STALE", "degraded", "Last known data is preserved while metrics reconnect");
@@ -591,7 +770,7 @@ function renderSystem(system, disks, network) {
   setMetricText(elements["cpu-percent"], percent(cpuUsage, 1));
   const cpuMaximum = cpuUsage > 100 ? Math.max(100, cpuCores * 100, cpuUsage) : 100;
   setProgress(elements["cpu-progress"], cpuUsage, cpuMaximum);
-  const temperatureLabel = Number.isFinite(Number(temperature)) ? `${Number(temperature).toFixed(0)}°C${Number(temperature) > 80 ? " 🔥" : ""}` : "temp n/a";
+  const temperatureLabel = Number.isFinite(Number(temperature)) ? `${Number(temperature).toFixed(0)}°C${Number(temperature) > 80 ? " · HOT" : ""}` : "temp n/a";
   setMetricText(elements["cpu-detail"], `${frequency ? `${frequency.toFixed(0)} MHz` : "freq n/a"} · ${cpuCores || "—"} cores · ${temperatureLabel}`);
 
   const memoryOverLimit = totalMemory > 0 && usedMemory > totalMemory;
@@ -678,6 +857,28 @@ function compactAlertSource(value) {
   return [node.toUpperCase(), resourceType.toUpperCase(), resource].filter(Boolean).join(" · ");
 }
 
+function applyAlertRoute({ source = "" } = {}) {
+  activeAlertSource = String(source || "").trim().toLowerCase();
+  let visible = 0;
+  for (const node of alertNodes.values()) {
+    const matches = !activeAlertSource || String(node.dataset.source || "").includes(activeAlertSource);
+    node.hidden = !matches;
+    if (matches) visible += 1;
+  }
+  elements["alerts-count"].textContent = String(visible);
+  elements["alerts-empty"].hidden = visible > 0;
+  elements["alerts-card"].dataset.empty = String(visible === 0);
+  const strong = elements["alerts-empty"].querySelector("strong");
+  const detail = elements["alerts-empty"].querySelector("span");
+  if (activeAlertSource && visible === 0) {
+    strong.textContent = "No matching active alerts";
+    detail.textContent = "The selected incident source is not present in the latest snapshot.";
+  } else {
+    strong.textContent = "All clear";
+    detail.textContent = "No active warning or critical alerts.";
+  }
+}
+
 function renderAlerts(alerts) {
   const items = (Array.isArray(alerts) ? alerts : [])
     .map((alert, index) => {
@@ -709,12 +910,14 @@ function renderAlerts(alerts) {
     node.dataset.level = alert.level;
     node.refs.message.textContent = String(alert.message || "System alert");
     const rawSource = String(alert.source || "").trim();
+    node.dataset.source = rawSource.toLowerCase();
     const source = compactAlertSource(rawSource);
     node.refs.meta.textContent = [source, alert.occurredAt || alert.timestamp ? timeAgo(alert.occurredAt || alert.timestamp) : ""].filter(Boolean).join(" · ");
     node.refs.meta.title = rawSource;
     node.refs.meta.setAttribute("aria-label", rawSource ? `Alert source: ${rawSource}` : "Alert source unavailable");
     elements["alerts-list"].append(node);
   }
+  applyAlertRoute({ source: activeAlertSource });
   return {
     total: items.length,
     critical: items.filter((alert) => alertSeverity(alert.level) === 0).length,
@@ -818,8 +1021,12 @@ async function start() {
 	applySession(await api.session());
 	if (demo) await nodesController.refresh();
 	await hydratePreferences();
+    routeNodeSelectionReady = true;
+    workspaceNavigation.applyRoute(routeFromLocation(), { focus: false, applyNode: true });
   } catch (error) {
     applySession({ role: "viewer", identity: { login: "unauthenticated" } });
+    routeNodeSelectionReady = true;
+    workspaceNavigation.applyRoute(routeFromLocation(), { focus: false, applyNode: true });
     toast(error?.message || "Unable to load the Tailscale session.", "error");
   }
 

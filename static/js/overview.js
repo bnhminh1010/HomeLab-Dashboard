@@ -2,7 +2,9 @@ import { clamp, safeHttpUrl, timeAgo } from "./format.js";
 
 const HISTORY_TTL_MS = 5 * 60 * 1000;
 const HISTORY_RETRY_DELAY_MS = 30 * 1000;
+const EVENTS_TTL_MS = 60 * 1000;
 const MAX_ATTENTION = 5;
+const MAX_RECENT_CHANGES = 5;
 const PROBLEM_CONTAINERS = new Set(["crashed", "unhealthy", "dead", "restarting"]);
 const PROBLEM_SERVICES = new Set(["down", "error", "unhealthy", "crashed", "degraded", "warning"]);
 const ACTIONABLE_ALERTS = new Set(["critical", "error", "warning", "warn"]);
@@ -153,7 +155,7 @@ export function collectOverviewIncidents({ alerts = [], services = [], container
   return incidents.sort((left, right) => incidentPriority(left) - incidentPriority(right));
 }
 
-export function createOverviewController({ api, toast, onOpenAlerts, onOpenContainerTerminal }) {
+export function createOverviewController({ api, demo = false, toast, onNavigate, onOpenContainerTerminal }) {
   const attentionPanel = document.getElementById("overview-attention");
   const attentionTitle = document.getElementById("overview-attention-title");
   const attentionList = document.getElementById("overview-attention-list");
@@ -168,11 +170,20 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
   const nodeLabel = document.getElementById("overview-trend-node");
   const resolutionLabel = document.getElementById("overview-trend-resolution");
   const refreshButton = document.getElementById("overview-trend-refresh");
+  const openHistoryButton = document.getElementById("overview-trend-open");
+  const changesList = document.getElementById("overview-recent-changes-list");
+  const changesEmpty = document.getElementById("overview-recent-changes-empty");
+  const changesNodeLabel = document.getElementById("overview-recent-changes-node");
+  const changesStatus = document.getElementById("overview-recent-changes-status");
+  const changesRefreshButton = document.getElementById("overview-recent-changes-refresh");
   const chart = createTrendChart(document.getElementById("overview-trend-chart"));
   const cache = new Map();
+  const eventCache = new Map();
   const retryAfter = new Map();
   let request = null;
   let requestNode = "";
+  let eventRequest = null;
+  let eventRequestNode = "";
   let active = false;
   let node = "local";
   let nodeName = "local";
@@ -191,6 +202,14 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
     requestNode = "";
     chartWrap?.setAttribute("aria-busy", "false");
     refreshButton.disabled = false;
+  }
+
+  function cancelEventRequest() {
+    if (!eventRequest) return;
+    eventRequest.abort();
+    eventRequest = null;
+    eventRequestNode = "";
+    changesRefreshButton.disabled = false;
   }
 
   function clearTrend() {
@@ -218,6 +237,14 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
     const canShell = admin && state === "running" && !container?.protected && container?.actions?.exec !== false && Boolean(container?.id || container?.ID);
     if (canLogs) actions.append(actionButton("LOGS", (event) => onOpenContainerTerminal?.(container, "logs", event.currentTarget)));
     if (canShell) actions.append(actionButton("SHELL", (event) => onOpenContainerTerminal?.(container, "exec", event.currentTarget)));
+  }
+
+  function containerQuery(container) {
+    return String(container?.name || container?.id || container?.ID || "").slice(0, 160);
+  }
+
+  function serviceQuery(service) {
+    return String(service?.name || service?.id || service?.ID || "").slice(0, 160);
   }
 
   function openService(service) {
@@ -253,9 +280,17 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
     copy.append(title, detail);
     const actions = document.createElement("div");
     actions.className = "overview-action-actions";
-    if (item.container) appendContainerActions(actions, item.container, latest.admin);
-    if (item.service) actions.append(actionButton("OPEN", () => openService(item.service)));
-    if (!actions.childElementCount) actions.append(actionButton("ALERTS", () => onOpenAlerts?.()));
+    if (item.container) {
+      actions.append(actionButton("VIEW", () => onNavigate?.({ workspace: "containers", node, state: "attention", query: containerQuery(item.container) })));
+      appendContainerActions(actions, item.container, latest.admin);
+    }
+    if (item.service) {
+      actions.append(actionButton("VIEW", () => onNavigate?.({ workspace: "services", state: "attention", query: serviceQuery(item.service) })));
+      actions.append(actionButton("OPEN", () => openService(item.service)));
+    }
+    if (item.kind === "alert" || item.kind === "frame" || !actions.childElementCount) {
+      actions.append(actionButton("ALERTS", () => onNavigate?.({ workspace: "alerts", node, state: "firing", source: item.detailTitle || "" })));
+    }
     article.append(dot, copy, actions);
     return article;
   }
@@ -267,7 +302,7 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
     attentionCount.textContent = String(incidents.length);
     attentionEmpty.hidden = visible.length > 0;
     attentionPanel?.classList.toggle("is-empty", visible.length === 0);
-    if (attentionTitle) attentionTitle.textContent = visible.length ? "NEEDS ATTENTION" : "ALL CLEAR";
+    if (attentionTitle) attentionTitle.textContent = visible.length ? "Needs Attention" : "All Clear";
     return {
       total: incidents.length,
       critical: incidents.filter((incident) => incident.level === "critical").length,
@@ -277,14 +312,14 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
 
   function renderServicePulse() {
     const services = Array.isArray(latest.services) ? latest.services : [];
-    const probed = services
+    const configured = services
       .filter((service) => String(service?.probeUrl || service?.probeURL || "").trim())
       .sort((left, right) => {
         const leftProblem = PROBLEM_SERVICES.has(serviceState(left)) ? 0 : 1;
         const rightProblem = PROBLEM_SERVICES.has(serviceState(right)) ? 0 : 1;
         return leftProblem - rightProblem || numeric(right?.latencyMs) - numeric(left?.latencyMs);
-      })
-      .slice(0, MAX_ATTENTION);
+      });
+    const probed = configured.slice(0, MAX_ATTENTION);
     const rows = probed.map((service) => {
       const status = serviceState(service);
       return {
@@ -296,11 +331,103 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
       };
     });
     serviceList.replaceChildren(...rows.map(createIncident));
-    serviceCount.textContent = String(probed.length);
+    serviceCount.textContent = `${configured.length} / ${services.length}`;
     serviceEmpty.hidden = rows.length > 0;
-    if (servicePanel) servicePanel.hidden = rows.length === 0;
     if (latest.remote && !rows.length) serviceEmpty.textContent = "Service probes are managed from the Local node.";
-    else serviceEmpty.textContent = "No services with a configured probe.";
+    else if (!services.length) serviceEmpty.textContent = "No services are configured.";
+    else serviceEmpty.textContent = `0 of ${services.length} services have a configured health probe.`;
+  }
+
+  function eventRoute(event) {
+    const container = String(event?.containerId || event?.containerID || "");
+    const service = String(event?.serviceId || event?.serviceID || "");
+    if (container) {
+      const match = latest.containers.find((item) => String(item?.id || item?.ID || item?.instanceId || item?.InstanceID || "") === container);
+      return { workspace: "containers", node, state: "all", query: match ? containerQuery(match) : container };
+    }
+    if (service) {
+      const match = latest.services.find((item) => String(item?.id || item?.ID || "") === service);
+      return { workspace: "services", state: "all", query: match ? serviceQuery(match) : service };
+    }
+    return { workspace: "history", node, range: "24h", kind: "system" };
+  }
+
+  function renderEvents(items, { stale = false } = {}) {
+    const events = [...(Array.isArray(items) ? items : [])]
+      .sort((left, right) => new Date(right?.occurredAt || right?.timestamp || 0) - new Date(left?.occurredAt || left?.timestamp || 0))
+      .slice(0, MAX_RECENT_CHANGES);
+    changesEmpty.textContent = "No recorded operational changes in the last 24 hours.";
+    const rows = events.map((event) => {
+      const article = document.createElement("article");
+      article.className = "overview-action-item";
+      article.dataset.kind = "change";
+      const dot = document.createElement("span");
+      dot.className = "status-dot";
+      dot.setAttribute("aria-hidden", "true");
+      const copy = document.createElement("div");
+      copy.className = "overview-action-copy";
+      const title = document.createElement("strong");
+      title.className = "overview-action-title";
+      title.textContent = String(event?.title || event?.type || "Operational change");
+      const detail = document.createElement("span");
+      detail.className = "overview-action-detail";
+      const occurredAt = event?.occurredAt || event?.timestamp;
+      detail.textContent = [event?.summary, occurredAt ? timeAgo(occurredAt) : "time unavailable"].filter(Boolean).join(" · ");
+      copy.append(title, detail);
+      const actions = document.createElement("div");
+      actions.className = "overview-action-actions";
+      actions.append(actionButton("VIEW", () => onNavigate?.(eventRoute(event))));
+      article.append(dot, copy, actions);
+      return article;
+    });
+    changesList.replaceChildren(...rows);
+    changesEmpty.hidden = rows.length > 0;
+    changesStatus.textContent = stale ? "24H · STALE" : `24H · ${events.length} RECORDED`;
+  }
+
+  async function loadEvents(force = false) {
+    if (!active || !changesList) return;
+    const requestedNode = node;
+    const cached = eventCache.get(requestedNode);
+    if (!force && cached && Date.now() - cached.loadedAt < EVENTS_TTL_MS) {
+      renderEvents(cached.items);
+      return;
+    }
+    if (!force && eventRequest && eventRequestNode === requestedNode) return;
+    cancelEventRequest();
+    const pending = new AbortController();
+    eventRequest = pending;
+    eventRequestNode = requestedNode;
+    changesRefreshButton.disabled = true;
+    changesStatus.textContent = "24H · LOADING";
+    try {
+      const to = new Date();
+      const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+      const payload = typeof api?.listOperationalEvents !== "function"
+        ? { items: [] }
+        : await api.listOperationalEvents({ node: requestedNode, from: from.toISOString(), to: to.toISOString(), limit: MAX_RECENT_CHANGES, signal: pending.signal });
+      if (pending.signal.aborted || eventRequest !== pending || node !== requestedNode) return;
+      const items = Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : [];
+      eventCache.set(requestedNode, { loadedAt: Date.now(), items });
+      renderEvents(items);
+    } catch (error) {
+      if (error?.name === "AbortError" || pending.signal.aborted || eventRequest !== pending) return;
+      if (cached) {
+        renderEvents(cached.items, { stale: true });
+        changesEmpty.textContent = "The latest refresh failed; showing the last successful operational history.";
+      } else {
+        changesList.replaceChildren();
+        changesEmpty.hidden = false;
+        changesEmpty.textContent = error?.message || "Operational change history is unavailable.";
+        changesStatus.textContent = "24H · UNAVAILABLE";
+      }
+    } finally {
+      if (eventRequest === pending) {
+        eventRequest = null;
+        eventRequestNode = "";
+        changesRefreshButton.disabled = false;
+      }
+    }
   }
 
   function renderTrend(payload) {
@@ -363,40 +490,63 @@ export function createOverviewController({ api, toast, onOpenAlerts, onOpenConta
     }
   }
 
-  document.getElementById("overview-alerts-open")?.addEventListener("click", () => onOpenAlerts?.());
+  document.getElementById("overview-alerts-open")?.addEventListener("click", () => onNavigate?.({ workspace: "alerts", node, state: "firing" }));
+  openHistoryButton?.addEventListener("click", () => onNavigate?.({ workspace: "history", node, range: "24h", kind: "system" }));
   refreshButton?.addEventListener("click", () => loadTrend(true));
+  changesRefreshButton?.addEventListener("click", () => loadEvents(true));
 
   return {
     update(next) {
       latest = { ...latest, ...next };
       const attention = renderAttention();
       renderServicePulse();
-      if (active) loadTrend();
+      if (active) {
+        loadTrend();
+        loadEvents();
+      }
       return attention;
     },
     setNode(nextNode, label = "") {
       const next = nextNode || "local";
       if (next !== node) {
         cancelTrendRequest();
+        cancelEventRequest();
         clearTrend();
         setTrendStatus("Loading 24-hour history…");
+        const cachedEvents = eventCache.get(next);
+        if (cachedEvents) renderEvents(cachedEvents.items, { stale: Date.now() - cachedEvents.loadedAt >= EVENTS_TTL_MS });
+        else {
+          changesList?.replaceChildren();
+          if (changesEmpty) {
+            changesEmpty.hidden = false;
+            changesEmpty.textContent = "Loading operational changes…";
+          }
+          if (changesStatus) changesStatus.textContent = "24H · WAITING";
+        }
       }
       node = next;
       nodeName = label || node;
       nodeLabel.textContent = `NODE · ${nodeName.toUpperCase()}`;
-      if (active) loadTrend();
+      changesNodeLabel.textContent = `NODE · ${nodeName.toUpperCase()}`;
+      if (active) {
+        loadTrend();
+        loadEvents();
+      }
     },
     activate() {
       active = true;
       window.requestAnimationFrame(() => chart?.resize());
       loadTrend();
+      loadEvents();
     },
     deactivate() {
       active = false;
       cancelTrendRequest();
+      cancelEventRequest();
     },
     destroy() {
       request?.abort();
+      eventRequest?.abort();
       chart?.destroy();
     },
   };

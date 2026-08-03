@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -58,11 +59,11 @@ func (s *Store) SeedDefaultAlertRules(ctx context.Context, defaults []alerts.Ale
 			if _, err := tx.ExecContext(ctx, `
 				INSERT OR IGNORE INTO alert_rules (
 					id, name, resource_type, node_selector, resource_selector, metric, operator,
-					threshold, duration_ms, severity, cooldown_ms, enabled, created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					threshold, duration_ms, severity, cooldown_ms, runbook_url, enabled, created_at, updated_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				rule.ID, rule.Name, rule.ResourceType, rule.NodeSelector, rule.ResourceSelector,
 				rule.Metric, rule.Operator, rule.Threshold, rule.For.Milliseconds(), rule.Severity,
-				rule.Cooldown.Milliseconds(), rule.Enabled, formatAlertTime(now), formatAlertTime(now)); err != nil {
+				rule.Cooldown.Milliseconds(), rule.RunbookURL, rule.Enabled, formatAlertTime(now), formatAlertTime(now)); err != nil {
 				return fmt.Errorf("insert default alert rule %s: %w", rule.ID, err)
 			}
 		}
@@ -90,11 +91,11 @@ func (s *Store) CreateAlertRule(ctx context.Context, rule alerts.AlertRule) (ale
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO alert_rules (
 			id, name, resource_type, node_selector, resource_selector, metric, operator,
-			threshold, duration_ms, severity, cooldown_ms, enabled, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			threshold, duration_ms, severity, cooldown_ms, runbook_url, enabled, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		rule.ID, rule.Name, rule.ResourceType, rule.NodeSelector, rule.ResourceSelector,
 		rule.Metric, rule.Operator, rule.Threshold, rule.For.Milliseconds(), rule.Severity,
-		rule.Cooldown.Milliseconds(), rule.Enabled, formatAlertTime(now), formatAlertTime(now))
+		rule.Cooldown.Milliseconds(), rule.RunbookURL, rule.Enabled, formatAlertTime(now), formatAlertTime(now))
 	if err != nil {
 		return alerts.AlertRule{}, fmt.Errorf("create alert rule: %w", err)
 	}
@@ -104,7 +105,7 @@ func (s *Store) CreateAlertRule(ctx context.Context, rule alerts.AlertRule) (ale
 func (s *Store) GetAlertRule(ctx context.Context, id string) (alerts.AlertRule, error) {
 	rule, err := scanAlertRule(s.db.QueryRowContext(ctx, `
 		SELECT id, name, resource_type, node_selector, resource_selector, metric, operator,
-			threshold, duration_ms, severity, cooldown_ms, enabled, created_at, updated_at
+			threshold, duration_ms, severity, cooldown_ms, runbook_url, enabled, created_at, updated_at
 		FROM alert_rules WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return alerts.AlertRule{}, ErrNotFound
@@ -118,7 +119,7 @@ func (s *Store) GetAlertRule(ctx context.Context, id string) (alerts.AlertRule, 
 func (s *Store) ListAlertRules(ctx context.Context) ([]alerts.AlertRule, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name, resource_type, node_selector, resource_selector, metric, operator,
-			threshold, duration_ms, severity, cooldown_ms, enabled, created_at, updated_at
+			threshold, duration_ms, severity, cooldown_ms, runbook_url, enabled, created_at, updated_at
 		FROM alert_rules ORDER BY lower(name), id`)
 	if err != nil {
 		return nil, fmt.Errorf("list alert rules: %w", err)
@@ -153,10 +154,10 @@ func (s *Store) UpdateAlertRule(ctx context.Context, id string, rule alerts.Aler
 	result, err := tx.ExecContext(ctx, `
 		UPDATE alert_rules SET name = ?, resource_type = ?, node_selector = ?,
 			resource_selector = ?, metric = ?, operator = ?, threshold = ?, duration_ms = ?,
-			severity = ?, cooldown_ms = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+			severity = ?, cooldown_ms = ?, runbook_url = ?, enabled = ?, updated_at = ? WHERE id = ?`,
 		rule.Name, rule.ResourceType, rule.NodeSelector, rule.ResourceSelector, rule.Metric,
 		rule.Operator, rule.Threshold, rule.For.Milliseconds(), rule.Severity,
-		rule.Cooldown.Milliseconds(), rule.Enabled, formatAlertTime(now), id)
+		rule.Cooldown.Milliseconds(), rule.RunbookURL, rule.Enabled, formatAlertTime(now), id)
 	if err != nil {
 		return alerts.AlertRule{}, fmt.Errorf("update alert rule: %w", err)
 	}
@@ -637,7 +638,7 @@ func scanAlertRule(row scanner) (alerts.AlertRule, error) {
 	var createdAt, updatedAt string
 	if err := row.Scan(&rule.ID, &rule.Name, &rule.ResourceType, &rule.NodeSelector,
 		&rule.ResourceSelector, &rule.Metric, &rule.Operator, &rule.Threshold, &durationMS,
-		&rule.Severity, &cooldownMS, &rule.Enabled, &createdAt, &updatedAt); err != nil {
+		&rule.Severity, &cooldownMS, &rule.RunbookURL, &rule.Enabled, &createdAt, &updatedAt); err != nil {
 		return alerts.AlertRule{}, err
 	}
 	var err error
@@ -652,6 +653,117 @@ func scanAlertRule(row scanner) (alerts.AlertRule, error) {
 	rule.For = time.Duration(durationMS) * time.Millisecond
 	rule.Cooldown = time.Duration(cooldownMS) * time.Millisecond
 	return rule, nil
+}
+
+func (s *Store) ListMaintenanceWindows(ctx context.Context) ([]alerts.MaintenanceWindow, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, node_selector, resource_type, resource_selector,
+		weekdays_json, start_minute, duration_ms, timezone, enabled, created_at, updated_at
+		FROM alert_maintenance_windows ORDER BY lower(name), id`)
+	if err != nil {
+		return nil, fmt.Errorf("list maintenance windows: %w", err)
+	}
+	defer rows.Close()
+	windows := make([]alerts.MaintenanceWindow, 0)
+	for rows.Next() {
+		window, scanErr := scanMaintenanceWindow(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list maintenance windows: %w", scanErr)
+		}
+		windows = append(windows, window)
+	}
+	return windows, rows.Err()
+}
+
+func (s *Store) CreateMaintenanceWindow(ctx context.Context, window alerts.MaintenanceWindow) (alerts.MaintenanceWindow, error) {
+	window = alerts.NormalizeMaintenance(window)
+	if err := alerts.ValidateMaintenance(window); err != nil {
+		return alerts.MaintenanceWindow{}, err
+	}
+	weekdays, err := json.Marshal(window.Weekdays)
+	if err != nil {
+		return alerts.MaintenanceWindow{}, fmt.Errorf("encode maintenance weekdays: %w", err)
+	}
+	now := s.now().UTC()
+	window.CreatedAt, window.UpdatedAt = now, now
+	_, err = s.db.ExecContext(ctx, `INSERT INTO alert_maintenance_windows(
+		id, name, node_selector, resource_type, resource_selector, weekdays_json, start_minute, duration_ms, timezone, enabled, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, window.ID, window.Name, window.NodeSelector, window.ResourceType,
+		window.ResourceSelector, string(weekdays), window.StartMinute, window.Duration.Milliseconds(), window.Timezone, window.Enabled,
+		formatAlertTime(now), formatAlertTime(now))
+	if err != nil {
+		return alerts.MaintenanceWindow{}, fmt.Errorf("create maintenance window: %w", err)
+	}
+	return window, nil
+}
+
+func (s *Store) UpdateMaintenanceWindow(ctx context.Context, id string, window alerts.MaintenanceWindow) (alerts.MaintenanceWindow, error) {
+	window.ID = id
+	window = alerts.NormalizeMaintenance(window)
+	if err := alerts.ValidateMaintenance(window); err != nil {
+		return alerts.MaintenanceWindow{}, err
+	}
+	weekdays, err := json.Marshal(window.Weekdays)
+	if err != nil {
+		return alerts.MaintenanceWindow{}, fmt.Errorf("encode maintenance weekdays: %w", err)
+	}
+	now := s.now().UTC()
+	result, err := s.db.ExecContext(ctx, `UPDATE alert_maintenance_windows SET name = ?, node_selector = ?, resource_type = ?, resource_selector = ?,
+		weekdays_json = ?, start_minute = ?, duration_ms = ?, timezone = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+		window.Name, window.NodeSelector, window.ResourceType, window.ResourceSelector, string(weekdays), window.StartMinute,
+		window.Duration.Milliseconds(), window.Timezone, window.Enabled, formatAlertTime(now), id)
+	if err != nil {
+		return alerts.MaintenanceWindow{}, fmt.Errorf("update maintenance window: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return alerts.MaintenanceWindow{}, fmt.Errorf("update maintenance window: %w", err)
+	}
+	if count == 0 {
+		return alerts.MaintenanceWindow{}, ErrNotFound
+	}
+	window.CreatedAt = time.Time{}
+	window.UpdatedAt = now
+	return window, nil
+}
+
+func (s *Store) DeleteMaintenanceWindow(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM alert_maintenance_windows WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete maintenance window: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete maintenance window: %w", err)
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func scanMaintenanceWindow(row scanner) (alerts.MaintenanceWindow, error) {
+	var window alerts.MaintenanceWindow
+	var weekdays, createdAt, updatedAt string
+	var durationMS int64
+	if err := row.Scan(&window.ID, &window.Name, &window.NodeSelector, &window.ResourceType, &window.ResourceSelector,
+		&weekdays, &window.StartMinute, &durationMS, &window.Timezone, &window.Enabled, &createdAt, &updatedAt); err != nil {
+		return alerts.MaintenanceWindow{}, err
+	}
+	if err := json.Unmarshal([]byte(weekdays), &window.Weekdays); err != nil {
+		return alerts.MaintenanceWindow{}, fmt.Errorf("decode maintenance weekdays: %w", err)
+	}
+	var err error
+	if window.CreatedAt, err = parseAlertTime(createdAt); err != nil {
+		return alerts.MaintenanceWindow{}, err
+	}
+	if window.UpdatedAt, err = parseAlertTime(updatedAt); err != nil {
+		return alerts.MaintenanceWindow{}, err
+	}
+	window.Duration = time.Duration(durationMS) * time.Millisecond
+	if err := alerts.ValidateMaintenance(window); err != nil {
+		return alerts.MaintenanceWindow{}, err
+	}
+	return window, nil
 }
 
 func scanAlertState(row scanner) (alerts.AlertState, error) {

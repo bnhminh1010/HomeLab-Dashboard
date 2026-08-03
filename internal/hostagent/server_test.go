@@ -217,7 +217,10 @@ func startTestServer(t *testing.T, options Options) *Client {
 	t.Helper()
 	options.SocketPath = filepath.Join(secureTempDir(t), "agent.sock")
 	if options.IdleTimeout == 0 {
-		options.IdleTimeout = 5 * time.Second
+		// A login shell can spend several seconds in user startup hooks when the
+		// race detector is active. Dedicated idle-timeout tests pass an explicit
+		// short value; the general test fixture must not compete with shell start.
+		options.IdleTimeout = 30 * time.Second
 	}
 	if options.HardTimeout == 0 {
 		options.HardTimeout = 10 * time.Second

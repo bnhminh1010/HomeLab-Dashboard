@@ -22,6 +22,20 @@ function formatTimestamp(value) {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString([], { hour12: false });
 }
 
+function severity(entry) {
+  const labeled = String(entry?.labels?.level || "").toLowerCase();
+  if (["debug", "info", "warn", "warning", "error", "fatal", "critical"].includes(labeled)) return labeled;
+  const line = String(entry?.line || "");
+  try {
+    const parsed = JSON.parse(line);
+    const value = String(parsed?.level || parsed?.severity || "").toLowerCase();
+    if (["debug", "info", "warn", "warning", "error", "fatal", "critical"].includes(value)) return value;
+  } catch { /* Plain-text logs are common and remain unclassified. */ }
+  if (/\b(fatal|critical|error)\b/i.test(line)) return "error";
+  if (/\bwarn(?:ing)?\b/i.test(line)) return "warn";
+  return "";
+}
+
 // Historical logs deliberately refresh only on explicit operator action. Live
 // per-container output remains available through the terminal workbench.
 export function createLogsController({ api, demo, toast }) {
@@ -65,6 +79,8 @@ export function createLogsController({ api, demo, toast }) {
       const labels = entry?.labels || {};
       const row = document.createElement("article");
       row.className = "historical-log-entry";
+      const level = severity(entry);
+      if (level) row.dataset.severity = level;
       const metadata = document.createElement("div");
       metadata.className = "historical-log-meta mono";
       const timestamp = document.createElement("time");
@@ -74,7 +90,14 @@ export function createLogsController({ api, demo, toast }) {
       resource.textContent = labels.service_name || labels.container_name || "podman";
       const container = document.createElement("span");
       container.textContent = labels.container_name || "local";
-      metadata.append(timestamp, resource, container);
+      if (level) {
+        const levelLabel = document.createElement("span");
+        levelLabel.className = "historical-log-level";
+        levelLabel.textContent = level.toUpperCase();
+        metadata.append(timestamp, resource, container, levelLabel);
+      } else {
+        metadata.append(timestamp, resource, container);
+      }
       const line = document.createElement("pre");
       line.className = "historical-log-line";
       line.textContent = String(entry.line || "");

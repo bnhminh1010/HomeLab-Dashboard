@@ -131,7 +131,7 @@ export function createSettingsController({ api, demo = false, toast, onApplied }
     try {
       const payload = demo || typeof api.exportDashboardConfig !== "function" ? demoDocument() : await api.exportDashboardConfig();
       downloadJSON(payload);
-      setStatus("Configuration exported. Runtime data and secrets were excluded.");
+      setStatus("Configuration exported. Runtime data, secrets, and local maintenance schedules were excluded.");
     } catch (error) {
       setStatus(error?.message || "Unable to export dashboard configuration.", "error");
     } finally {

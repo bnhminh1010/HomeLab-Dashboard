@@ -121,6 +121,41 @@ func TestLogsRejectProtectedContainer(t *testing.T) {
 	}
 }
 
+func TestLifecycleActionsRequireRunningVisibleContainer(t *testing.T) {
+	var actions []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v5.0.0/libpod/containers/app/json", func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(response, `{"Id":"app","Name":"/app","State":{"Status":"running","Running":true},"Config":{"Labels":{}}}`)
+	})
+	mux.HandleFunc("/v5.0.0/libpod/containers/app/restart", func(response http.ResponseWriter, request *http.Request) {
+		actions = append(actions, request.Method+" restart")
+		response.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/v5.0.0/libpod/containers/app/stop", func(response http.ResponseWriter, request *http.Request) {
+		actions = append(actions, request.Method+" stop")
+		response.WriteHeader(http.StatusNoContent)
+	})
+	client := newFakeClient(t, mux)
+	if err := client.Restart(context.Background(), "app"); err != nil {
+		t.Fatalf("Restart() error = %v", err)
+	}
+	if err := client.Stop(context.Background(), "app"); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if got, want := strings.Join(actions, ","), "POST restart,POST stop"; got != want {
+		t.Fatalf("lifecycle actions = %q, want %q", got, want)
+	}
+
+	blockedMux := http.NewServeMux()
+	blockedMux.HandleFunc("/v5.0.0/libpod/containers/system/json", func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(response, `{"Id":"system","State":{"Status":"exited","Running":false},"Config":{"Labels":{"io.homelab.dashboard.protected":"true"}}}`)
+	})
+	blocked := newFakeClient(t, blockedMux)
+	if err := blocked.Restart(context.Background(), "system"); !errors.Is(err, ErrProtectedContainer) {
+		t.Fatalf("protected Restart() error = %v", err)
+	}
+}
+
 func TestExecLifecycleUsesFixedShellAndUpgrade(t *testing.T) {
 	var mu sync.Mutex
 	var createPayload map[string]any

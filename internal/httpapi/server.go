@@ -41,6 +41,10 @@ type AlertRepository interface {
 	ListAlertRules(context.Context) ([]alerts.AlertRule, error)
 	UpdateAlertRule(context.Context, string, alerts.AlertRule) (alerts.AlertRule, error)
 	DeleteAlertRule(context.Context, string) error
+	ListMaintenanceWindows(context.Context) ([]alerts.MaintenanceWindow, error)
+	CreateMaintenanceWindow(context.Context, alerts.MaintenanceWindow) (alerts.MaintenanceWindow, error)
+	UpdateMaintenanceWindow(context.Context, string, alerts.MaintenanceWindow) (alerts.MaintenanceWindow, error)
+	DeleteMaintenanceWindow(context.Context, string) error
 	ListAlertStates(context.Context, alerts.StateFilter) ([]alerts.AlertState, error)
 	ListAlertEvents(context.Context, alerts.EventFilter) ([]alerts.AlertEvent, error)
 	AcknowledgeAlert(context.Context, alerts.AlertKey, string, time.Time) (alerts.AlertState, error)
@@ -65,6 +69,14 @@ type TopologyRepository interface {
 type CheckRepository interface {
 	ListCertificateObservations(context.Context) ([]healthchecks.CertificateObservation, error)
 	ListBackupObservations(context.Context, string) ([]healthchecks.BackupObservation, error)
+}
+
+// ContainerLifecycle is the narrow mutation boundary for the two explicitly
+// supported Podman lifecycle operations. Implementations must enforce runtime
+// labels again because snapshot state is not authoritative.
+type ContainerLifecycle interface {
+	Restart(context.Context, string, string) error
+	Stop(context.Context, string, string) error
 }
 
 type Options struct {
@@ -95,6 +107,7 @@ type Options struct {
 	Topology               TopologyRepository
 	Checks                 CheckRepository
 	Logs                   logs.Reader
+	ContainerLifecycle     ContainerLifecycle
 }
 
 type Server struct {
@@ -203,6 +216,10 @@ func (s *Server) routes() {
 	}
 	authenticatedAPI.GET("/logs/status", s.getLogsStatus)
 	authenticatedAPI.GET("/logs/query", s.queryLogs)
+	if s.options.ContainerLifecycle != nil {
+		authenticatedAPI.POST("/containers/:id/restart", s.restartContainer)
+		authenticatedAPI.POST("/containers/:id/stop", s.stopContainer)
+	}
 	if s.options.Alerts != nil {
 		authenticatedAPI.GET("/alert-rules", s.listAlertRules)
 		authenticatedAPI.POST("/alert-rules", s.createAlertRule)
@@ -212,6 +229,10 @@ func (s *Server) routes() {
 		authenticatedAPI.GET("/alerts/events", s.listAlertEvents)
 		authenticatedAPI.POST("/alerts/acknowledge", s.acknowledgeAlert)
 		authenticatedAPI.POST("/alerts/silence", s.silenceAlert)
+		authenticatedAPI.GET("/maintenance-windows", s.listMaintenanceWindows)
+		authenticatedAPI.POST("/maintenance-windows", s.createMaintenanceWindow)
+		authenticatedAPI.PATCH("/maintenance-windows/:id", s.updateMaintenanceWindow)
+		authenticatedAPI.DELETE("/maintenance-windows/:id", s.deleteMaintenanceWindow)
 		authenticatedAPI.GET("/notifications/ntfy", s.getNTFYStatus)
 		authenticatedAPI.POST("/notifications/ntfy/test", s.testNTFY)
 	}
@@ -304,18 +325,19 @@ func (s *Server) createSession(c *gin.Context) {
 		"role":      principal.Role,
 		"csrfToken": session.CSRF,
 		"capabilities": gin.H{
-			"manageServices": principal.Role == auth.RoleAdmin,
-			"containerExec":  principal.Role == auth.RoleAdmin,
-			"hostShell":      s.hostShellAllowed(principal),
-			"manageAlerts":   principal.Role == auth.RoleAdmin && s.options.Alerts != nil,
-			"manageNodes":    principal.Role == auth.RoleAdmin && s.options.Nodes != nil,
-			"manageConfig":   principal.Role == auth.RoleAdmin && s.options.DashboardConfig != nil,
-			"history":        s.options.History != nil,
-			"multiNode":      s.options.NodeRegistry != nil,
-			"slo":            s.options.SLO != nil,
-			"operations":     s.options.Operations != nil,
-			"topology":       s.options.Topology != nil,
-			"healthChecks":   s.options.Checks != nil,
+			"manageServices":   principal.Role == auth.RoleAdmin,
+			"containerExec":    principal.Role == auth.RoleAdmin,
+			"hostShell":        s.hostShellAllowed(principal),
+			"manageAlerts":     principal.Role == auth.RoleAdmin && s.options.Alerts != nil,
+			"manageNodes":      principal.Role == auth.RoleAdmin && s.options.Nodes != nil,
+			"manageConfig":     principal.Role == auth.RoleAdmin && s.options.DashboardConfig != nil,
+			"history":          s.options.History != nil,
+			"multiNode":        s.options.NodeRegistry != nil,
+			"slo":              s.options.SLO != nil,
+			"operations":       s.options.Operations != nil,
+			"topology":         s.options.Topology != nil,
+			"healthChecks":     s.options.Checks != nil,
+			"manageContainers": principal.Role == auth.RoleAdmin && s.options.ContainerLifecycle != nil,
 		},
 	})
 }

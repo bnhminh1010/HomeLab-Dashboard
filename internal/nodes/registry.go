@@ -81,6 +81,7 @@ type Registry struct {
 	nextGen     uint64
 	commandSeq  uint64
 	streams     map[string]*Stream
+	commands    map[string]*commandRequest
 
 	// afterDecode is a deterministic test seam for the replacement-during-
 	// decode regression. Production registries leave it nil.
@@ -107,7 +108,7 @@ func NewRegistry(service *Service, options RegistryOptions) (*Registry, error) {
 		service: service, now: options.Now, offlineAfter: options.OfflineAfter,
 		timestampWindow: options.TimestampWindow, onSnapshot: options.OnSnapshot,
 		onOpen: options.OnConnectionOpen, onLost: options.OnConnectionLost, connections: make(map[string]*nodeConnection),
-		cache: make(map[string]*cachedNodeState), streams: make(map[string]*Stream),
+		cache: make(map[string]*cachedNodeState), streams: make(map[string]*Stream), commands: make(map[string]*commandRequest),
 	}, nil
 }
 
@@ -133,6 +134,7 @@ func (r *Registry) Attach(ctx context.Context, nodeID, credential string, sender
 	if previous != nil {
 		_ = previous.sender.Close()
 		r.closeNodeStreamsGeneration(node.ID, previous.generation, ErrConnectionReplaced)
+		r.closeNodeCommandsGeneration(node.ID, previous.generation, ErrConnectionReplaced)
 	}
 	_ = r.service.Touch(ctx, node.ID)
 	if r.onOpen != nil {
@@ -155,6 +157,7 @@ func (r *Registry) Detach(nodeID string, generation uint64) {
 	}
 	if ok && connection.generation == generation {
 		r.closeNodeStreams(nodeID, ErrNodeOffline)
+		r.closeNodeCommandsGeneration(nodeID, generation, ErrNodeOffline)
 	}
 }
 
@@ -174,6 +177,7 @@ func (r *Registry) Revoke(ctx context.Context, nodeID string) error {
 		_ = connection.sender.Close()
 	}
 	r.closeNodeStreams(nodeID, ErrNodeUnauthorized)
+	r.closeNodeCommands(nodeID, ErrNodeUnauthorized)
 	return nil
 }
 
@@ -342,7 +346,8 @@ func (r *Registry) commitFrame(
 func (r *Registry) Send(ctx context.Context, nodeID, messageType, requestID string, payload any) error {
 	switch messageType {
 	case MessageLogsOpen, MessageLogsCancel, MessageExecOpen, MessageHostOpen,
-		MessageStreamInput, MessageStreamResize, MessageStreamCancel:
+		MessageStreamInput, MessageStreamResize, MessageStreamCancel,
+		MessageContainerRestart, MessageContainerStop:
 	default:
 		return ErrProtocolType
 	}

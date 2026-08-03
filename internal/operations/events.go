@@ -54,6 +54,7 @@ const (
 	EventNodeConnected         = "node.connected"
 	EventNodeDisconnected      = "node.disconnected"
 	EventContainerRestarted    = "container.restarted"
+	EventContainerStopped      = "container.stopped"
 	EventBackupReported        = "backup.reported"
 )
 
