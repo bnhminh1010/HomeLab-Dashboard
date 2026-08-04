@@ -49,6 +49,7 @@ func logQuery(c *gin.Context) (logs.Query, bool) {
 		Container: strings.TrimSpace(c.Query("container")),
 		Level:     strings.TrimSpace(c.Query("level")),
 		Text:      strings.TrimSpace(c.Query("q")),
+		IsRegex:   c.Query("regex") == "true",
 		Limit:     logs.DefaultLimit,
 	}
 	for key, destination := range map[string]*time.Time{"from": &query.From, "to": &query.To} {

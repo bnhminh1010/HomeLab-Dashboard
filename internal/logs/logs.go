@@ -38,6 +38,7 @@ type Query struct {
 	Container string
 	Level     string
 	Text      string
+	IsRegex   bool
 	Limit     int
 }
 

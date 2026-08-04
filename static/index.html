@@ -339,7 +339,12 @@
             <label><span class="visually-hidden">Service</span><select id="logs-service" aria-label="Filter logs by service"><option value="">All services</option></select></label>
             <label><span class="visually-hidden">Container</span><select id="logs-container" aria-label="Filter logs by container"><option value="">All containers</option></select></label>
             <label><span class="visually-hidden">Log level</span><select id="logs-level" aria-label="Filter logs by level"><option value="">All levels</option><option value="debug">Debug</option><option value="info">Info</option><option value="warn">Warn</option><option value="error">Error</option></select></label>
-            <label class="logs-search"><span class="visually-hidden">Search log text</span><input id="logs-search" type="search" maxlength="160" placeholder="Search text; press Enter" autocomplete="off"></label>
+            <div class="logs-search">
+              <label for="logs-search" class="visually-hidden">Search log text</label>
+              <input id="logs-search" type="search" maxlength="160" placeholder="Search text; press Enter" autocomplete="off">
+              <button id="logs-regex-toggle" class="logs-regex-toggle" type="button" aria-label="Use regular expression search" aria-pressed="false" title="Use Regular Expression (.*)">.*</button>
+            </div>
+            <span id="logs-match-status" class="logs-match-status mono" role="status" aria-live="polite">NO SEARCH</span>
             <button id="logs-refresh" class="text-button" type="button">REFRESH</button>
           </div>
           <p class="logs-note">Searches retained logs from the local node. Use the container terminal for a live Podman stream.</p>

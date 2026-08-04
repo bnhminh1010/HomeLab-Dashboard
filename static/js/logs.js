@@ -36,6 +36,40 @@ function severity(entry) {
   return "";
 }
 
+function createMatcher(query, regex) {
+  if (!query) return null;
+  try {
+    return new RegExp(regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+  } catch {
+    return null;
+  }
+}
+
+function appendHighlighted(target, value, matcher) {
+  if (!matcher) {
+    target.textContent = value;
+    return;
+  }
+  let cursor = 0;
+  let match;
+  matcher.lastIndex = 0;
+  while ((match = matcher.exec(value)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (start > cursor) target.append(document.createTextNode(value.slice(cursor, start)));
+    if (end === start) {
+      target.append(document.createTextNode(match[0]));
+      if (matcher.lastIndex === start) matcher.lastIndex += 1;
+    } else {
+      const mark = document.createElement("mark");
+      mark.textContent = match[0];
+      target.append(mark);
+    }
+    cursor = end;
+  }
+  if (cursor < value.length) target.append(document.createTextNode(value.slice(cursor)));
+}
+
 // Historical logs deliberately refresh only on explicit operator action. Live
 // per-container output remains available through the terminal workbench.
 export function createLogsController({ api, demo, toast }) {
@@ -48,6 +82,8 @@ export function createLogsController({ api, demo, toast }) {
   const containerSelect = document.getElementById("logs-container");
   const levelSelect = document.getElementById("logs-level");
   const search = document.getElementById("logs-search");
+  const regexToggle = document.getElementById("logs-regex-toggle");
+  const matchStatus = document.getElementById("logs-match-status");
   const refreshButton = document.getElementById("logs-refresh");
   const rangeButtons = [...document.querySelectorAll("[data-logs-range]")];
   let range = "1h";
@@ -55,10 +91,45 @@ export function createLogsController({ api, demo, toast }) {
   let enabled = false;
   let pending = null;
   let lastRefreshAt = 0;
+  let isRegex = false;
+  let activeQuery = "";
+  let activeQueryIsRegex = false;
+  let matchIndex = -1;
+  let matchRows = [];
 
   function setStatus(message, state = "muted") {
     status.textContent = message;
     status.dataset.state = state;
+  }
+
+  function updateMatchStatus() {
+    if (!activeQuery || matchRows.length === 0) {
+      matchStatus.textContent = activeQuery ? "0 MATCHES" : "NO SEARCH";
+      return;
+    }
+    matchStatus.textContent = `${matchIndex + 1} OF ${matchRows.length}`;
+  }
+
+  function resetMatches() {
+    for (const row of matchRows) row.removeAttribute("data-match-active");
+    matchRows = [];
+    matchIndex = -1;
+    updateMatchStatus();
+  }
+
+  function selectMatch(nextIndex) {
+    if (matchRows.length === 0) return;
+    matchRows[matchIndex]?.removeAttribute("data-match-active");
+    matchIndex = (nextIndex + matchRows.length) % matchRows.length;
+    const row = matchRows[matchIndex];
+    row.dataset.matchActive = "true";
+    row.scrollIntoView({ block: "nearest" });
+    updateMatchStatus();
+  }
+
+  function navigateMatches(previous) {
+    if (matchRows.length === 0) return;
+    selectMatch(matchIndex < 0 ? (previous ? matchRows.length - 1 : 0) : matchIndex + (previous ? -1 : 1));
   }
 
   function setRange(next, refresh = true) {
@@ -74,6 +145,8 @@ export function createLogsController({ api, demo, toast }) {
 
   function render(entries) {
     list.replaceChildren();
+    resetMatches();
+    const matcher = createMatcher(activeQuery, activeQueryIsRegex);
     empty.hidden = entries.length > 0;
     for (const entry of entries) {
       const labels = entry?.labels || {};
@@ -100,10 +173,16 @@ export function createLogsController({ api, demo, toast }) {
       }
       const line = document.createElement("pre");
       line.className = "historical-log-line";
-      line.textContent = String(entry.line || "");
+      appendHighlighted(line, String(entry.line || ""), matcher);
       row.append(metadata, line);
       list.append(row);
+      if (activeQuery) matchRows.push(row);
     }
+    if (matchRows.length > 0) {
+      matchIndex = 0;
+      matchRows[0].dataset.matchActive = "true";
+    }
+    updateMatchStatus();
   }
 
   async function load() {
@@ -125,18 +204,26 @@ export function createLogsController({ api, demo, toast }) {
         container: containerSelect.value,
         level: levelSelect.value,
         q: search.value.trim(),
+        regex: isRegex,
         limit: 200,
         signal: request.signal,
       });
       const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+      activeQuery = search.value.trim();
+      activeQueryIsRegex = isRegex;
       render(entries);
       setStatus(entries.length ? `${entries.length} ENTRIES` : "NO MATCHES", entries.length ? "ready" : "muted");
       lastRefreshAt = Date.now();
     } catch (error) {
       if (error?.name === "AbortError") return;
-      render([]);
-      setStatus(error?.code === "logs_disabled" ? "NOT CONFIGURED" : "UNAVAILABLE", "error");
-      toast?.(error?.message || "Unable to query historical logs.", "error");
+      if (error?.code === "invalid_logs_query") {
+        setStatus("INVALID REGEX", "error");
+        toast?.("Invalid regular expression. Check the pattern and try again.", "error");
+      } else {
+        render([]);
+        setStatus(error?.code === "logs_disabled" ? "NOT CONFIGURED" : "UNAVAILABLE", "error");
+        toast?.(error?.message || "Unable to query historical logs.", "error");
+      }
     } finally {
       if (pending === request) pending = null;
       refreshButton.disabled = false;
@@ -191,8 +278,23 @@ export function createLogsController({ api, demo, toast }) {
 
   for (const button of rangeButtons) button.addEventListener("click", () => setRange(button.dataset.logsRange));
   refreshButton.addEventListener("click", () => void load());
+  regexToggle?.addEventListener("click", () => {
+    isRegex = !isRegex;
+    regexToggle.setAttribute("aria-pressed", String(isRegex));
+    regexToggle.title = isRegex ? "Use plain text search" : "Use Regular Expression (.*)";
+    void load();
+  });
   for (const control of [serviceSelect, containerSelect, levelSelect]) control.addEventListener("change", () => void load());
-  search.addEventListener("keydown", (event) => { if (event.key === "Enter") void load(); });
+  search.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const query = search.value.trim();
+    if (query !== activeQuery || isRegex !== activeQueryIsRegex) {
+      void load();
+      return;
+    }
+    navigateMatches(event.shiftKey);
+  });
 
   return {
     setResources,

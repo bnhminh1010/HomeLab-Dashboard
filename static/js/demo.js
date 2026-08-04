@@ -89,18 +89,27 @@ export class DemoApi {
     return { enabled: true, backend: "loki", nodeId: "local", retentionHours: 168 };
   }
 
-  async queryLogs({ service = "", container = "", level = "", q = "" } = {}) {
+  async queryLogs({ service = "", container = "", level = "", q = "", regex = false } = {}) {
     const entries = [
       { timestamp: new Date(Date.now() - 18_000).toISOString(), labels: { job: "podman", node: "local", service_name: "Immich", container_name: "immich_server" }, line: '{"level":"info","msg":"health check completed","request_id":"demo-18"}' },
       { timestamp: new Date(Date.now() - 47_000).toISOString(), labels: { job: "podman", node: "local", service_name: "fastCRW", container_name: "crw" }, line: '{"level":"warn","msg":"upstream response exceeded target","latency_ms":842}' },
       { timestamp: new Date(Date.now() - 92_000).toISOString(), labels: { job: "podman", node: "local", service_name: "Immich", container_name: "immich_redis" }, line: 'Ready to accept connections' },
     ];
     const needle = q.trim().toLowerCase();
+    let matcher = null;
+    if (regex && q.trim()) {
+      try {
+        matcher = new RegExp(q.trim(), "i");
+      } catch (error) {
+        error.code = "invalid_logs_query";
+        throw error;
+      }
+    }
     return { entries: entries.filter((entry) => {
       if (service && entry.labels.service_name !== service) return false;
       if (container && entry.labels.container_name !== container) return false;
       if (level && !entry.line.toLowerCase().includes(`\"level\":\"${level.toLowerCase()}\"`)) return false;
-      return !needle || entry.line.toLowerCase().includes(needle);
+      return !needle || (matcher ? matcher.test(entry.line) : entry.line.toLowerCase().includes(needle));
     }) };
   }
 

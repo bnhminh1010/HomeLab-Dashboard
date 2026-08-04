@@ -121,6 +121,11 @@ func validateQuery(query *Query) error {
 	if len(query.Text) > 160 || strings.ContainsAny(query.Text, "\x00\r\n") {
 		return ErrInvalid
 	}
+	if query.IsRegex && query.Text != "" {
+		if _, err := regexp.Compile(query.Text); err != nil {
+			return ErrInvalid
+		}
+	}
 	if query.Limit == 0 {
 		query.Limit = DefaultLimit
 	}
@@ -146,7 +151,11 @@ func logQL(query Query) string {
 		expression += ` | level=~"(?i)^` + query.Level + `$"`
 	}
 	if query.Text != "" {
-		expression += ` |= ` + strconv.Quote(query.Text)
+		operator := "|="
+		if query.IsRegex {
+			operator = "|~"
+		}
+		expression += " " + operator + " " + strconv.Quote(query.Text)
 	}
 	return expression
 }

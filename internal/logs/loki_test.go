@@ -39,6 +39,38 @@ func TestLokiQueryBuildsBoundedSelector(t *testing.T) {
 	}
 }
 
+func TestLokiQueryUsesRegexFilterWhenRequested(t *testing.T) {
+	var gotQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		gotQuery = request.URL.Query().Get("query")
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"data":{"result":[]}}`))
+	}))
+	defer server.Close()
+	client, err := NewLoki(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := time.Unix(1700000000, 0).UTC()
+	_, err = client.Query(context.Background(), Query{
+		NodeID:  LocalNodeID,
+		From:    to.Add(-time.Hour),
+		To:      to,
+		Text:    `(error|fail)`,
+		IsRegex: true,
+		Limit:   20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotQuery, `|~ "(error|fail)"`) {
+		t.Fatalf("query %q does not contain regex filter", gotQuery)
+	}
+	if strings.Contains(gotQuery, `|= "(error|fail)"`) {
+		t.Fatalf("query %q unexpectedly contains substring filter", gotQuery)
+	}
+}
+
 func TestLokiQueryRejectsUnboundedInput(t *testing.T) {
 	client, err := NewLoki("http://127.0.0.1:3100", nil)
 	if err != nil {
@@ -49,6 +81,7 @@ func TestLokiQueryRejectsUnboundedInput(t *testing.T) {
 		{NodeID: "remote", From: now.Add(-time.Hour), To: now},
 		{NodeID: LocalNodeID, From: now.Add(-MaxRange - time.Second), To: now},
 		{NodeID: LocalNodeID, From: now.Add(-time.Hour), To: now, Text: "bad\ninput"},
+		{NodeID: LocalNodeID, From: now.Add(-time.Hour), To: now, Text: "[a-z", IsRegex: true},
 		{NodeID: LocalNodeID, From: now.Add(-time.Hour), To: now, Limit: MaxLimit + 1},
 	} {
 		if _, err := client.Query(context.Background(), query); err == nil {

@@ -78,11 +78,11 @@ func TestLogsReadEndpointsAllowViewerAndBoundQuery(t *testing.T) {
 	}
 
 	query := httptest.NewRecorder()
-	server.Handler().ServeHTTP(query, authenticatedLogRequest("/api/v1/logs/query?from=2026-08-01T00:00:00Z&to=2026-08-01T01:00:00Z&service=dashboard&limit=20", cookie))
+	server.Handler().ServeHTTP(query, authenticatedLogRequest("/api/v1/logs/query?from=2026-08-01T00:00:00Z&to=2026-08-01T01:00:00Z&service=dashboard&limit=20&regex=true", cookie))
 	if query.Code != http.StatusOK {
 		t.Fatalf("query status=%d body=%s", query.Code, query.Body.String())
 	}
-	if reader.query.Service != "dashboard" || reader.query.Limit != 20 || reader.query.NodeID != logs.LocalNodeID {
+	if reader.query.Service != "dashboard" || reader.query.Limit != 20 || reader.query.NodeID != logs.LocalNodeID || !reader.query.IsRegex {
 		t.Fatalf("unexpected query: %+v", reader.query)
 	}
 }

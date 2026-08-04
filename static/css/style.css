@@ -214,8 +214,12 @@ button:disabled { opacity: 0.48; cursor: not-allowed; }
 .logs-toolbar { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 12px 0; }
 .logs-toolbar select, .logs-toolbar input { min-height: 32px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--bg-surface); font: 10px/1.2 var(--font-mono); }
 .logs-toolbar select { max-width: 160px; padding: 4px 24px 4px 8px; }
-.logs-search { min-width: 160px; flex: 1 1 220px; }
-.logs-search input { width: 100%; padding: 4px 8px; }
+.logs-search { position: relative; min-width: 160px; flex: 1 1 220px; }
+.logs-search input { width: 100%; padding: 4px 38px 4px 8px; }
+.logs-regex-toggle { position: absolute; top: 4px; right: 4px; display: inline-grid; width: 26px; height: 24px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 3px; color: var(--text-dim); background: transparent; cursor: pointer; font: 11px/1 var(--font-mono); }
+.logs-regex-toggle:hover, .logs-regex-toggle:focus-visible { border-color: var(--accent-muted); color: var(--accent-hover); background: var(--accent-soft); }
+.logs-regex-toggle[aria-pressed="true"] { border-color: var(--accent-muted); color: var(--accent-hover); background: var(--surface-selected); }
+.logs-match-status { min-width: 86px; color: var(--text-dim); font-size: 10px; letter-spacing: 0.05em; text-align: right; white-space: nowrap; }
 .logs-note { margin: 9px 12px; color: var(--text-dim); font: 10px/1.45 var(--font-mono); }
 .historical-logs-list { display: grid; min-height: 238px; max-height: min(54dvh, 650px); overflow: auto; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); background: var(--bg-deep); scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
 .historical-log-entry { display: grid; min-width: 0; grid-template-columns: 220px minmax(0, 1fr); gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--border-subtle); }
@@ -225,10 +229,12 @@ button:disabled { opacity: 0.48; cursor: not-allowed; }
 .historical-log-line { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text-secondary); white-space: pre-wrap; font: 11px/1.45 var(--font-mono); }
 .historical-log-entry[data-severity="error"], .historical-log-entry[data-severity="fatal"], .historical-log-entry[data-severity="critical"] { box-shadow: inset 3px 0 var(--red); }
 .historical-log-entry[data-severity="warn"], .historical-log-entry[data-severity="warning"] { box-shadow: inset 3px 0 var(--yellow); }
+.historical-log-entry[data-match-active="true"] { outline: 1px solid var(--accent); outline-offset: -1px; background: var(--surface-selected); }
 .historical-log-level { font-weight: 800; letter-spacing: 0.07em; }
 .historical-log-entry[data-severity="error"] .historical-log-level, .historical-log-entry[data-severity="fatal"] .historical-log-level, .historical-log-entry[data-severity="critical"] .historical-log-level { color: var(--red); }
 .historical-log-entry[data-severity="warn"] .historical-log-level, .historical-log-entry[data-severity="warning"] .historical-log-level { color: var(--yellow); }
 .historical-log-entry[data-severity="info"] .historical-log-level { color: var(--green); }
+.historical-log-line mark { padding: 0 1px; color: var(--text-primary); background: var(--accent-muted); }
 .logs-empty { min-height: 72px; margin: 0; padding: 20px 12px; color: var(--text-dim); background: var(--bg-deep); text-align: center; font: 11px/1.45 var(--font-mono); }
 .logs-footer { display: flex; min-width: 0; justify-content: space-between; gap: 10px; padding: 9px 12px; color: var(--text-dim); font-size: 10px; letter-spacing: 0.05em; }
 .logs-footer > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -586,6 +592,7 @@ kbd { display: inline-flex; min-width: 22px; min-height: 22px; align-items: cent
   .logs-toolbar { align-items: stretch; }
   .logs-toolbar .history-controls { width: 100%; justify-content: flex-start; }
   .logs-toolbar select, .logs-search { min-width: 0; max-width: none; flex: 1 1 calc(50% - 6px); }
+  .logs-match-status { flex: 1 1 100%; min-width: 0; text-align: left; }
   .logs-toolbar .text-button { min-height: 44px; }
   .historical-log-entry { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .historical-log-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; }

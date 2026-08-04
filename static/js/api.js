@@ -130,7 +130,7 @@ export class DashboardApi {
     return this.request("/api/v1/logs/status", { signal });
   }
 
-  queryLogs({ node = "local", from = "", to = "", service = "", container = "", level = "", q = "", limit = 200, signal } = {}) {
+  queryLogs({ node = "local", from = "", to = "", service = "", container = "", level = "", q = "", regex = false, limit = 200, signal } = {}) {
     const query = new URLSearchParams({ node, limit: String(limit) });
     if (from) query.set("from", from);
     if (to) query.set("to", to);
@@ -138,6 +138,7 @@ export class DashboardApi {
     if (container) query.set("container", container);
     if (level) query.set("level", level);
     if (q) query.set("q", q);
+    if (regex) query.set("regex", "true");
     return this.request(`/api/v1/logs/query?${query}`, { signal });
   }
 
