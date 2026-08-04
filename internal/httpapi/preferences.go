@@ -9,10 +9,12 @@ import (
 )
 
 type preferencesPatch struct {
-	TerminalHeight    *int    `json:"terminalHeight,omitempty"`
-	TerminalCollapsed *bool   `json:"terminalCollapsed,omitempty"`
-	HistoryRange      *string `json:"historyRange,omitempty"`
-	DefaultNodeID     *string `json:"defaultNodeId,omitempty"`
+	TerminalHeight    *int      `json:"terminalHeight,omitempty"`
+	TerminalCollapsed *bool     `json:"terminalCollapsed,omitempty"`
+	HistoryRange      *string   `json:"historyRange,omitempty"`
+	DefaultNodeID     *string   `json:"defaultNodeId,omitempty"`
+	HiddenWorkspaces  *[]string `json:"hiddenWorkspaces,omitempty"`
+	WorkspaceOrder    *[]string `json:"workspaceOrder,omitempty"`
 }
 
 func (s *Server) getDashboardPreferences(c *gin.Context) {
@@ -49,6 +51,12 @@ func (s *Server) updateDashboardPreferences(c *gin.Context) {
 	}
 	if patch.DefaultNodeID != nil {
 		preferences.DefaultNodeID = *patch.DefaultNodeID
+	}
+	if patch.HiddenWorkspaces != nil {
+		preferences.HiddenWorkspaces = append([]string(nil), (*patch.HiddenWorkspaces)...)
+	}
+	if patch.WorkspaceOrder != nil {
+		preferences.WorkspaceOrder = append([]string(nil), (*patch.WorkspaceOrder)...)
 	}
 	updated, err := s.options.Preferences.UpdateDashboardUIPreferences(c.Request.Context(), preferences, principal.Login)
 	if err != nil {

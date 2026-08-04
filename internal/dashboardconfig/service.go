@@ -168,13 +168,20 @@ func validateServiceCapacity(current Snapshot, incoming Document, mode ImportMod
 // preserveLegacyV1Sections keeps a v1 import scoped to the configuration that
 // schema knew about. In particular, a v1 replace must not silently erase
 // SLO policies or manual topology authored after the dashboard was upgraded.
+// Workspace layout fields are also preserved when absent from an older v1 or
+// v2 document so importing an existing backup cannot reset a newer sidebar.
 func preserveLegacyV1Sections(document Document, current Snapshot) Document {
-	if !document.legacyV1 {
-		return document
-	}
 	currentDocument := documentFromSnapshot(current)
-	document.SLOPolicies = currentDocument.SLOPolicies
-	document.Dependencies = currentDocument.Dependencies
+	if document.legacyV1 {
+		document.SLOPolicies = currentDocument.SLOPolicies
+		document.Dependencies = currentDocument.Dependencies
+	}
+	if document.UIPreferences.HiddenWorkspaces == nil {
+		document.UIPreferences.HiddenWorkspaces = append([]string(nil), currentDocument.UIPreferences.HiddenWorkspaces...)
+	}
+	if document.UIPreferences.WorkspaceOrder == nil {
+		document.UIPreferences.WorkspaceOrder = append([]string(nil), currentDocument.UIPreferences.WorkspaceOrder...)
+	}
 	return document
 }
 
@@ -436,7 +443,7 @@ func documentFromSnapshot(snapshot Snapshot) Document {
 		AlertRules:    make([]AlertRuleConfig, 0, len(snapshot.AlertRules)),
 		SLOPolicies:   make([]SLOPolicyConfig, 0, len(snapshot.SLOPolicies)),
 		Dependencies:  make([]DependencyConfig, 0, len(snapshot.Dependencies)),
-		UIPreferences: snapshot.UIPreferences,
+		UIPreferences: NormalizeUIPreferences(snapshot.UIPreferences),
 		Nodes:         make([]NodeMetadata, 0, len(snapshot.Nodes)),
 	}
 	for _, service := range snapshot.Services {
@@ -487,7 +494,7 @@ func snapshotFromDocument(document Document) Snapshot {
 		AlertRules:    make([]alerts.AlertRule, 0, len(document.AlertRules)),
 		SLOPolicies:   make([]slo.Policy, 0, len(document.SLOPolicies)),
 		Dependencies:  make([]topology.Dependency, 0, len(document.Dependencies)),
-		UIPreferences: document.UIPreferences,
+		UIPreferences: NormalizeUIPreferences(document.UIPreferences),
 		Nodes:         make([]nodes.Node, 0, len(document.Nodes)),
 	}
 	for _, service := range document.Services {
@@ -536,7 +543,7 @@ func buildPreview(current, incoming Document, mode ImportMode, revision string) 
 	preview.Changes = append(preview.Changes, diffValues("sloPolicies", current.SLOPolicies, incoming.SLOPolicies, mode)...)
 	preview.Changes = append(preview.Changes, diffValues("topologyDependencies", current.Dependencies, incoming.Dependencies, mode)...)
 	uiAction := ChangeUnchanged
-	if current.UIPreferences != incoming.UIPreferences {
+	if !EqualUIPreferences(current.UIPreferences, incoming.UIPreferences) {
 		uiAction = ChangeUpdate
 	}
 	preview.Changes = append(preview.Changes, Change{Section: "uiPreferences", ID: "preferences", Action: uiAction})

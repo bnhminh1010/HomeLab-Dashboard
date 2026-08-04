@@ -108,18 +108,87 @@ type DependencyConfig struct {
 }
 
 type UIPreferences struct {
-	TerminalHeight    int    `json:"terminalHeight"`
-	TerminalCollapsed bool   `json:"terminalCollapsed"`
-	HistoryRange      string `json:"historyRange"`
-	DefaultNodeID     string `json:"defaultNodeId"`
+	TerminalHeight    int      `json:"terminalHeight"`
+	TerminalCollapsed bool     `json:"terminalCollapsed"`
+	HistoryRange      string   `json:"historyRange"`
+	DefaultNodeID     string   `json:"defaultNodeId"`
+	HiddenWorkspaces  []string `json:"hiddenWorkspaces"`
+	WorkspaceOrder    []string `json:"workspaceOrder"`
+}
+
+const (
+	WorkspaceOverview   = "overview"
+	WorkspaceServices   = "services"
+	WorkspaceContainers = "containers"
+	WorkspaceNodes      = "nodes"
+	WorkspaceHistory    = "history"
+	WorkspaceLogs       = "logs"
+	WorkspaceAlerts     = "alerts"
+	WorkspaceTopology   = "topology"
+)
+
+var canonicalWorkspaceOrder = []string{
+	WorkspaceOverview,
+	WorkspaceServices,
+	WorkspaceContainers,
+	WorkspaceNodes,
+	WorkspaceHistory,
+	WorkspaceLogs,
+	WorkspaceAlerts,
+	WorkspaceTopology,
 }
 
 func DefaultUIPreferences() UIPreferences {
 	return UIPreferences{
-		TerminalHeight: 200,
-		HistoryRange:   "24h",
-		DefaultNodeID:  "local",
+		TerminalHeight:   200,
+		HistoryRange:     "24h",
+		DefaultNodeID:    "local",
+		HiddenWorkspaces: []string{},
+		WorkspaceOrder:   DefaultWorkspaceOrder(),
 	}
+}
+
+// DefaultWorkspaceOrder returns a copy so callers cannot alter the canonical
+// workspace sequence used by validation and newly initialized dashboards.
+func DefaultWorkspaceOrder() []string {
+	return append([]string(nil), canonicalWorkspaceOrder...)
+}
+
+// NormalizeUIPreferences supplies fields absent from older portable documents
+// and pre-workspace-layout database rows. Explicit empty or invalid values are
+// intentionally left untouched for the caller to validate.
+func NormalizeUIPreferences(preferences UIPreferences) UIPreferences {
+	if preferences.HiddenWorkspaces == nil {
+		preferences.HiddenWorkspaces = []string{}
+	}
+	if preferences.WorkspaceOrder == nil {
+		preferences.WorkspaceOrder = DefaultWorkspaceOrder()
+	}
+	return preferences
+}
+
+// EqualUIPreferences compares all durable UI preference fields, including
+// workspace slices which make UIPreferences no longer directly comparable.
+func EqualUIPreferences(left, right UIPreferences) bool {
+	if left.TerminalHeight != right.TerminalHeight ||
+		left.TerminalCollapsed != right.TerminalCollapsed ||
+		left.HistoryRange != right.HistoryRange ||
+		left.DefaultNodeID != right.DefaultNodeID ||
+		len(left.HiddenWorkspaces) != len(right.HiddenWorkspaces) ||
+		len(left.WorkspaceOrder) != len(right.WorkspaceOrder) {
+		return false
+	}
+	for index := range left.HiddenWorkspaces {
+		if left.HiddenWorkspaces[index] != right.HiddenWorkspaces[index] {
+			return false
+		}
+	}
+	for index := range left.WorkspaceOrder {
+		if left.WorkspaceOrder[index] != right.WorkspaceOrder[index] {
+			return false
+		}
+	}
+	return true
 }
 
 // NodeMetadata deliberately omits the credential hash, enrollment tokens,

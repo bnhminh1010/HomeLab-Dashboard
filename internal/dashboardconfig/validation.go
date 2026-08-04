@@ -204,6 +204,40 @@ func validateUIPreferences(preferences UIPreferences) error {
 	if !validID(preferences.DefaultNodeID, 128) {
 		return invalid("uiPreferences.defaultNodeId", "must be a non-empty identifier of at most 128 bytes")
 	}
+	validWorkspaces := make(map[string]struct{}, len(canonicalWorkspaceOrder))
+	for _, workspace := range canonicalWorkspaceOrder {
+		validWorkspaces[workspace] = struct{}{}
+	}
+	if preferences.HiddenWorkspaces != nil {
+		hidden := make(map[string]struct{}, len(preferences.HiddenWorkspaces))
+		for index, workspace := range preferences.HiddenWorkspaces {
+			if _, ok := validWorkspaces[workspace]; !ok {
+				return invalid(fmt.Sprintf("uiPreferences.hiddenWorkspaces[%d]", index), "must be a valid workspace id")
+			}
+			if workspace == WorkspaceOverview {
+				return invalid(fmt.Sprintf("uiPreferences.hiddenWorkspaces[%d]", index), "overview cannot be hidden")
+			}
+			if _, duplicate := hidden[workspace]; duplicate {
+				return invalid(fmt.Sprintf("uiPreferences.hiddenWorkspaces[%d]", index), "duplicate workspace id")
+			}
+			hidden[workspace] = struct{}{}
+		}
+	}
+	if preferences.WorkspaceOrder != nil {
+		if len(preferences.WorkspaceOrder) != len(canonicalWorkspaceOrder) {
+			return invalid("uiPreferences.workspaceOrder", "must include every workspace exactly once")
+		}
+		ordered := make(map[string]struct{}, len(preferences.WorkspaceOrder))
+		for index, workspace := range preferences.WorkspaceOrder {
+			if _, ok := validWorkspaces[workspace]; !ok {
+				return invalid(fmt.Sprintf("uiPreferences.workspaceOrder[%d]", index), "must be a valid workspace id")
+			}
+			if _, duplicate := ordered[workspace]; duplicate {
+				return invalid(fmt.Sprintf("uiPreferences.workspaceOrder[%d]", index), "duplicate workspace id")
+			}
+			ordered[workspace] = struct{}{}
+		}
+	}
 	return nil
 }
 

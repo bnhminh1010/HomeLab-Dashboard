@@ -61,9 +61,8 @@ function colorToken(name, fallback = "transparent") {
   return globalThis.getComputedStyle?.(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
-function createChart(canvas) {
-  if (!canvas || typeof globalThis.Chart !== "function") return null;
-  const colors = {
+function chartColors() {
+  return {
     accent: colorToken("--accent"),
     accentSoft: colorToken("--accent-soft"),
     green: colorToken("--green"),
@@ -75,6 +74,11 @@ function createChart(canvas) {
     grid: colorToken("--border-subtle"),
     tooltipBorder: colorToken("--accent-muted"),
   };
+}
+
+function createChart(canvas) {
+  if (!canvas || typeof globalThis.Chart !== "function") return null;
+  const colors = chartColors();
   return new globalThis.Chart(canvas.getContext("2d"), {
     type: "line",
     data: { labels: [], datasets: [
@@ -290,6 +294,24 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
     empty.hidden = !message;
   }
 
+  function updateTheme() {
+    if (!chart) return;
+    const colors = chartColors();
+    chart.data.datasets[0].borderColor = colors.accent;
+    chart.data.datasets[0].backgroundColor = colors.accentSoft;
+    chart.data.datasets[1].borderColor = colors.green;
+    chart.data.datasets[1].backgroundColor = colors.greenSoft;
+    chart.options.scales.x.ticks.color = colors.dim;
+    chart.options.scales.y.grid.color = colors.grid;
+    chart.options.scales.y.ticks.color = colors.dim;
+    chart.options.plugins.legend.labels.color = colors.secondary;
+    chart.options.plugins.tooltip.backgroundColor = colors.overlay;
+    chart.options.plugins.tooltip.borderColor = colors.tooltipBorder;
+    chart.options.plugins.tooltip.titleColor = colors.primary;
+    chart.options.plugins.tooltip.bodyColor = colors.secondary;
+    chart.update("none");
+  }
+
   function render(payload) {
     const points = Array.isArray(payload?.points) ? payload.points : [];
     const visiblePoints = chartPoints(points, kind);
@@ -397,6 +419,7 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
     },
     refresh,
     setRange,
+    updateTheme,
     range: () => range,
     destroy() { request?.abort(); catalogRequest?.abort(); chart?.destroy(); panel?.removeAttribute("aria-busy"); },
   };

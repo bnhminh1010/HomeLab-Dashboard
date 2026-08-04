@@ -172,10 +172,17 @@ func TestHistoryAndAlertAPIs(t *testing.T) {
 	if applyResponse.Code != http.StatusOK {
 		t.Fatalf("config apply status=%d body=%s", applyResponse.Code, applyResponse.Body.String())
 	}
-	preferencesRequest := authenticatedMutation(http.MethodPatch, "/api/v1/preferences", `{"historyRange":"7d","defaultNodeId":"local"}`, "admin@example.com", csrf, cookie)
+	preferencesRequest := authenticatedMutation(http.MethodPatch, "/api/v1/preferences", `{
+		"historyRange":"7d",
+		"defaultNodeId":"local",
+		"hiddenWorkspaces":["topology"],
+		"workspaceOrder":["overview","alerts","services","containers","nodes","history","logs","topology"]
+	}`, "admin@example.com", csrf, cookie)
 	preferencesResponse := httptest.NewRecorder()
 	server.Handler().ServeHTTP(preferencesResponse, preferencesRequest)
-	if preferencesResponse.Code != http.StatusOK || !strings.Contains(preferencesResponse.Body.String(), `"historyRange":"7d"`) {
+	if preferencesResponse.Code != http.StatusOK || !strings.Contains(preferencesResponse.Body.String(), `"historyRange":"7d"`) ||
+		!strings.Contains(preferencesResponse.Body.String(), `"hiddenWorkspaces":["topology"]`) ||
+		!strings.Contains(preferencesResponse.Body.String(), `"workspaceOrder":["overview","alerts"`) {
 		t.Fatalf("preferences update status=%d body=%s", preferencesResponse.Code, preferencesResponse.Body.String())
 	}
 }

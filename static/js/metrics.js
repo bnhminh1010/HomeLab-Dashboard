@@ -57,6 +57,19 @@ export function createMetricCharts() {
   const cpuFallback = [];
   const ramFallback = [];
 
+  function updateTheme() {
+    if (cpuChart) {
+      cpuChart.data.datasets[0].borderColor = colorToken("--accent");
+      cpuChart.data.datasets[0].backgroundColor = colorToken("--accent-soft");
+      cpuChart.update("none");
+    }
+    if (ramChart) {
+      ramChart.data.datasets[0].borderColor = colorToken("--green");
+      ramChart.data.datasets[0].backgroundColor = colorToken("--green-soft");
+      ramChart.update("none");
+    }
+  }
+
   return {
     update(cpu, ram) {
       append(cpuChart, cpu, cpuFallback);
@@ -71,6 +84,7 @@ export function createMetricCharts() {
       cpuFallback.length = 0;
       ramFallback.length = 0;
     },
+    updateTheme,
     destroy() {
       cpuChart?.destroy();
       ramChart?.destroy();

@@ -41,7 +41,9 @@ let latestOverviewData = { system: {}, disks: [], services: [], containers: [], 
 const alertNodes = new Map();
 const WORKSPACE_STORAGE_KEY = "homelab.workspace.active";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "homelab.sidebar.collapsed";
-const WORKSPACES = new Set(["overview", "services", "containers", "nodes", "history", "logs", "alerts", "topology"]);
+const THEME_STORAGE_KEY = "homelab.theme";
+const WORKSPACE_ORDER = ["overview", "services", "containers", "nodes", "history", "logs", "alerts", "topology"];
+const WORKSPACES = new Set(WORKSPACE_ORDER);
 const ROUTE_RANGES = new Set(["1h", "6h", "24h", "7d", "30d", "90d"]);
 const ROUTE_KINDS = new Set(["system", "container", "service"]);
 const ROUTE_STATES = {
@@ -51,6 +53,7 @@ const ROUTE_STATES = {
 };
 let routeNodeSelectionReady = false;
 let activeAlertSource = "";
+let workspacePreferences = { workspaceOrder: [...WORKSPACE_ORDER], hiddenWorkspaces: [] };
 const overviewSummary = {
   services: { total: 0, up: 0, down: 0, unknown: 0 },
   containers: { total: 0, running: 0, issue: 0, stopped: 0 },
@@ -134,6 +137,16 @@ const settingsController = createSettingsController({
     await hydratePreferences();
     await Promise.allSettled([refreshSnapshot(), alertsController.refresh()]);
   },
+  onWorkspacePreferencesApplied: async (next) => {
+    if (demo) {
+      storeValue("homelab.demo.workspace-preferences", JSON.stringify(next));
+      applyWorkspacePreferences(next);
+      return workspacePreferences;
+    }
+    const updated = await api.updatePreferences(next);
+    applyWorkspacePreferences(updated);
+    return workspacePreferences;
+  },
 });
 
 function storageValue(key) {
@@ -144,12 +157,63 @@ function storeValue(key, value) {
   try { localStorage.setItem(key, value); } catch { /* Storage is optional. */ }
 }
 
+function normalizeWorkspacePreferences(preferences = {}) {
+  const seen = new Set();
+  const order = [];
+  for (const workspace of Array.isArray(preferences.workspaceOrder) ? preferences.workspaceOrder : []) {
+    if (!WORKSPACES.has(workspace) || seen.has(workspace)) continue;
+    seen.add(workspace);
+    order.push(workspace);
+  }
+  for (const workspace of WORKSPACE_ORDER) if (!seen.has(workspace)) order.push(workspace);
+  const hidden = [...new Set(Array.isArray(preferences.hiddenWorkspaces) ? preferences.hiddenWorkspaces : [])]
+    .filter((workspace) => workspace !== "overview" && WORKSPACES.has(workspace));
+  return { workspaceOrder: order, hiddenWorkspaces: hidden };
+}
+
+function themeName() {
+  return document.documentElement.classList.contains("theme-light") ? "light" : "dark";
+}
+
+function preferredTheme() {
+  const saved = storageValue(THEME_STORAGE_KEY);
+  return saved === "light" || saved === "dark" ? saved : themeName();
+}
+
+function applyTheme(next, { persist = false } = {}) {
+  const theme = next === "light" ? "light" : "dark";
+  document.documentElement.classList.toggle("theme-light", theme === "light");
+  document.documentElement.classList.toggle("theme-dark", theme === "dark");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "light" ? "#f6f5f3" : "#101010");
+  const toggle = document.getElementById("theme-toggle");
+  if (toggle) {
+    const toLight = theme === "dark";
+    toggle.setAttribute("aria-pressed", String(theme === "light"));
+    toggle.setAttribute("aria-label", toLight ? "Switch to light theme" : "Switch to dark theme");
+    toggle.title = toLight ? "Switch to light theme" : "Switch to dark theme";
+  }
+  if (persist) storeValue(THEME_STORAGE_KEY, theme);
+  charts.updateTheme?.();
+  historyController.updateTheme?.();
+  terminal.updateTheme?.();
+}
+
+function applyWorkspacePreferences(preferences) {
+  workspacePreferences = normalizeWorkspacePreferences(preferences);
+  workspaceNavigation?.applyPreferences(workspacePreferences);
+  settingsController.setWorkspacePreferences(workspacePreferences);
+  const visibleRoute = normalizeRoute(currentRoute);
+  if (visibleRoute.workspace !== currentRoute.workspace) workspaceNavigation?.navigate(visibleRoute, { replace: true, focus: false });
+  return workspacePreferences;
+}
+
 function safeRouteValue(value, maxLength = 160) {
   return String(value || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, maxLength);
 }
 
 function normalizeRoute(route = {}) {
-  const workspace = WORKSPACES.has(route.workspace) ? route.workspace : "overview";
+  const requestedWorkspace = WORKSPACES.has(route.workspace) ? route.workspace : "overview";
+  const workspace = workspacePreferences.hiddenWorkspaces.includes(requestedWorkspace) ? "overview" : requestedWorkspace;
   const normalized = { workspace };
   const state = safeRouteValue(route.state, 24).toLowerCase();
   if (ROUTE_STATES[workspace]?.has(state)) normalized.state = state;
@@ -219,6 +283,7 @@ function createWorkspaceNavigation() {
   ].filter(Boolean);
   const workspaceButtons = [...document.querySelectorAll("[data-workspace]")];
   const workspacePanels = [...document.querySelectorAll("[data-workspace-panel]")];
+  const workbenchLabel = sidebar.querySelector(".sidebar-group-label");
   const drawerQuery = window.matchMedia("(max-width: 899px)");
   let activeWorkspace = currentRoute.workspace;
   let drawerOpener = null;
@@ -295,6 +360,21 @@ function createWorkspaceNavigation() {
     if (workspace === "overview") window.requestAnimationFrame(() => overviewController.activate());
     else overviewController.deactivate();
     if (focus) focusWorkspace(workspace);
+  }
+
+  function applyPreferences(preferences) {
+    const normalized = normalizeWorkspacePreferences(preferences);
+    const hidden = new Set(normalized.hiddenWorkspaces);
+    for (const workspace of normalized.workspaceOrder) {
+      const button = workspaceButtons.find((item) => item.dataset.workspace === workspace);
+      if (!button) continue;
+      sidebar.querySelector(".workspace-nav")?.insertBefore(button, workbenchLabel || null);
+      button.hidden = hidden.has(workspace);
+    }
+    if (hidden.has(activeWorkspace)) {
+      const route = normalizeRoute({ ...currentRoute, workspace: activeWorkspace });
+      navigate(route, { replace: true, focus: false });
+    }
   }
 
   function focusTerminal() {
@@ -375,10 +455,11 @@ function createWorkspaceNavigation() {
   else drawerQuery.addListener(onDrawerChange);
 
   setCollapsed(storageValue(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true");
+  applyPreferences(workspacePreferences);
   selectWorkspace(activeWorkspace);
   syncDrawerControls();
 
-  return { selectWorkspace, focusTerminal, navigate, applyRoute };
+  return { selectWorkspace, focusTerminal, navigate, applyRoute, applyPreferences };
 }
 
 const workspaceNavigation = createWorkspaceNavigation();
@@ -979,9 +1060,15 @@ function scheduleSessionRenewal(delay = 1200) {
 }
 
 async function hydratePreferences() {
-  if (demo || typeof api.preferences !== "function") return;
+  if (demo) {
+    try { applyWorkspacePreferences(JSON.parse(storageValue("homelab.demo.workspace-preferences") || "{}")); }
+    catch { applyWorkspacePreferences({}); }
+    return;
+  }
+  if (typeof api.preferences !== "function") return;
   try {
     const preferences = await api.preferences();
+    applyWorkspacePreferences(preferences);
     if (preferences?.historyRange) historyController.setRange(preferences.historyRange, false);
     await nodesController.refresh();
     if (preferences?.defaultNodeId) nodesController.setSelected(preferences.defaultNodeId);
@@ -1017,6 +1104,7 @@ function savePreferences(update) {
 
 async function start() {
   elements["demo-badge"].hidden = !demo;
+  applyTheme(preferredTheme());
   try {
 	applySession(await api.session());
 	if (demo) await nodesController.refresh();
@@ -1049,6 +1137,7 @@ async function start() {
   stream.start();
 }
 
+document.getElementById("theme-toggle")?.addEventListener("click", () => applyTheme(themeName() === "dark" ? "light" : "dark", { persist: true }));
 document.getElementById("node-selector").addEventListener("change", () => savePreferences({ defaultNodeId: nodesController.selectedNode() }));
 document.querySelectorAll("[data-history-range]").forEach((button) => button.addEventListener("click", () => savePreferences({ historyRange: historyController.range() })));
 document.getElementById("terminal-toggle").addEventListener("click", () => window.setTimeout(() => savePreferences({ terminalCollapsed: document.getElementById("terminal-panel").classList.contains("is-collapsed") }), 0));

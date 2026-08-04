@@ -1661,6 +1661,97 @@ func TestDemoMobileOperationsWorkspaces(t *testing.T) {
 	}
 }
 
+func TestDemoVisualCustomization(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+	ctx, cancel := newBrowserContext(allocator)
+	defer cancel()
+	ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
+	defer timeout()
+
+	var report struct {
+		LightTheme        bool     `json:"lightTheme"`
+		ThemePersisted    bool     `json:"themePersisted"`
+		ThemeRestored     bool     `json:"themeRestored"`
+		ChartRecolored    bool     `json:"chartRecolored"`
+		WorkspaceCount    int      `json:"workspaceCount"`
+		OverviewProtected bool     `json:"overviewProtected"`
+		TopologyHidden    bool     `json:"topologyHidden"`
+		RouteFallback     bool     `json:"routeFallback"`
+		Order             []string `json:"order"`
+	}
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(1440, 900),
+		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+		chromedp.WaitReady("#terminal .xterm-helper-textarea", chromedp.ByQuery),
+		chromedp.Click("#theme-toggle", chromedp.ByQuery),
+		chromedp.Poll(`document.documentElement.classList.contains('theme-light')`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`(() => ({
+          lightTheme: document.documentElement.classList.contains('theme-light'),
+          themePersisted: localStorage.getItem('homelab.theme') === 'light',
+          chartRecolored: Chart.getChart(document.querySelector('#cpu-chart'))?.data.datasets[0].borderColor === getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()
+        }))()`, &report),
+		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+		chromedp.WaitReady("#terminal .xterm-helper-textarea", chromedp.ByQuery),
+		chromedp.Evaluate(`document.documentElement.classList.contains('theme-light') && localStorage.getItem('homelab.theme') === 'light'`, &report.ThemeRestored),
+		chromedp.Click("#settings-open", chromedp.ByQuery),
+		chromedp.WaitVisible("#settings-dialog", chromedp.ByQuery),
+		chromedp.Poll(`document.querySelectorAll('#sidebar-workspaces-list [data-workspace-config]').length === 8`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`(() => ({
+          workspaceCount: document.querySelectorAll('#sidebar-workspaces-list [data-workspace-config]').length,
+          overviewProtected: document.querySelector('[data-workspace-config="overview"] input')?.disabled === true
+        }))()`, &report),
+		chromedp.Click(`[data-workspace-config="alerts"] [data-workspace-move="-1"]`, chromedp.ByQuery),
+		chromedp.Click(`[data-workspace-config="topology"] input`, chromedp.ByQuery),
+		chromedp.Click("#workspace-config-apply", chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('[data-workspace="topology"]').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`(() => {
+          window.location.hash = '#topology';
+          return true;
+        })()`, nil),
+		chromedp.Poll(`location.hash === '#overview' && !document.querySelector('#workspace-overview').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`(() => ({
+          topologyHidden: document.querySelector('[data-workspace="topology"]')?.hidden === true,
+          routeFallback: location.hash === '#overview' && !document.querySelector('#workspace-overview').hidden,
+          order: [...document.querySelectorAll('#workspace-sidebar [data-workspace]')].map((item) => item.dataset.workspace)
+        }))()`, &report),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.LightTheme || !report.ThemePersisted || !report.ThemeRestored || !report.ChartRecolored || report.WorkspaceCount != 8 || !report.OverviewProtected || !report.TopologyHidden || !report.RouteFallback {
+		t.Fatalf("visual customization regression: %+v", report)
+	}
+	alerts, logs := -1, -1
+	for index, workspace := range report.Order {
+		if workspace == "alerts" {
+			alerts = index
+		}
+		if workspace == "logs" {
+			logs = index
+		}
+	}
+	if alerts < 0 || logs < 0 || alerts >= logs {
+		t.Fatalf("workspace reorder was not applied: %+v", report.Order)
+	}
+}
+
 func assertHistoryRange(expected string) chromedp.Action {
 	return chromedp.ActionFunc(func(ctx context.Context) error {
 		var state struct {

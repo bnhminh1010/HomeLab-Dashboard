@@ -35,19 +35,27 @@ func (s *Store) LoadDashboardConfig(ctx context.Context) (dashboardconfig.Snapsh
 
 func (s *Store) GetDashboardUIPreferences(ctx context.Context) (dashboardconfig.UIPreferences, error) {
 	var preferences dashboardconfig.UIPreferences
+	var hiddenWorkspacesJSON, workspaceOrderJSON string
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT terminal_height, terminal_collapsed, history_range, default_node_id
+		SELECT terminal_height, terminal_collapsed, history_range, default_node_id,
+			hidden_workspaces_json, workspace_order_json
 		FROM dashboard_ui_preferences WHERE singleton_id = 1`).Scan(
 		&preferences.TerminalHeight, &preferences.TerminalCollapsed,
 		&preferences.HistoryRange, &preferences.DefaultNodeID,
+		&hiddenWorkspacesJSON, &workspaceOrderJSON,
 	); err != nil {
 		return dashboardconfig.UIPreferences{}, fmt.Errorf("get dashboard UI preferences: %w", err)
 	}
-	return preferences, nil
+	return decodeDashboardUIPreferences(preferences, hiddenWorkspacesJSON, workspaceOrderJSON)
 }
 
 func (s *Store) UpdateDashboardUIPreferences(ctx context.Context, preferences dashboardconfig.UIPreferences, actor string) (dashboardconfig.UIPreferences, error) {
+	preferences = dashboardconfig.NormalizeUIPreferences(preferences)
 	if err := dashboardconfig.ValidateUIPreferences(preferences); err != nil {
+		return dashboardconfig.UIPreferences{}, err
+	}
+	hiddenWorkspacesJSON, workspaceOrderJSON, err := encodeDashboardWorkspacePreferences(preferences)
+	if err != nil {
 		return dashboardconfig.UIPreferences{}, err
 	}
 	actor = strings.TrimSpace(actor)
@@ -64,14 +72,16 @@ func (s *Store) UpdateDashboardUIPreferences(ctx context.Context, preferences da
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE dashboard_ui_preferences
-		SET terminal_height = ?, terminal_collapsed = ?, history_range = ?, default_node_id = ?
+		SET terminal_height = ?, terminal_collapsed = ?, history_range = ?, default_node_id = ?,
+			hidden_workspaces_json = ?, workspace_order_json = ?
 		WHERE singleton_id = 1`, preferences.TerminalHeight, preferences.TerminalCollapsed,
-		preferences.HistoryRange, preferences.DefaultNodeID); err != nil {
+		preferences.HistoryRange, preferences.DefaultNodeID, hiddenWorkspacesJSON, workspaceOrderJSON); err != nil {
 		return dashboardconfig.UIPreferences{}, fmt.Errorf("update dashboard UI preferences: %w", err)
 	}
 	metadata, _ := json.Marshal(map[string]any{
 		"terminalHeight": preferences.TerminalHeight, "terminalCollapsed": preferences.TerminalCollapsed,
 		"historyRange": preferences.HistoryRange, "defaultNodeId": preferences.DefaultNodeID,
+		"hiddenWorkspaces": preferences.HiddenWorkspaces, "workspaceOrder": preferences.WorkspaceOrder,
 	})
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO audit_events(actor, action, target_type, target_id, outcome, metadata_json, created_at)
@@ -104,6 +114,14 @@ func (s *Store) ApplyDashboardConfig(
 	actor = strings.TrimSpace(actor)
 	if actor == "" {
 		return errors.New("dashboard config import actor is required")
+	}
+	incoming.UIPreferences = dashboardconfig.NormalizeUIPreferences(incoming.UIPreferences)
+	if err := dashboardconfig.ValidateUIPreferences(incoming.UIPreferences); err != nil {
+		return err
+	}
+	hiddenWorkspacesJSON, workspaceOrderJSON, err := encodeDashboardWorkspacePreferences(incoming.UIPreferences)
+	if err != nil {
+		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -145,13 +163,14 @@ func (s *Store) ApplyDashboardConfig(
 	if err := applyConfigTopologyDependencies(ctx, tx, current.Dependencies, incoming.Dependencies, mode, now); err != nil {
 		return err
 	}
-	if current.UIPreferences != incoming.UIPreferences {
+	if !dashboardconfig.EqualUIPreferences(current.UIPreferences, incoming.UIPreferences) {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE dashboard_ui_preferences
-			SET terminal_height = ?, terminal_collapsed = ?, history_range = ?, default_node_id = ?
+			SET terminal_height = ?, terminal_collapsed = ?, history_range = ?, default_node_id = ?,
+				hidden_workspaces_json = ?, workspace_order_json = ?
 			WHERE singleton_id = 1`, incoming.UIPreferences.TerminalHeight,
 			incoming.UIPreferences.TerminalCollapsed, incoming.UIPreferences.HistoryRange,
-			incoming.UIPreferences.DefaultNodeID); err != nil {
+			incoming.UIPreferences.DefaultNodeID, hiddenWorkspacesJSON, workspaceOrderJSON); err != nil {
 			return fmt.Errorf("update dashboard UI preferences: %w", err)
 		}
 	}
@@ -270,14 +289,22 @@ func loadDashboardConfigTx(ctx context.Context, tx *sql.Tx) (dashboardconfig.Sna
 		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard config alert rules: %w", err)
 	}
 
+	var hiddenWorkspacesJSON, workspaceOrderJSON string
 	if err := tx.QueryRowContext(ctx, `
-		SELECT terminal_height, terminal_collapsed, history_range, default_node_id
+		SELECT terminal_height, terminal_collapsed, history_range, default_node_id,
+			hidden_workspaces_json, workspace_order_json
 		FROM dashboard_ui_preferences WHERE singleton_id = 1`).Scan(
 		&snapshot.UIPreferences.TerminalHeight, &snapshot.UIPreferences.TerminalCollapsed,
 		&snapshot.UIPreferences.HistoryRange, &snapshot.UIPreferences.DefaultNodeID,
+		&hiddenWorkspacesJSON, &workspaceOrderJSON,
 	); err != nil {
 		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard UI preferences: %w", err)
 	}
+	preferences, err := decodeDashboardUIPreferences(snapshot.UIPreferences, hiddenWorkspacesJSON, workspaceOrderJSON)
+	if err != nil {
+		return dashboardconfig.Snapshot{}, err
+	}
+	snapshot.UIPreferences = preferences
 
 	nodeRows, err := tx.QueryContext(ctx, `
 		SELECT id, display_name, hostname, last_seen_at, created_at, updated_at
@@ -308,6 +335,32 @@ func loadDashboardConfigTx(ctx context.Context, tx *sql.Tx) (dashboardconfig.Sna
 		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard config nodes: %w", err)
 	}
 	return snapshot, nil
+}
+
+func encodeDashboardWorkspacePreferences(preferences dashboardconfig.UIPreferences) (string, string, error) {
+	hidden, err := json.Marshal(preferences.HiddenWorkspaces)
+	if err != nil {
+		return "", "", fmt.Errorf("encode hidden workspace preferences: %w", err)
+	}
+	order, err := json.Marshal(preferences.WorkspaceOrder)
+	if err != nil {
+		return "", "", fmt.Errorf("encode workspace order preferences: %w", err)
+	}
+	return string(hidden), string(order), nil
+}
+
+func decodeDashboardUIPreferences(preferences dashboardconfig.UIPreferences, hiddenJSON, orderJSON string) (dashboardconfig.UIPreferences, error) {
+	if err := json.Unmarshal([]byte(hiddenJSON), &preferences.HiddenWorkspaces); err != nil {
+		return dashboardconfig.UIPreferences{}, fmt.Errorf("decode hidden workspace preferences: %w", err)
+	}
+	if err := json.Unmarshal([]byte(orderJSON), &preferences.WorkspaceOrder); err != nil {
+		return dashboardconfig.UIPreferences{}, fmt.Errorf("decode workspace order preferences: %w", err)
+	}
+	preferences = dashboardconfig.NormalizeUIPreferences(preferences)
+	if err := dashboardconfig.ValidateUIPreferences(preferences); err != nil {
+		return dashboardconfig.UIPreferences{}, fmt.Errorf("validate stored dashboard UI preferences: %w", err)
+	}
+	return preferences, nil
 }
 
 func applyConfigServices(

@@ -1,4 +1,5 @@
-:root {
+:root,
+.theme-dark {
   /* Graphite / amber operational palette. All colour decisions live here. */
   --bg-base: #101010;
   --bg-deep: #090909;
@@ -55,4 +56,54 @@
   --terminal-bright-black: #706c64;
   --terminal-blue: #9b9589;
   --terminal-magenta: #c08ba8;
+}
+
+.theme-light {
+  /* Light keeps the graphite / amber identity without carrying dark-surface contrast. */
+  --bg-base: #f6f5f3;
+  --bg-deep: #ebe8e2;
+  --bg-surface: #fbfaf8;
+  --bg-card: #fffefd;
+  --bg-card-hover: #ffffff;
+  --bg-overlay: #f2f0eb;
+  --bg-recess: #e8e5de;
+  --surface-muted: #eeece7;
+  --surface-selected: #f5e9d8;
+  --border: #d5d0c7;
+  --border-subtle: #e2ded7;
+  --border-hover: #b2874c;
+  --border-strong: #aca69c;
+  --text-primary: #292724;
+  --text-secondary: #5e5a54;
+  --text-dim: #7d786f;
+  --text-inverse: #fffdf8;
+  --text-danger: #9d332d;
+  --text-warning: #765719;
+  --accent: #a96814;
+  --accent-hover: #87510d;
+  --accent-muted: #c59a60;
+  --accent-soft: #f5e5cd;
+  --green: #287d49;
+  --green-soft: #dff0e4;
+  --yellow: #9c741b;
+  --yellow-soft: #f5ecd4;
+  --orange: #a96019;
+  --red: #b6423b;
+  --red-soft: #f6e0de;
+  --gray: #716d66;
+  --track: #d9d4cb;
+  --skeleton: #e6e2da;
+  --skeleton-shine: #f1eee8;
+  --shadow: #000000;
+  --scroll-thumb: #918a7f;
+  --scroll-track: transparent;
+  --terminal-background: #fbfaf6;
+  --terminal-foreground: #292724;
+  --terminal-cursor: #a96814;
+  --terminal-selection: #ead0a4;
+  --terminal-black: #292724;
+  --terminal-white: #f8f5ee;
+  --terminal-bright-black: #716d65;
+  --terminal-blue: #5c5750;
+  --terminal-magenta: #8b566f;
 }

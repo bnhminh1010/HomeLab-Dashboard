@@ -106,6 +106,64 @@ func TestDecodeUpgradesV1DocumentWithEmptyV2Sections(t *testing.T) {
 	}
 }
 
+func TestWorkspacePreferencesValidateAndPreserveOlderDocumentLayouts(t *testing.T) {
+	preferences := DefaultUIPreferences()
+	preferences.HiddenWorkspaces = []string{WorkspaceTopology}
+	preferences.WorkspaceOrder = []string{
+		WorkspaceOverview, WorkspaceAlerts, WorkspaceServices, WorkspaceContainers,
+		WorkspaceNodes, WorkspaceHistory, WorkspaceLogs, WorkspaceTopology,
+	}
+	if err := ValidateUIPreferences(preferences); err != nil {
+		t.Fatalf("valid workspace preferences: %v", err)
+	}
+
+	invalid := preferences
+	invalid.HiddenWorkspaces = []string{WorkspaceOverview}
+	if err := ValidateUIPreferences(invalid); !errors.Is(err, ErrInvalidDocument) {
+		t.Fatalf("overview hidden error = %v", err)
+	}
+	invalid = preferences
+	invalid.WorkspaceOrder = append(invalid.WorkspaceOrder, WorkspaceLogs)
+	if err := ValidateUIPreferences(invalid); !errors.Is(err, ErrInvalidDocument) {
+		t.Fatalf("duplicate workspace order error = %v", err)
+	}
+
+	snapshot := testSnapshot()
+	snapshot.UIPreferences = preferences
+	repository := &fakeRepository{snapshot: snapshot}
+	manager, err := NewService(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyV2 := []byte(`{
+  "version": "homelab-dashboard.config/v2",
+  "services": [],
+  "alertRules": [],
+  "sloPolicies": [],
+  "topologyDependencies": [],
+  "uiPreferences": {
+    "terminalHeight": 200,
+    "terminalCollapsed": false,
+    "historyRange": "24h",
+    "defaultNodeId": "local"
+  },
+  "nodes": []
+}`)
+	preview, err := manager.Preview(context.Background(), legacyV2, ImportMerge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Summary["uiPreferences"].Updated != 0 {
+		t.Fatalf("older document unexpectedly changes workspace layout: %+v", preview.Summary["uiPreferences"])
+	}
+	if _, err := manager.Apply(context.Background(), legacyV2, ImportMerge, "admin@example.com", preview.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if !EqualUIPreferences(repository.snapshot.UIPreferences, preferences) {
+		t.Fatalf("older document reset workspace layout: %+v", repository.snapshot.UIPreferences)
+	}
+}
+
 func TestV1ReplacePreservesNewerPortableSections(t *testing.T) {
 	snapshot := testSnapshot()
 	snapshot.SLOPolicies = []slo.Policy{{

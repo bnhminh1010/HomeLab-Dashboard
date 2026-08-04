@@ -3,10 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#101010">
   <meta name="description" content="Private Tailscale homelab dashboard for host metrics, services, containers, and container terminals.">
   <title>Homelab Dashboard · BinhMinh Homelab</title>
+  <script>
+    (() => {
+      try {
+        const saved = localStorage.getItem("homelab.theme");
+        const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+        const dark = saved === "dark" || (saved !== "light" && (media?.matches ?? true));
+        document.documentElement.classList.add(dark ? "theme-dark" : "theme-light");
+        document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#101010" : "#f6f5f3");
+      } catch { document.documentElement.classList.add("theme-dark"); }
+    })();
+  </script>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icons/icon-192.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./lib/xterm.css">
@@ -48,6 +59,10 @@
       <button id="settings-open" class="icon-button" type="button" title="Dashboard settings" aria-label="Open dashboard settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.97 4.6 1.7 1.7 0 0 0 10 3.08V3h4v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg>
       </button>
+      <button id="theme-toggle" class="icon-button" type="button" title="Switch to light theme" aria-label="Switch to light theme" aria-pressed="false">
+        <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 15.7A8.5 8.5 0 0 1 8.3 4 8.5 8.5 0 1 0 20 15.7Z"/></svg>
+      </button>
       <div id="session-identity" class="user-chip" role="group" aria-label="Authenticated Tailscale user" title="Authenticated Tailscale user">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
         <span class="user-copy"><span id="session-user">—</span><span id="session-role">VIEWER</span></span>
@@ -71,7 +86,6 @@
         </button>
       </div>
       <nav class="workspace-nav" aria-label="Primary navigation">
-        <p class="sidebar-group-label">MONITORING</p>
         <button class="workspace-nav-item is-active" type="button" data-workspace="overview" aria-current="page" aria-label="Overview workspace" title="Overview">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span class="sidebar-label">Overview</span>
         </button>
@@ -84,7 +98,6 @@
         <button class="workspace-nav-item" type="button" data-workspace="nodes" aria-current="false" aria-label="Nodes workspace" title="Nodes">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="6" rx="1"/><rect x="4" y="15" width="16" height="6" rx="1"/><path d="M8 6h.01M8 18h.01M12 6h4M12 18h4"/></svg><span class="sidebar-label">Nodes</span>
         </button>
-        <p class="sidebar-group-label">OBSERVABILITY</p>
         <button class="workspace-nav-item" type="button" data-workspace="history" aria-current="false" aria-label="History workspace" title="History">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5M12 7v5l3 2"/></svg><span class="sidebar-label">History</span>
         </button>
@@ -664,6 +677,13 @@
         <fieldset id="config-mode" class="mode-picker admin-only"><legend>IMPORT MODE</legend><label><input type="radio" name="config-import-mode" value="merge" checked> Merge (recommended)</label><label><input type="radio" name="config-import-mode" value="replace"> Replace existing configuration</label></fieldset>
         <div class="settings-actions admin-only"><button id="config-preview" class="button button-ghost" type="button" disabled>PREVIEW CHANGES</button><button id="config-apply" class="button button-danger" type="button" disabled>APPLY IMPORT</button></div>
         <div id="config-preview-result" class="config-preview" role="status"><span>Select a JSON file to preview an import.</span></div>
+      </section>
+      <section class="settings-section" aria-labelledby="workspace-config-title">
+        <div class="subsection-header"><h3 id="workspace-config-title">WORKSPACE SIDEBAR</h3></div>
+        <p>Choose which workspaces appear in the sidebar and their order. Overview is always available.</p>
+        <div id="sidebar-workspaces-list" class="sidebar-workspaces-list"></div>
+        <p id="workspace-config-readonly" class="workspace-config-readonly" hidden>Only administrators can change the workspace layout.</p>
+        <div class="settings-actions admin-only"><button id="workspace-config-cancel" class="button button-ghost" type="button">CANCEL</button><button id="workspace-config-apply" class="button button-primary" type="button">APPLY LAYOUT</button></div>
       </section>
       <p id="settings-status" class="dialog-status mono" role="status"></p>
     </div>

@@ -1100,5 +1100,11 @@ export function createTerminalController({ api, demo = false, toast }) {
     selectedNodeLabel = cleanControlText(label || nextNodeId) || nextNodeId;
   }
 
-  return { open, disconnect, fit, setHostShellCapability, setNode };
+  function updateTheme() {
+    terminal.options.theme = graphiteTerminalTheme();
+    terminal.refresh(0, Math.max(0, terminal.rows - 1));
+    fit();
+  }
+
+  return { open, disconnect, fit, setHostShellCapability, setNode, updateTheme };
 }

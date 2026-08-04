@@ -228,6 +228,40 @@ func TestDashboardPreferencesRejectMissingOrRevokedDefaultNode(t *testing.T) {
 	}
 }
 
+func TestDashboardPreferencesPersistWorkspaceLayout(t *testing.T) {
+	ctx := context.Background()
+	database, err := Open(ctx, filepath.Join(t.TempDir(), "dashboard.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	preferences := dashboardconfig.DefaultUIPreferences()
+	preferences.HiddenWorkspaces = []string{dashboardconfig.WorkspaceTopology, dashboardconfig.WorkspaceNodes}
+	preferences.WorkspaceOrder = []string{
+		dashboardconfig.WorkspaceOverview, dashboardconfig.WorkspaceAlerts, dashboardconfig.WorkspaceServices,
+		dashboardconfig.WorkspaceContainers, dashboardconfig.WorkspaceNodes, dashboardconfig.WorkspaceHistory,
+		dashboardconfig.WorkspaceLogs, dashboardconfig.WorkspaceTopology,
+	}
+	updated, err := database.UpdateDashboardUIPreferences(ctx, preferences, "admin@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := database.GetDashboardUIPreferences(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dashboardconfig.EqualUIPreferences(updated, stored) {
+		t.Fatalf("stored workspace preferences = %+v, want %+v", stored, updated)
+	}
+	snapshot, err := database.LoadDashboardConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dashboardconfig.EqualUIPreferences(snapshot.UIPreferences, preferences) {
+		t.Fatalf("snapshot workspace preferences = %+v, want %+v", snapshot.UIPreferences, preferences)
+	}
+}
+
 func TestDashboardConfigStoreRejectsTopologyForRevokedNodeInsideApplyTransaction(t *testing.T) {
 	ctx := context.Background()
 	database, err := Open(ctx, filepath.Join(t.TempDir(), "revoked-topology.db"))

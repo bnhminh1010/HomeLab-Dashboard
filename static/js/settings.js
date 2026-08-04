@@ -1,8 +1,27 @@
 const MAX_CONFIG_BYTES = 1024 * 1024;
 const CONFIG_VERSION = "homelab-dashboard.config/v1";
+const WORKSPACE_ORDER = ["overview", "services", "containers", "nodes", "history", "logs", "alerts", "topology"];
+const WORKSPACE_LABELS = {
+  overview: "OVERVIEW", services: "SERVICES", containers: "CONTAINERS", nodes: "NODES",
+  history: "HISTORY", logs: "LOGS", alerts: "ALERTS", topology: "TOPOLOGY",
+};
+
+function normalizeWorkspacePreferences(preferences = {}) {
+  const seen = new Set();
+  const order = [];
+  for (const workspace of Array.isArray(preferences.workspaceOrder) ? preferences.workspaceOrder : []) {
+    if (!WORKSPACE_ORDER.includes(workspace) || seen.has(workspace)) continue;
+    seen.add(workspace);
+    order.push(workspace);
+  }
+  for (const workspace of WORKSPACE_ORDER) if (!seen.has(workspace)) order.push(workspace);
+  const hidden = [...new Set(Array.isArray(preferences.hiddenWorkspaces) ? preferences.hiddenWorkspaces : [])]
+    .filter((workspace) => workspace !== "overview" && WORKSPACE_ORDER.includes(workspace));
+  return { workspaceOrder: order, hiddenWorkspaces: hidden };
+}
 
 function demoDocument() {
-  return { version: CONFIG_VERSION, services: [], alertRules: [], uiPreferences: { terminalHeight: 200, terminalCollapsed: true, historyRange: "24h", defaultNodeId: "local" }, nodes: [] };
+  return { version: CONFIG_VERSION, services: [], alertRules: [], uiPreferences: { terminalHeight: 200, terminalCollapsed: true, historyRange: "24h", defaultNodeId: "local", ...normalizeWorkspacePreferences() }, nodes: [] };
 }
 
 function downloadJSON(document) {
@@ -46,7 +65,7 @@ function previewSummary(preview) {
   return wrapper;
 }
 
-export function createSettingsController({ api, demo = false, toast, onApplied }) {
+export function createSettingsController({ api, demo = false, toast, onApplied, onWorkspacePreferencesApplied }) {
   const openButton = document.getElementById("settings-open");
   const dialog = document.getElementById("settings-dialog");
   const exportButton = document.getElementById("config-export");
@@ -56,11 +75,17 @@ export function createSettingsController({ api, demo = false, toast, onApplied }
   const applyButton = document.getElementById("config-apply");
   const result = document.getElementById("config-preview-result");
   const status = document.getElementById("settings-status");
+  const workspaceList = document.getElementById("sidebar-workspaces-list");
+  const workspaceApplyButton = document.getElementById("workspace-config-apply");
+  const workspaceCancelButton = document.getElementById("workspace-config-cancel");
+  const workspaceReadonly = document.getElementById("workspace-config-readonly");
   let admin = false;
   let opener = null;
   let parsedDocument = null;
   let validPreview = null;
   let previewMode = "";
+  let workspacePreferences = normalizeWorkspacePreferences();
+  let workspaceDraft = normalizeWorkspacePreferences();
 
   const mode = () => modePicker.querySelector('input[name="config-import-mode"]:checked')?.value || "merge";
 
@@ -81,12 +106,65 @@ export function createSettingsController({ api, demo = false, toast, onApplied }
 
   function open() {
     opener = document.activeElement;
+    workspaceDraft = normalizeWorkspacePreferences(workspacePreferences);
+    renderWorkspaceList();
     if (!dialog.open) dialog.showModal();
     dialog.querySelector("[data-dialog-close]")?.focus();
   }
 
   function close() {
     if (dialog.open) dialog.close();
+  }
+
+  function renderWorkspaceList() {
+    if (!workspaceList) return;
+    workspaceList.replaceChildren();
+    const hidden = new Set(workspaceDraft.hiddenWorkspaces);
+    workspaceDraft.workspaceOrder.forEach((workspace, index) => {
+      const item = documentElement("div");
+      item.className = "workspace-config-item";
+      item.dataset.workspaceConfig = workspace;
+      const label = documentElement("label");
+      label.className = "workspace-config-label";
+      const visible = documentElement("input");
+      visible.type = "checkbox";
+      visible.checked = !hidden.has(workspace);
+      visible.disabled = !admin || workspace === "overview";
+      visible.setAttribute("aria-label", `${WORKSPACE_LABELS[workspace]} visibility`);
+      visible.addEventListener("change", () => {
+        const nextHidden = new Set(workspaceDraft.hiddenWorkspaces);
+        if (visible.checked) nextHidden.delete(workspace);
+        else nextHidden.add(workspace);
+        workspaceDraft.hiddenWorkspaces = [...nextHidden];
+      });
+      const text = documentElement("span");
+      text.textContent = workspace === "overview" ? `${WORKSPACE_LABELS[workspace]} · REQUIRED` : WORKSPACE_LABELS[workspace];
+      label.append(visible, text);
+      const actions = documentElement("div");
+      actions.className = "workspace-config-actions";
+      for (const [direction, symbol, labelText] of [[-1, "↑", "Move up"], [1, "↓", "Move down"]]) {
+        const button = documentElement("button");
+        button.type = "button";
+        button.textContent = symbol;
+        button.title = labelText;
+        button.dataset.workspaceMove = String(direction);
+        button.setAttribute("aria-label", `${labelText} ${WORKSPACE_LABELS[workspace]}`);
+        button.disabled = !admin || (direction < 0 ? index === 0 : index === workspaceDraft.workspaceOrder.length - 1);
+        button.addEventListener("click", () => {
+          const nextIndex = index + direction;
+          const next = [...workspaceDraft.workspaceOrder];
+          [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+          workspaceDraft.workspaceOrder = next;
+          renderWorkspaceList();
+        });
+        actions.append(button);
+      }
+      item.append(label, actions);
+      workspaceList.append(item);
+    });
+    workspaceReadonly.hidden = admin;
+    workspaceApplyButton.disabled = !admin;
+    workspaceCancelButton.disabled = !admin;
   }
 
   async function readFile(file) {
@@ -199,6 +277,28 @@ export function createSettingsController({ api, demo = false, toast, onApplied }
       previewButton.disabled = !parsedDocument || !admin;
     }
   });
+  workspaceCancelButton?.addEventListener("click", () => {
+    workspaceDraft = normalizeWorkspacePreferences(workspacePreferences);
+    renderWorkspaceList();
+    setStatus("Workspace layout changes discarded.");
+  });
+  workspaceApplyButton?.addEventListener("click", async () => {
+    if (!admin || typeof onWorkspacePreferencesApplied !== "function") return;
+    workspaceApplyButton.disabled = true;
+    workspaceCancelButton.disabled = true;
+    setStatus("Saving workspace layout…");
+    try {
+      const saved = await onWorkspacePreferencesApplied(normalizeWorkspacePreferences(workspaceDraft));
+      workspacePreferences = normalizeWorkspacePreferences(saved || workspaceDraft);
+      workspaceDraft = normalizeWorkspacePreferences(workspacePreferences);
+      renderWorkspaceList();
+      setStatus("Workspace layout saved.");
+      toast("Workspace layout updated.");
+    } catch (error) {
+      setStatus(error?.message || "Unable to save workspace layout.", "error");
+      renderWorkspaceList();
+    }
+  });
 
   return {
     setAdmin(value) {
@@ -206,6 +306,12 @@ export function createSettingsController({ api, demo = false, toast, onApplied }
       exportButton.disabled = !admin;
       previewButton.disabled = !admin || !parsedDocument;
       applyButton.disabled = !admin || !validPreview || previewMode !== mode();
+      renderWorkspaceList();
+    },
+    setWorkspacePreferences(preferences) {
+      workspacePreferences = normalizeWorkspacePreferences(preferences);
+      workspaceDraft = normalizeWorkspacePreferences(workspacePreferences);
+      renderWorkspaceList();
     },
     open,
   };
