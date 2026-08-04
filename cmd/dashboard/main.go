@@ -156,7 +156,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load active alert state for reconciliation: %w", err)
 	}
-	alertEngine, err := alerts.NewEngineWithOptions(database, nil, alerts.EngineOptions{DeliveryEnabled: cfg.NTFYURL != "", Maintenance: database})
+	alertDeliveryEnabled := cfg.NTFYURL != "" || cfg.WebhookURL != ""
+	alertEngine, err := alerts.NewEngineWithOptions(database, nil, alerts.EngineOptions{DeliveryEnabled: alertDeliveryEnabled, Maintenance: database})
 	if err != nil {
 		return fmt.Errorf("configure alert engine: %w", err)
 	}
@@ -207,20 +208,45 @@ func run() error {
 		return fmt.Errorf("configure node registry: %w", err)
 	}
 
-	var notificationSender *alerts.NTFYSender
+	var notificationSender alerts.Sender
+	var ntfyNotificationSender alerts.Sender
+	var webhookNotificationSender alerts.Sender
 	var deliveryProcessor *alerts.DeliveryProcessor
 	ntfyTokenSet := false
+	webhookSecretSet := false
+	var senders []alerts.Sender
 	if cfg.NTFYURL != "" {
 		token, err := loadSecretFile(cfg.NTFYTokenFile)
 		if err != nil {
 			return fmt.Errorf("load ntfy token: %w", err)
 		}
 		ntfyTokenSet = token != ""
-		notificationSender, err = alerts.NewNTFYSender(alerts.NTFYConfig{
+		configuredSender, senderErr := alerts.NewNTFYSender(alerts.NTFYConfig{
 			URL: cfg.NTFYURL, Topic: cfg.NTFYTopic, Token: token,
 		}, nil)
+		if senderErr != nil {
+			return fmt.Errorf("configure ntfy: %w", senderErr)
+		}
+		ntfyNotificationSender = configuredSender
+		senders = append(senders, configuredSender)
+	}
+	if cfg.WebhookURL != "" {
+		secret, secretErr := loadSecretFile(cfg.WebhookSecretFile)
+		if secretErr != nil {
+			return fmt.Errorf("load webhook secret: %w", secretErr)
+		}
+		webhookSecretSet = secret != ""
+		configuredSender, senderErr := alerts.NewWebhookSender(alerts.WebhookConfig{URL: cfg.WebhookURL, Secret: secret}, nil)
+		if senderErr != nil {
+			return fmt.Errorf("configure webhook: %w", senderErr)
+		}
+		webhookNotificationSender = configuredSender
+		senders = append(senders, configuredSender)
+	}
+	if len(senders) > 0 {
+		notificationSender, err = alerts.NewMultiSender(senders...)
 		if err != nil {
-			return fmt.Errorf("configure ntfy: %w", err)
+			return fmt.Errorf("configure alert notifications: %w", err)
 		}
 		deliveryProcessor, err = alerts.NewDeliveryProcessor(database, notificationSender, nil)
 		if err != nil {
@@ -256,6 +282,8 @@ func run() error {
 		Nodes: nodeService, NodeRegistry: nodeRegistry,
 		History: database, HistoryQuota: historyWriter.QuotaState,
 		Alerts: database, Notifications: notificationSender, NTFYURL: cfg.NTFYURL, NTFYTopic: cfg.NTFYTopic, NTFYTokenSet: ntfyTokenSet,
+		NTFYNotifications: ntfyNotificationSender, WebhookNotifications: webhookNotificationSender,
+		WebhookURL: cfg.WebhookURL, WebhookSecretSet: webhookSecretSet,
 		DashboardConfig:        dashboardConfig,
 		DashboardConfigApplied: serviceManager.InvalidateHealth,
 		Preferences:            database,

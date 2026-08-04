@@ -355,8 +355,15 @@ func (s *Server) alertAction(c *gin.Context, silence bool) {
 }
 
 func (s *Server) getNTFYStatus(c *gin.Context) {
+	ntfySender := s.options.NTFYNotifications
+	// Keep compatibility with embedders that only set Notifications while
+	// explicitly advertising an ntfy destination; the dashboard runtime sets
+	// the provider-specific sender fields.
+	if ntfySender == nil && s.options.NTFYURL != "" {
+		ntfySender = s.options.Notifications
+	}
 	status := gin.H{
-		"configured":      s.options.Notifications != nil,
+		"configured":      ntfySender != nil,
 		"tokenConfigured": s.options.NTFYTokenSet,
 	}
 	if principalFromContext(c).Role == auth.RoleAdmin {
@@ -366,16 +373,53 @@ func (s *Server) getNTFYStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
+func (s *Server) getWebhookStatus(c *gin.Context) {
+	status := gin.H{
+		"configured":       s.options.WebhookURL != "" && s.options.WebhookSecretSet,
+		"secretConfigured": s.options.WebhookSecretSet,
+	}
+	if principalFromContext(c).Role == auth.RoleAdmin {
+		status["url"] = strings.TrimSpace(s.options.WebhookURL)
+	}
+	c.JSON(http.StatusOK, status)
+}
+
+func (s *Server) testWebhook(c *gin.Context) {
+	principal, ok := s.authorizeMutation(c, true)
+	if !ok {
+		return
+	}
+	if s.options.WebhookNotifications == nil || s.options.WebhookURL == "" || !s.options.WebhookSecretSet {
+		writeError(c, http.StatusConflict, "webhook_not_configured", "Webhook notifications are not configured.", nil)
+		return
+	}
+	err := s.options.WebhookNotifications.Send(c.Request.Context(), alerts.Delivery{
+		Kind: alerts.DeliveryFiring, Severity: alerts.SeverityInfo,
+		Title: "Homelab dashboard test", Message: "Webhook notifications are configured correctly.",
+	})
+	if err != nil {
+		writeError(c, http.StatusBadGateway, "webhook_test_failed", "The webhook test notification could not be delivered.", nil)
+		s.audit(c, principal, "notification.webhook.test", "", "failed")
+		return
+	}
+	s.audit(c, principal, "notification.webhook.test", "", "success")
+	c.JSON(http.StatusOK, gin.H{"status": "delivered"})
+}
+
 func (s *Server) testNTFY(c *gin.Context) {
 	principal, ok := s.authorizeMutation(c, true)
 	if !ok {
 		return
 	}
-	if s.options.Notifications == nil {
+	ntfySender := s.options.NTFYNotifications
+	if ntfySender == nil && s.options.NTFYURL != "" {
+		ntfySender = s.options.Notifications
+	}
+	if ntfySender == nil {
 		writeError(c, http.StatusConflict, "ntfy_not_configured", "ntfy is not configured.", nil)
 		return
 	}
-	err := s.options.Notifications.Send(c.Request.Context(), alerts.Delivery{
+	err := ntfySender.Send(c.Request.Context(), alerts.Delivery{
 		Kind: alerts.DeliveryFiring, Severity: alerts.SeverityInfo,
 		Title: "Homelab dashboard test", Message: "ntfy notifications are configured correctly.",
 	})

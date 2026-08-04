@@ -2,6 +2,10 @@ package alerts
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -9,6 +13,72 @@ import (
 	"testing"
 	"time"
 )
+
+func TestWebhookSenderRequestAndSignature(t *testing.T) {
+	secret := "a webhook secret with enough entropy"
+	var gotPayload []byte
+	var gotSignature string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		gotSignature = request.Header.Get("X-Homelab-Signature")
+		gotPayload, _ = io.ReadAll(request.Body)
+		return &http.Response{StatusCode: http.StatusAccepted, Status: "202 Accepted", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: request}, nil
+	})}
+	sender, err := NewWebhookSender(WebhookConfig{URL: "https://hooks.example.test/alerts", Secret: secret}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery := Delivery{ID: 42, Kind: DeliveryResolved, Severity: SeverityCritical, Title: "Disk full", Message: "Disk is at 96%", Attempts: 2, AlertKey: AlertKey{RuleID: "disk", NodeID: "local", ResourceType: "host", ResourceID: "/"}}
+	if err := sender.Send(context.Background(), delivery); err != nil {
+		t.Fatal(err)
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(gotPayload)
+	wantSignature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	if gotSignature != wantSignature {
+		t.Fatalf("signature = %q, want %q", gotSignature, wantSignature)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(gotPayload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["event"] != string(DeliveryResolved) || payload["title"] != delivery.Title || payload["deliveryId"] != float64(delivery.ID) {
+		t.Fatalf("unexpected webhook payload: %s", gotPayload)
+	}
+}
+
+func TestWebhookSenderValidationAndFailure(t *testing.T) {
+	for _, config := range []WebhookConfig{
+		{URL: "ftp://hooks.example.test", Secret: "1234567890123456"},
+		{URL: "https://user:pass@hooks.example.test", Secret: "1234567890123456"},
+		{URL: "https://hooks.example.test?token=bad", Secret: "1234567890123456"},
+		{URL: "https://hooks.example.test", Secret: "short"},
+	} {
+		if _, err := NewWebhookSender(config, nil); err == nil {
+			t.Fatalf("accepted invalid config: %+v", config)
+		}
+	}
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusBadGateway, Status: "502 Bad Gateway", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("downstream unavailable")), Request: request}, nil
+	})}
+	sender, _ := NewWebhookSender(WebhookConfig{URL: "https://hooks.example.test", Secret: "1234567890123456"}, client)
+	err := sender.Send(context.Background(), Delivery{Title: "test", Message: "test"})
+	if err == nil || !strings.Contains(err.Error(), "502") {
+		t.Fatalf("unexpected webhook error: %v", err)
+	}
+}
+
+func TestMultiSenderAttemptsEveryProvider(t *testing.T) {
+	called := 0
+	first := senderFunc(func(context.Context, Delivery) error { called++; return errors.New("first failed") })
+	second := senderFunc(func(context.Context, Delivery) error { called++; return nil })
+	sender, err := NewMultiSender(first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.Send(context.Background(), Delivery{}); err == nil || called != 2 {
+		t.Fatalf("multi sender result: called=%d err=%v", called, err)
+	}
+}
 
 type deliveryMemoryStore struct {
 	deliveries  []Delivery

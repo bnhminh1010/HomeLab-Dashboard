@@ -37,6 +37,8 @@ type Config struct {
 	NTFYURL                string
 	NTFYTopic              string
 	NTFYTokenFile          string
+	WebhookURL             string
+	WebhookSecretFile      string
 	BackupStatusFile       string
 	LogsBackend            string
 	LokiURL                string
@@ -68,6 +70,8 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		NTFYURL:                strings.TrimSpace(getenv("NTFY_URL")),
 		NTFYTopic:              strings.TrimSpace(getenv("NTFY_TOPIC")),
 		NTFYTokenFile:          strings.TrimSpace(getenv("NTFY_TOKEN_FILE")),
+		WebhookURL:             strings.TrimSpace(getenv("WEBHOOK_URL")),
+		WebhookSecretFile:      strings.TrimSpace(getenv("WEBHOOK_SECRET_FILE")),
 		BackupStatusFile:       strings.TrimSpace(getenv("BACKUP_STATUS_FILE")),
 		LogsBackend:            strings.ToLower(strings.TrimSpace(valueOr(getenv("LOGS_BACKEND"), logs.BackendDisabled))),
 		LokiURL:                strings.TrimSpace(getenv("LOKI_URL")),
@@ -134,6 +138,9 @@ func (c Config) Validate() error {
 	if c.NTFYTokenFile != "" && !filepath.IsAbs(c.NTFYTokenFile) {
 		return fmt.Errorf("NTFY_TOKEN_FILE must be an absolute path")
 	}
+	if c.WebhookSecretFile != "" && !filepath.IsAbs(c.WebhookSecretFile) {
+		return fmt.Errorf("WEBHOOK_SECRET_FILE must be an absolute path")
+	}
 	if c.BackupStatusFile != "" && !filepath.IsAbs(c.BackupStatusFile) {
 		return fmt.Errorf("BACKUP_STATUS_FILE must be an absolute path")
 	}
@@ -151,6 +158,15 @@ func (c Config) Validate() error {
 	}
 	if c.NTFYTopic != "" && !validNTFYTopic(c.NTFYTopic) {
 		return fmt.Errorf("NTFY_TOPIC is invalid")
+	}
+	if (c.WebhookURL == "") != (c.WebhookSecretFile == "") {
+		return fmt.Errorf("WEBHOOK_URL and WEBHOOK_SECRET_FILE must be configured together")
+	}
+	if c.WebhookURL != "" {
+		endpoint, err := url.Parse(c.WebhookURL)
+		if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+			return fmt.Errorf("WEBHOOK_URL must be an absolute HTTP or HTTPS URL without credentials, query, or fragment")
+		}
 	}
 	if c.HistoryQuotaBytes < 64<<20 || c.HistoryQuotaBytes > 16<<30 {
 		return fmt.Errorf("HISTORY_QUOTA_BYTES must be between 67108864 and 17179869184")

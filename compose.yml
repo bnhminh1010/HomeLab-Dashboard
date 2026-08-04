@@ -50,6 +50,8 @@ services:
       # Empty means anonymous ntfy delivery. When the host path is configured,
       # expose only the fixed in-container secret path to the dashboard.
       NTFY_TOKEN_FILE: ${NTFY_TOKEN_FILE:+/run/secrets/ntfy-token}
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      WEBHOOK_SECRET_FILE: ${WEBHOOK_SECRET_FILE:+/run/secrets/webhook-secret}
       # A host-side backup job may atomically write its latest status JSON.
       # Keep the user-controlled host path out of the container environment.
       BACKUP_STATUS_FILE: ${BACKUP_STATUS_FILE:+/backup-status.json}
@@ -61,6 +63,7 @@ services:
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave
       - ${NTFY_TOKEN_FILE:-/dev/null}:/run/secrets/ntfy-token:ro
+      - ${WEBHOOK_SECRET_FILE:-/dev/null}:/run/secrets/webhook-secret:ro
       - ${BACKUP_STATUS_FILE:-/dev/null}:/backup-status.json:ro
     read_only: true
     tmpfs:

@@ -244,6 +244,14 @@ export class DashboardApi {
     return this.request("/api/v1/notifications/ntfy/test", { method: "POST", mutation: true, body: {} });
   }
 
+  webhookStatus(signal) {
+    return this.request("/api/v1/notifications/webhook", { signal });
+  }
+
+  testWebhook() {
+    return this.request("/api/v1/notifications/webhook/test", { method: "POST", mutation: true, body: {} });
+  }
+
   exportDashboardConfig(signal) {
     return this.request("/api/v1/config/export", { signal });
   }

@@ -96,9 +96,13 @@ type Options struct {
 	HistoryQuota           func() history.QuotaState
 	Alerts                 AlertRepository
 	Notifications          NotificationSender
+	NTFYNotifications      NotificationSender
+	WebhookNotifications   NotificationSender
 	NTFYURL                string
 	NTFYTopic              string
 	NTFYTokenSet           bool
+	WebhookURL             string
+	WebhookSecretSet       bool
 	DashboardConfig        *dashboardconfig.Service
 	DashboardConfigApplied func()
 	Preferences            PreferencesRepository
@@ -235,6 +239,8 @@ func (s *Server) routes() {
 		authenticatedAPI.DELETE("/maintenance-windows/:id", s.deleteMaintenanceWindow)
 		authenticatedAPI.GET("/notifications/ntfy", s.getNTFYStatus)
 		authenticatedAPI.POST("/notifications/ntfy/test", s.testNTFY)
+		authenticatedAPI.GET("/notifications/webhook", s.getWebhookStatus)
+		authenticatedAPI.POST("/notifications/webhook/test", s.testWebhook)
 	}
 	if s.options.DashboardConfig != nil {
 		authenticatedAPI.GET("/config/export", s.exportDashboardConfig)

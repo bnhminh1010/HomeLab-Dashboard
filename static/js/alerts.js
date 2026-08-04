@@ -75,6 +75,8 @@ export function createAlertsController({ api, demo = false, toast }) {
   const newWindowButton = document.getElementById("maintenance-window-add");
   const ntfyStatus = document.getElementById("ntfy-status");
   const ntfyTest = document.getElementById("ntfy-test");
+  const webhookStatus = document.getElementById("webhook-status");
+  const webhookTest = document.getElementById("webhook-test");
   const ruleDialog = document.getElementById("alert-rule-dialog");
   const ruleForm = document.getElementById("alert-rule-form");
   const ruleTitle = document.getElementById("alert-rule-dialog-title");
@@ -373,9 +375,9 @@ export function createAlertsController({ api, demo = false, toast }) {
     const demoStates = [];
     const demoEvents = [{ id: 1, ruleId: "rule_disk", nodeId: "local", resourceType: "system", resourceId: "root", type: "resolved", severity: "critical", message: "Root disk recovered below threshold", occurredAt: new Date(Date.now() - 3600_000).toISOString() }];
     const requests = demo || typeof api.listAlertRules !== "function"
-      ? [Promise.resolve(demoRules), Promise.resolve(demoStates), Promise.resolve(demoEvents), Promise.resolve([]), Promise.resolve({ configured: true, url: "https://ntfy.sh", topic: "homelab-demo", tokenConfigured: true })]
-      : [api.listAlertRules(), api.listAlerts({ node, active: true }), api.listAlertEvents({ node }), api.listMaintenanceWindows(), api.ntfyStatus()];
-    const [ruleResult, stateResult, eventResult, windowResult, ntfyResult] = await Promise.allSettled(requests);
+      ? [Promise.resolve(demoRules), Promise.resolve(demoStates), Promise.resolve(demoEvents), Promise.resolve([]), Promise.resolve({ configured: true, url: "https://ntfy.sh", topic: "homelab-demo", tokenConfigured: true }), Promise.resolve({ configured: true, url: "https://hooks.example.invalid/homelab", secretConfigured: true })]
+      : [api.listAlertRules(), api.listAlerts({ node, active: true }), api.listAlertEvents({ node }), api.listMaintenanceWindows(), api.ntfyStatus(), api.webhookStatus()];
+    const [ruleResult, stateResult, eventResult, windowResult, ntfyResult, webhookResult] = await Promise.allSettled(requests);
     if (ruleResult.status === "fulfilled") rules = Array.isArray(ruleResult.value) ? ruleResult.value : [];
     if (stateResult.status === "fulfilled") states = Array.isArray(stateResult.value) ? stateResult.value : [];
     if (eventResult.status === "fulfilled") events = Array.isArray(eventResult.value) ? eventResult.value : [];
@@ -393,6 +395,16 @@ export function createAlertsController({ api, demo = false, toast }) {
       ntfyStatus.dataset.configured = "false";
       ntfyStatus.textContent = "NOTIFICATION STATUS UNAVAILABLE";
       ntfyTest.disabled = true;
+    }
+    if (webhookResult.status === "fulfilled") {
+      const value = webhookResult.value || {};
+      webhookStatus.dataset.configured = String(Boolean(value.configured));
+      webhookStatus.textContent = value.configured ? `CONFIGURED · ${value.url || "endpoint"} · HMAC SECRET LOADED` : "NOT CONFIGURED · SET WEBHOOK_URL AND WEBHOOK_SECRET_FILE";
+      webhookTest.disabled = !admin || !value.configured;
+    } else {
+      webhookStatus.dataset.configured = "false";
+      webhookStatus.textContent = "WEBHOOK STATUS UNAVAILABLE";
+      webhookTest.disabled = true;
     }
     const failures = [ruleResult, stateResult, eventResult, windowResult].filter((result) => result.status === "rejected");
     setDialogStatus(failures.length ? `${failures.length} monitoring source${failures.length === 1 ? " is" : "s are"} unavailable; available data is shown.` : `Monitoring state refreshed for ${node || "all nodes"}.`, failures.length ? "error" : "info");
@@ -485,11 +497,22 @@ export function createAlertsController({ api, demo = false, toast }) {
       ntfyTest.disabled = !admin || ntfyStatus.dataset.configured !== "true";
     }
   });
+  webhookTest.addEventListener("click", async () => {
+    webhookTest.disabled = true;
+    try {
+      await api.testWebhook();
+      toast("Webhook test delivered.");
+    } catch (error) {
+      toast(error?.message || "Webhook test failed.", "error");
+    } finally {
+      webhookTest.disabled = !admin || webhookStatus.dataset.configured !== "true";
+    }
+  });
 
   return {
     open,
     refresh,
-    setAdmin(value) { admin = Boolean(value); ntfyTest.disabled = !admin || ntfyStatus.dataset.configured !== "true"; if (dialog.open) { renderRules(); renderStates(); renderWindows(); } },
+    setAdmin(value) { admin = Boolean(value); ntfyTest.disabled = !admin || ntfyStatus.dataset.configured !== "true"; webhookTest.disabled = !admin || webhookStatus.dataset.configured !== "true"; if (dialog.open) { renderRules(); renderStates(); renderWindows(); } },
     setNode(value) { node = value === "local" ? "local" : value || ""; if (dialog.open) refresh(); },
   };
 }

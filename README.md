@@ -384,6 +384,30 @@ the configured token at a fixed read-only path; the token is never exported in
 dashboard configuration. After recreating the dashboard, use **Settings → ntfy
 delivery → Test push** as an administrator.
 
+### Generic webhook notifications
+
+P2 also supports an operator-owned webhook without adding a provider SDK. The
+dashboard sends a versioned JSON alert payload with `X-Homelab-Event` and an
+`X-Homelab-Signature: sha256=<hex>` HMAC-SHA256 header. Configure the endpoint
+and a host-side secret file together:
+
+```bash
+install -d -m 0700 "$HOME/.config/homelab-dashboard"
+printf '%s' 'replace-with-a-random-secret-at-least-16-bytes' > "$HOME/.config/homelab-dashboard/webhook-secret"
+chmod 600 "$HOME/.config/homelab-dashboard/webhook-secret"
+```
+
+```dotenv
+WEBHOOK_URL=https://automation.example.net/hooks/homelab
+WEBHOOK_SECRET_FILE=/home/you/.config/homelab-dashboard/webhook-secret
+```
+
+The endpoint must be an absolute HTTP(S) URL without credentials, query or
+fragment. The secret is mounted read-only and is never exposed through the API
+or dashboard configuration export. **Alerts → Webhook delivery → Test POST**
+verifies the configured destination. If both ntfy and webhook are configured,
+alerts are fanned out to both providers.
+
 ### Centralized container logs (optional)
 
 The built-in log viewer always reads live `stdout`/`stderr` from Podman. For
