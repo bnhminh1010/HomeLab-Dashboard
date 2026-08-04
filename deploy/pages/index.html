@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101010">
+  <title>Homelab Dashboard · Demo</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101010; color: #ece8df; }
+    body { max-width: 1180px; margin: 0 auto; padding: 28px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    h1 { margin: 0; font-size: clamp(1.3rem, 3vw, 2rem); letter-spacing: .08em; }
+    p { color: #aaa49a; }
+    a { color: #d99a3d; }
+    iframe { display: block; width: 100%; height: min(78vh, 900px); border: 1px solid #37332d; border-radius: 10px; background: #101010; }
+  </style>
+</head>
+<body>
+  <header><h1>HOMELAB DASHBOARD</h1><a href="./app/?demo=1">Open demo</a></header>
+  <p>Explore the operator workflow without a backend, account, or telemetry. The demo uses local mock data only.</p>
+  <iframe src="./app/?demo=1" title="Homelab Dashboard interactive demo" loading="eager"></iframe>
+</body>
+</html>

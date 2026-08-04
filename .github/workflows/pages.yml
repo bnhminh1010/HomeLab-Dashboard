@@ -1,0 +1,49 @@
+name: Public demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "static/**"
+      - "deploy/pages/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Publish static demo
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Assemble Pages artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site/app
+          cp -R deploy/pages/. _site/
+          cp -R static/. _site/app/
+          cp deploy/pages/app-manifest.webmanifest _site/app/manifest.webmanifest
+          touch _site/.nojekyll
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -223,6 +224,36 @@ func TestProberCapsResponseBodyAtFourKiB(t *testing.T) {
 	result := prober.Probe(context.Background(), "http://10.0.0.2/health")
 	if result.Status != model.ServiceStatusUp || body.read != 4<<10 {
 		t.Fatalf("status=%s body bytes read=%d", result.Status, body.read)
+	}
+}
+
+func TestValidateProbeURLAcceptsTCPAndRejectsUnsafeForms(t *testing.T) {
+	for _, value := range []string{"tcp://redis:6379", "tcp://[fd7a:115c:a1e0::1]:5432"} {
+		if err := validateProbeURL(value); err != nil {
+			t.Fatalf("valid TCP probe %q rejected: %v", value, err)
+		}
+	}
+	for _, value := range []string{"tcp://redis", "tcp://redis:0", "tcp://redis:65536", "tcp://user:pass@redis:6379", "tcp://redis:6379/health", "tcp://redis:6379?query=1", "udp://redis:6379"} {
+		if err := validateProbeURL(value); err == nil {
+			t.Fatalf("unsafe or invalid TCP probe %q accepted", value)
+		}
+	}
+}
+
+func TestProberTCPProbeUsesPolicyDialer(t *testing.T) {
+	var dialedNetwork, dialedAddress string
+	prober := &Prober{dialContext: func(_ context.Context, network, address string) (net.Conn, error) {
+		dialedNetwork, dialedAddress = network, address
+		connection, peer := net.Pipe()
+		_ = peer.Close()
+		return connection, nil
+	}}
+	result := prober.Probe(context.Background(), "tcp://redis:6379")
+	if result.Status != model.ServiceStatusUp {
+		t.Fatalf("TCP probe status = %s, want up", result.Status)
+	}
+	if dialedNetwork != "tcp" || dialedAddress != "redis:6379" {
+		t.Fatalf("TCP dial = %s %s, want tcp redis:6379", dialedNetwork, dialedAddress)
 	}
 }
 

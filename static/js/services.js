@@ -51,6 +51,20 @@ function statePriority(status) {
   return 3;
 }
 
+function safeProbeUrl(value) {
+  const httpUrl = safeHttpUrl(value);
+  if (httpUrl) return httpUrl;
+  try {
+    const url = new URL(String(value));
+    const port = Number(url.port);
+    if (url.protocol !== "tcp:" || !url.hostname || !url.port || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+    if (url.username || url.password || url.pathname !== "" || url.search || url.hash) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
 export function createServicesController({ api, toast, onChanged }) {
   const grid = document.getElementById("services-grid");
   const empty = document.getElementById("services-empty");
@@ -88,10 +102,14 @@ export function createServicesController({ api, toast, onChanged }) {
       displayValue = `http://${window.location.hostname}:${port}`;
     }
     const displayUrl = safeHttpUrl(displayValue);
-    const probeUrl = payload.probeUrl ? safeHttpUrl(payload.probeUrl) : null;
+    const probeType = ["none", "http", "tcp"].includes(payload.probeType) ? payload.probeType : "none";
+    const rawProbeUrl = probeType === "none" ? "" : payload.probeUrl.trim();
+    const probeUrl = rawProbeUrl ? safeProbeUrl(rawProbeUrl) : null;
     if (!payload.name.trim()) throw new Error("Service name is required.");
     if (!displayUrl) throw new Error("Display URL must be an absolute HTTP or HTTPS URL without credentials.");
-    if (payload.probeUrl && !probeUrl) throw new Error("Probe URL must be an absolute HTTP or HTTPS URL without credentials.");
+    if (rawProbeUrl && !probeUrl) throw new Error("Probe endpoint must be HTTP/HTTPS or tcp://host:port without credentials or paths.");
+    if (probeType === "http" && probeUrl && !["http:", "https:"].includes(probeUrl.protocol)) throw new Error("HTTP probe type requires an HTTP or HTTPS URL.");
+    if (probeType === "tcp" && probeUrl?.protocol !== "tcp:") throw new Error("TCP probe type requires tcp://host:port.");
     return {
       name: payload.name.trim(),
       displayUrl: displayUrl.toString(),
@@ -104,6 +122,7 @@ export function createServicesController({ api, toast, onChanged }) {
     return validate({
       name: String(data.get("name") || ""),
       displayUrl: String(data.get("displayUrl") || ""),
+      probeType: String(data.get("probeType") || "none"),
       probeUrl: String(data.get("probeUrl") || ""),
     });
   }
@@ -332,6 +351,8 @@ export function createServicesController({ api, toast, onChanged }) {
   function openCreate(invoker) {
     serviceForm.reset();
     serviceForm.elements.id.value = "";
+    serviceForm.elements.probeType.value = "none";
+    serviceForm.elements.probeUrl.placeholder = "https://service.tailnet.ts.net/health";
     serviceTitle.textContent = "Add service";
     serviceSubmit.textContent = "ADD SERVICE";
     showServiceDialog(invoker);
@@ -341,7 +362,10 @@ export function createServicesController({ api, toast, onChanged }) {
     serviceForm.elements.id.value = service.id;
     serviceForm.elements.name.value = service.name;
     serviceForm.elements.displayUrl.value = service.displayUrl;
+    const probeType = service.probeUrl.toLowerCase().startsWith("tcp:") ? "tcp" : service.probeUrl ? "http" : "none";
+    serviceForm.elements.probeType.value = probeType;
     serviceForm.elements.probeUrl.value = service.probeUrl;
+    serviceForm.elements.probeUrl.placeholder = probeType === "tcp" ? "tcp://redis:6379" : "https://service.tailnet.ts.net/health";
     serviceTitle.textContent = "Edit service";
     serviceSubmit.textContent = "SAVE CHANGES";
     showServiceDialog(invoker);
@@ -420,6 +444,12 @@ export function createServicesController({ api, toast, onChanged }) {
   });
 
   focusAdd.addEventListener("click", () => openCreate(focusAdd));
+  serviceForm.elements.probeType.addEventListener("change", () => {
+    serviceForm.elements.probeUrl.placeholder = serviceForm.elements.probeType.value === "tcp"
+      ? "tcp://redis:6379"
+      : "https://service.tailnet.ts.net/health";
+    if (serviceForm.elements.probeType.value === "none") serviceForm.elements.probeUrl.value = "";
+  });
   filterToggle?.addEventListener("click", () => {
     const expanded = filterToggle.getAttribute("aria-expanded") !== "true";
     filterToggle.setAttribute("aria-expanded", String(expanded));

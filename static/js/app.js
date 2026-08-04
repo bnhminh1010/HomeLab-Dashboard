@@ -1061,6 +1061,13 @@ for (const id of ["terminal-size-compact", "terminal-size-default"]) {
   document.getElementById(id)?.addEventListener("click", () => window.setTimeout(() => savePreferences({ terminalHeight: Math.round(document.getElementById("terminal-body").getBoundingClientRect().height), terminalCollapsed: false }), 0));
 }
 const sessionKeepalive = window.setInterval(() => scheduleSessionRenewal(0), 5 * 60_000);
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch((error) => {
+      console.warn("PWA shell registration unavailable:", error);
+    });
+  }, { once: true });
+}
 window.addEventListener("beforeunload", () => {
   stream?.stop();
   stopDemoFeed?.();

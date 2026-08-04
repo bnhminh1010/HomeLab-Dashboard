@@ -17,6 +17,8 @@
   <a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#packages">Packages</a> · <a href="#centralized-container-logs-optional">Logging</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#operations-and-troubleshooting">Operations</a> · <a href="#development-and-verification">Development</a>
 </p>
 
+<p align="center"><a href="https://bnhminh1010.github.io/HomeLab-Dashboard/">Open the public demo</a> · <a href="https://github.com/bnhminh1010/HomeLab-Dashboard/releases">Download a release</a></p>
+
 <p align="center"><img alt="HomeLab Dashboard live demo" src="assets/screenshots/demo.gif" width="820"></p>
 
 > [!NOTE]
@@ -91,7 +93,7 @@ Key differentiators, each implemented in code (see `internal/`):
 
 ### Respond without leaving the dashboard
 
-- Persistent service shortcuts with SSRF-safe probes, read-only container logs
+- Persistent service shortcuts with SSRF-safe HTTP/HTTPS or TCP probes, read-only container logs
   with follow/pause/search/download, and admin-only interactive container
   shells in xterm.js.
 - An explicitly confirmed Bash login shell on the selected host. It requires an
@@ -209,6 +211,31 @@ only their exact version and a `sha-<commit>` tag. Releases before `v1.0.0`
 also publish only exact version tags. Stable `v1+` releases additionally publish
 `v<major>.<minor>`, `v<major>`, and `latest`; production hosts should always
 use the exact version tag.
+
+### One-command installer
+
+For a supported Linux host, the release installer downloads and verifies the
+source bundle, preserves an existing `.env`, enables the rootless Podman
+socket, installs the host agent, and starts Compose. Run it as the unprivileged
+Podman account (never as root):
+
+```bash
+curl -fsSL https://github.com/bnhminh1010/HomeLab-Dashboard/releases/latest/download/install.sh | bash
+```
+
+The installer prompts for `TS_AUTHKEY` and `ADMIN_USERS` when they are not
+already exported. For automation, provide them in the environment and pin an
+exact release:
+
+```bash
+TS_AUTHKEY=tskey-auth-... \
+ADMIN_USERS=alice@example.com \
+  bash install.sh --version vX.Y.Z --non-interactive
+```
+
+Use `--dry-run` to validate the host without changing it. The installer
+supports APT, DNF and Pacman hosts; other distributions should install the
+required Podman/systemd dependencies manually first.
 
 Clone the configuration for the release you intend to run, enable the user
 socket, and make sure the runtime directory belongs to the account that owns

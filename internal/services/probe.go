@@ -2,19 +2,18 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/bnhminh1010/homelab-dashboard/internal/model"
-	xproxy "golang.org/x/net/proxy"
 )
 
 type Resolver interface {
@@ -38,7 +37,8 @@ type ProbeClient interface {
 }
 
 type Prober struct {
-	client *http.Client
+	client      *http.Client
+	dialContext func(context.Context, string, string) (net.Conn, error)
 }
 
 var tailscalePrefixes = [...]netip.Prefix{
@@ -56,58 +56,16 @@ func NewProber(policy ProbePolicy) (*Prober, error) {
 	if policy.Dialer == nil {
 		policy.Dialer = &net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}
 	}
-	var tailnetDialer xproxy.ContextDialer
-	if policy.SOCKS5Address != "" {
-		if err := validateSOCKS5Address(policy.SOCKS5Address); err != nil {
-			return nil, err
-		}
-		dialer, err := xproxy.SOCKS5("tcp", policy.SOCKS5Address, nil, policy.Dialer)
-		if err != nil {
-			return nil, fmt.Errorf("configure Tailscale SOCKS5 proxy: %w", err)
-		}
-		var ok bool
-		tailnetDialer, ok = dialer.(xproxy.ContextDialer)
-		if !ok {
-			return nil, fmt.Errorf("Tailscale SOCKS5 proxy does not support context cancellation")
-		}
-	}
-	transport := &http.Transport{
-		Proxy:                  nil,
-		DisableKeepAlives:      true,
-		ForceAttemptHTTP2:      false,
-		MaxResponseHeaderBytes: 32 << 10,
-		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(address)
-			if err != nil {
-				return nil, fmt.Errorf("parse probe destination: %w", err)
-			}
-			addresses, err := resolveAllowed(ctx, policy.Resolver, host, policy.AllowedPrefixes)
-			if err != nil {
-				return nil, err
-			}
-			var failures []error
-			for _, ip := range addresses {
-				destination := net.JoinHostPort(ip.String(), port)
-				var connection net.Conn
-				if tailnetDialer != nil && isTailscaleAddress(ip) {
-					connection, err = tailnetDialer.DialContext(ctx, network, destination)
-				} else {
-					connection, err = policy.Dialer.DialContext(ctx, network, destination)
-				}
-				if err == nil {
-					return connection, nil
-				}
-				failures = append(failures, err)
-			}
-			return nil, errors.Join(failures...)
-		},
+	transport, err := newProbeTransport(policy)
+	if err != nil {
+		return nil, err
 	}
 	return &Prober{client: &http.Client{
 		Transport: transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-	}}, nil
+	}, dialContext: transport.DialContext}, nil
 }
 
 func validateSOCKS5Address(address string) error {
@@ -141,7 +99,23 @@ func isTailscaleAddress(address netip.Addr) bool {
 
 func (p *Prober) Probe(ctx context.Context, rawURL string) ProbeResult {
 	started := time.Now()
-	if err := validateHTTPURL(rawURL); err != nil {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ProbeResult{Status: model.ServiceStatusDown}
+	}
+	if strings.EqualFold(parsed.Scheme, "tcp") {
+		if err := validateTCPURL(rawURL); err != nil || p == nil || p.dialContext == nil {
+			return ProbeResult{Status: model.ServiceStatusDown}
+		}
+		connection, err := p.dialContext(ctx, "tcp", parsed.Host)
+		latency := time.Since(started).Milliseconds()
+		if err != nil {
+			return ProbeResult{Status: model.ServiceStatusDown, LatencyMS: latency}
+		}
+		_ = connection.Close()
+		return ProbeResult{Status: model.ServiceStatusUp, LatencyMS: latency}
+	}
+	if err := validateHTTPURL(rawURL); err != nil || p == nil || p.client == nil {
 		return ProbeResult{Status: model.ServiceStatusDown}
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -165,6 +139,27 @@ func (p *Prober) Probe(ctx context.Context, rawURL string) ProbeResult {
 		status = model.ServiceStatusDegraded
 	}
 	return ProbeResult{Status: status, LatencyMS: latency}
+}
+
+func validateTCPURL(value string) error {
+	if len(value) > 2048 {
+		return fmt.Errorf("must not exceed 2048 bytes")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "tcp") || parsed.Hostname() == "" || parsed.Port() == "" || parsed.User != nil {
+		return fmt.Errorf("must be an absolute TCP endpoint in the form tcp://host:port")
+	}
+	if parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" {
+		return fmt.Errorf("TCP probe must not contain a path, query, or fragment")
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("TCP probe port must be between 1 and 65535")
+	}
+	if _, _, err := net.SplitHostPort(parsed.Host); err != nil {
+		return fmt.Errorf("TCP probe must include a valid host and port")
+	}
+	return nil
 }
 
 func resolveAllowed(ctx context.Context, resolver Resolver, host string, allowed []netip.Prefix) ([]netip.Addr, error) {

@@ -186,7 +186,7 @@ func ValidateInput(input model.ServiceInput) error {
 		fields["displayUrl"] = err.Error()
 	}
 	if input.ProbeURL != "" {
-		if err := validateHTTPURL(input.ProbeURL); err != nil {
+		if err := validateProbeURL(input.ProbeURL); err != nil {
 			fields["probeUrl"] = err.Error()
 		}
 	}
@@ -194,6 +194,14 @@ func ValidateInput(input model.ServiceInput) error {
 		return &ValidationError{Fields: fields}
 	}
 	return nil
+}
+
+func validateProbeURL(value string) error {
+	parsed, err := url.Parse(value)
+	if err == nil && strings.EqualFold(parsed.Scheme, "tcp") {
+		return validateTCPURL(value)
+	}
+	return validateHTTPURL(value)
 }
 
 func validateHTTPURL(value string) error {

@@ -137,8 +137,31 @@ jobs:
           subject-name: ghcr.io/bnhminh1010/homelab-dashboard
           subject-digest: ${{ steps.image-build.outputs.digest }}
           push-to-registry: true
+      - name: Build release bundle and checksum
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          bundle_name="homelab-dashboard-${TAG_NAME}"
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="${bundle_name}/" "$TAG_NAME" -o "dist/${bundle_name}.tar.gz"
+          (cd dist && sha256sum "${bundle_name}.tar.gz" > "${bundle_name}.tar.gz.sha256")
+          test -s "dist/${bundle_name}.tar.gz"
+          test -s "dist/${bundle_name}.tar.gz.sha256"
       - name: Publish generated release notes
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: gh release create "$TAG_NAME" --verify-tag --generate-notes --title "$TAG_NAME"
+      - name: Attach release bundle and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          bundle_name="homelab-dashboard-${TAG_NAME}"
+          gh release upload "$TAG_NAME" \
+            "dist/${bundle_name}.tar.gz" \
+            "dist/${bundle_name}.tar.gz.sha256" \
+            install.sh \
+            --clobber

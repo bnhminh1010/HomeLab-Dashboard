@@ -25,6 +25,12 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Validate bootstrap installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n install.sh
+          ./install.sh --dry-run --non-interactive --version v1.2.3 --install-dir /tmp/homelab-dashboard-ci
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
