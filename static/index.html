@@ -147,9 +147,8 @@
         </div>
       </section>
 
-      <div class="overview-layout">
-      <div class="overview-primary">
-        <section id="overview-attention" class="panel overview-attention" aria-labelledby="overview-attention-title">
+      <div class="overview-layout" aria-label="Overview widgets">
+        <section id="overview-attention" class="panel overview-widget overview-attention" data-widget-size="full" data-overview-widget="overview-attention" aria-labelledby="overview-attention-title">
           <header class="panel-header compact">
             <div>
               <h2 id="overview-attention-title">Needs Attention</h2>
@@ -166,7 +165,7 @@
           </div>
         </section>
 
-        <section id="overview-trend" class="panel overview-trend" aria-labelledby="overview-trend-title">
+        <section id="overview-trend" class="panel overview-widget overview-trend" data-widget-size="medium" data-overview-widget="overview-trend" aria-labelledby="overview-trend-title">
           <header class="panel-header compact">
             <div>
               <h2 id="overview-trend-title">Resource Trend</h2>
@@ -186,7 +185,7 @@
           </footer>
         </section>
 
-        <section id="overview-recent-changes" class="panel overview-recent-changes" aria-labelledby="overview-recent-changes-title">
+        <section id="overview-recent-changes" class="panel overview-widget overview-recent-changes" data-widget-size="small" data-overview-widget="overview-recent-changes" aria-labelledby="overview-recent-changes-title">
           <header class="panel-header compact">
             <div>
               <h2 id="overview-recent-changes-title">Recent Changes</h2>
@@ -200,10 +199,7 @@
             <span id="overview-recent-changes-status" role="status" aria-live="polite" aria-atomic="true">24H · WAITING</span>
           </footer>
         </section>
-      </div>
-
-      <aside class="overview-secondary" aria-label="Host snapshot and probe coverage">
-        <section id="system-card" class="panel system-panel" aria-labelledby="system-title system-hostname" aria-busy="true">
+        <section id="system-card" class="panel overview-widget system-panel" data-widget-size="medium" data-overview-widget="system-card" aria-labelledby="system-title system-hostname" aria-busy="true">
           <header class="panel-header">
             <div>
               <h2 id="system-title" class="visually-hidden">System health and metrics</h2>
@@ -261,7 +257,7 @@
           </footer>
         </section>
 
-        <section id="overview-service-pulse" class="panel overview-service-pulse" aria-labelledby="overview-service-pulse-title">
+        <section id="overview-service-pulse" class="panel overview-widget overview-service-pulse" data-widget-size="small" data-overview-widget="overview-service-pulse" aria-labelledby="overview-service-pulse-title">
           <header class="panel-header compact">
             <div>
               <h2 id="overview-service-pulse-title">Probe Coverage</h2>
@@ -274,7 +270,6 @@
           <div id="overview-service-pulse-list" class="overview-action-list"></div>
           <div id="overview-service-pulse-empty" class="overview-empty-state">No services have a configured health probe.</div>
         </section>
-      </aside>
       </div>
       </section>
 
@@ -684,6 +679,13 @@
         <div id="sidebar-workspaces-list" class="sidebar-workspaces-list"></div>
         <p id="workspace-config-readonly" class="workspace-config-readonly" hidden>Only administrators can change the workspace layout.</p>
         <div class="settings-actions admin-only"><button id="workspace-config-cancel" class="button button-ghost" type="button">CANCEL</button><button id="workspace-config-apply" class="button button-primary" type="button">APPLY LAYOUT</button></div>
+      </section>
+      <section class="settings-section" aria-labelledby="overview-config-title">
+        <div class="subsection-header"><h3 id="overview-config-title">OVERVIEW WIDGETS</h3></div>
+        <p>Choose which overview panels are visible and how much space they receive. Needs Attention is always shown.</p>
+        <div id="overview-widgets-list" class="overview-widgets-config-list"></div>
+        <p id="overview-config-readonly" class="workspace-config-readonly" hidden>Overview widget settings are unavailable.</p>
+        <div class="settings-actions"><button id="overview-config-cancel" class="button button-ghost" type="button">CANCEL</button><button id="overview-config-apply" class="button button-primary" type="button">APPLY WIDGETS</button></div>
       </section>
       <p id="settings-status" class="dialog-status mono" role="status"></p>
     </div>

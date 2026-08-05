@@ -108,12 +108,33 @@ type DependencyConfig struct {
 }
 
 type UIPreferences struct {
-	TerminalHeight    int      `json:"terminalHeight"`
-	TerminalCollapsed bool     `json:"terminalCollapsed"`
-	HistoryRange      string   `json:"historyRange"`
-	DefaultNodeID     string   `json:"defaultNodeId"`
-	HiddenWorkspaces  []string `json:"hiddenWorkspaces"`
-	WorkspaceOrder    []string `json:"workspaceOrder"`
+	TerminalHeight        int               `json:"terminalHeight"`
+	TerminalCollapsed     bool              `json:"terminalCollapsed"`
+	HistoryRange          string            `json:"historyRange"`
+	DefaultNodeID         string            `json:"defaultNodeId"`
+	HiddenWorkspaces      []string          `json:"hiddenWorkspaces"`
+	WorkspaceOrder        []string          `json:"workspaceOrder"`
+	HiddenOverviewWidgets []string          `json:"hiddenOverviewWidgets"`
+	OverviewWidgetSizes   map[string]string `json:"overviewWidgetSizes"`
+}
+
+const (
+	OverviewWidgetAttention     = "overview-attention"
+	OverviewWidgetTrend         = "overview-trend"
+	OverviewWidgetRecentChanges = "overview-recent-changes"
+	OverviewWidgetSystem        = "system-card"
+	OverviewWidgetServicePulse  = "overview-service-pulse"
+	OverviewWidgetSizeSmall     = "small"
+	OverviewWidgetSizeMedium    = "medium"
+	OverviewWidgetSizeFull      = "full"
+)
+
+var canonicalOverviewWidgetOrder = []string{
+	OverviewWidgetAttention,
+	OverviewWidgetTrend,
+	OverviewWidgetRecentChanges,
+	OverviewWidgetSystem,
+	OverviewWidgetServicePulse,
 }
 
 const (
@@ -140,11 +161,13 @@ var canonicalWorkspaceOrder = []string{
 
 func DefaultUIPreferences() UIPreferences {
 	return UIPreferences{
-		TerminalHeight:   200,
-		HistoryRange:     "24h",
-		DefaultNodeID:    "local",
-		HiddenWorkspaces: []string{},
-		WorkspaceOrder:   DefaultWorkspaceOrder(),
+		TerminalHeight:        200,
+		HistoryRange:          "24h",
+		DefaultNodeID:         "local",
+		HiddenWorkspaces:      []string{},
+		WorkspaceOrder:        DefaultWorkspaceOrder(),
+		HiddenOverviewWidgets: []string{},
+		OverviewWidgetSizes:   DefaultOverviewWidgetSizes(),
 	}
 }
 
@@ -152,6 +175,19 @@ func DefaultUIPreferences() UIPreferences {
 // workspace sequence used by validation and newly initialized dashboards.
 func DefaultWorkspaceOrder() []string {
 	return append([]string(nil), canonicalWorkspaceOrder...)
+}
+
+// DefaultOverviewWidgetSizes returns the stable, spacious overview layout.
+// Attention leads the page, followed by trend/system and compact supporting
+// widgets. The map is copied so callers can safely customize their draft.
+func DefaultOverviewWidgetSizes() map[string]string {
+	return map[string]string{
+		OverviewWidgetAttention:     OverviewWidgetSizeFull,
+		OverviewWidgetTrend:         OverviewWidgetSizeMedium,
+		OverviewWidgetRecentChanges: OverviewWidgetSizeSmall,
+		OverviewWidgetSystem:        OverviewWidgetSizeMedium,
+		OverviewWidgetServicePulse:  OverviewWidgetSizeSmall,
+	}
 }
 
 // NormalizeUIPreferences supplies fields absent from older portable documents
@@ -164,6 +200,12 @@ func NormalizeUIPreferences(preferences UIPreferences) UIPreferences {
 	if preferences.WorkspaceOrder == nil {
 		preferences.WorkspaceOrder = DefaultWorkspaceOrder()
 	}
+	if preferences.HiddenOverviewWidgets == nil {
+		preferences.HiddenOverviewWidgets = []string{}
+	}
+	if preferences.OverviewWidgetSizes == nil {
+		preferences.OverviewWidgetSizes = DefaultOverviewWidgetSizes()
+	}
 	return preferences
 }
 
@@ -175,7 +217,9 @@ func EqualUIPreferences(left, right UIPreferences) bool {
 		left.HistoryRange != right.HistoryRange ||
 		left.DefaultNodeID != right.DefaultNodeID ||
 		len(left.HiddenWorkspaces) != len(right.HiddenWorkspaces) ||
-		len(left.WorkspaceOrder) != len(right.WorkspaceOrder) {
+		len(left.WorkspaceOrder) != len(right.WorkspaceOrder) ||
+		len(left.HiddenOverviewWidgets) != len(right.HiddenOverviewWidgets) ||
+		len(left.OverviewWidgetSizes) != len(right.OverviewWidgetSizes) {
 		return false
 	}
 	for index := range left.HiddenWorkspaces {
@@ -185,6 +229,16 @@ func EqualUIPreferences(left, right UIPreferences) bool {
 	}
 	for index := range left.WorkspaceOrder {
 		if left.WorkspaceOrder[index] != right.WorkspaceOrder[index] {
+			return false
+		}
+	}
+	for index := range left.HiddenOverviewWidgets {
+		if left.HiddenOverviewWidgets[index] != right.HiddenOverviewWidgets[index] {
+			return false
+		}
+	}
+	for widget, size := range left.OverviewWidgetSizes {
+		if right.OverviewWidgetSizes[widget] != size {
 			return false
 		}
 	}

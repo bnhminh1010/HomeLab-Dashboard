@@ -4,17 +4,20 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/bnhminh1010/homelab-dashboard/internal/auth"
 	"github.com/bnhminh1010/homelab-dashboard/internal/dashboardconfig"
 	"github.com/gin-gonic/gin"
 )
 
 type preferencesPatch struct {
-	TerminalHeight    *int      `json:"terminalHeight,omitempty"`
-	TerminalCollapsed *bool     `json:"terminalCollapsed,omitempty"`
-	HistoryRange      *string   `json:"historyRange,omitempty"`
-	DefaultNodeID     *string   `json:"defaultNodeId,omitempty"`
-	HiddenWorkspaces  *[]string `json:"hiddenWorkspaces,omitempty"`
-	WorkspaceOrder    *[]string `json:"workspaceOrder,omitempty"`
+	TerminalHeight        *int               `json:"terminalHeight,omitempty"`
+	TerminalCollapsed     *bool              `json:"terminalCollapsed,omitempty"`
+	HistoryRange          *string            `json:"historyRange,omitempty"`
+	DefaultNodeID         *string            `json:"defaultNodeId,omitempty"`
+	HiddenWorkspaces      *[]string          `json:"hiddenWorkspaces,omitempty"`
+	WorkspaceOrder        *[]string          `json:"workspaceOrder,omitempty"`
+	HiddenOverviewWidgets *[]string          `json:"hiddenOverviewWidgets,omitempty"`
+	OverviewWidgetSizes   *map[string]string `json:"overviewWidgetSizes,omitempty"`
 }
 
 func (s *Server) getDashboardPreferences(c *gin.Context) {
@@ -27,12 +30,16 @@ func (s *Server) getDashboardPreferences(c *gin.Context) {
 }
 
 func (s *Server) updateDashboardPreferences(c *gin.Context) {
-	principal, ok := s.authorizeMutation(c, true)
+	principal, ok := s.authorizeMutation(c, false)
 	if !ok {
 		return
 	}
 	var patch preferencesPatch
 	if !decodeJSON(c, &patch) {
+		return
+	}
+	if principal.Role != auth.RoleAdmin && preferencesPatchRequiresAdmin(patch) {
+		writeError(c, http.StatusForbidden, "admin_required", "Administrator access is required for these preferences.", nil)
 		return
 	}
 	preferences, err := s.options.Preferences.GetDashboardUIPreferences(c.Request.Context())
@@ -58,6 +65,15 @@ func (s *Server) updateDashboardPreferences(c *gin.Context) {
 	if patch.WorkspaceOrder != nil {
 		preferences.WorkspaceOrder = append([]string(nil), (*patch.WorkspaceOrder)...)
 	}
+	if patch.HiddenOverviewWidgets != nil {
+		preferences.HiddenOverviewWidgets = append([]string(nil), (*patch.HiddenOverviewWidgets)...)
+	}
+	if patch.OverviewWidgetSizes != nil {
+		preferences.OverviewWidgetSizes = make(map[string]string, len(*patch.OverviewWidgetSizes))
+		for widget, size := range *patch.OverviewWidgetSizes {
+			preferences.OverviewWidgetSizes[widget] = size
+		}
+	}
 	updated, err := s.options.Preferences.UpdateDashboardUIPreferences(c.Request.Context(), preferences, principal.Login)
 	if err != nil {
 		if errors.Is(err, dashboardconfig.ErrInvalidDocument) {
@@ -68,4 +84,13 @@ func (s *Server) updateDashboardPreferences(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, updated)
+}
+
+func preferencesPatchRequiresAdmin(patch preferencesPatch) bool {
+	return patch.TerminalHeight != nil ||
+		patch.TerminalCollapsed != nil ||
+		patch.HistoryRange != nil ||
+		patch.DefaultNodeID != nil ||
+		patch.HiddenWorkspaces != nil ||
+		patch.WorkspaceOrder != nil
 }

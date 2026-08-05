@@ -681,6 +681,25 @@ go test -tags=integration ./internal/httpapi -count=1
 go test -tags=browser ./tests/browser -count=1
 ```
 
+### Static UI demo and widget customization
+
+For a frontend-only smoke test, serve the embedded UI assets with Python and
+open the explicit demo route:
+
+```bash
+python3 -m http.server 8080 --directory static
+# open http://127.0.0.1:8080/?demo=1
+```
+
+This mode exercises the UI with deterministic demo data. Python's static
+server does not implement `/api/v1/session` or preference `PATCH` requests;
+`501 Not Implemented` is therefore expected when the demo flag is omitted or
+when API writes are tested against that server. Use the Go server (or Podman
+Compose) for authenticated persistence and real widget saves. If an older tab
+still shows stale controls after a frontend update, unregister the site's
+service worker or clear site data and perform a hard reload; the shell cache is
+versioned with each UI cache-busting release.
+
 Browser tests use chromedp and a locally installed Chromium/Chrome. Unit tests
 use fake Podman/agent Unix sockets and do not touch the real host socket. A
 release should also validate `podman compose config`, build the image, and run

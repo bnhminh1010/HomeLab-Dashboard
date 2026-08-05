@@ -113,6 +113,8 @@ func TestWorkspacePreferencesValidateAndPreserveOlderDocumentLayouts(t *testing.
 		WorkspaceOverview, WorkspaceAlerts, WorkspaceServices, WorkspaceContainers,
 		WorkspaceNodes, WorkspaceHistory, WorkspaceLogs, WorkspaceTopology,
 	}
+	preferences.HiddenOverviewWidgets = []string{OverviewWidgetRecentChanges}
+	preferences.OverviewWidgetSizes[OverviewWidgetTrend] = OverviewWidgetSizeFull
 	if err := ValidateUIPreferences(preferences); err != nil {
 		t.Fatalf("valid workspace preferences: %v", err)
 	}
@@ -126,6 +128,17 @@ func TestWorkspacePreferencesValidateAndPreserveOlderDocumentLayouts(t *testing.
 	invalid.WorkspaceOrder = append(invalid.WorkspaceOrder, WorkspaceLogs)
 	if err := ValidateUIPreferences(invalid); !errors.Is(err, ErrInvalidDocument) {
 		t.Fatalf("duplicate workspace order error = %v", err)
+	}
+	invalid = preferences
+	invalid.HiddenOverviewWidgets = []string{OverviewWidgetAttention}
+	if err := ValidateUIPreferences(invalid); !errors.Is(err, ErrInvalidDocument) {
+		t.Fatalf("attention hidden error = %v", err)
+	}
+	invalid = preferences
+	invalid.OverviewWidgetSizes = DefaultOverviewWidgetSizes()
+	invalid.OverviewWidgetSizes[OverviewWidgetTrend] = "wide"
+	if err := ValidateUIPreferences(invalid); !errors.Is(err, ErrInvalidDocument) {
+		t.Fatalf("invalid overview widget size error = %v", err)
 	}
 
 	snapshot := testSnapshot()

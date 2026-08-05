@@ -8,6 +8,7 @@ const MAX_RECENT_CHANGES = 5;
 const PROBLEM_CONTAINERS = new Set(["crashed", "unhealthy", "dead", "restarting"]);
 const PROBLEM_SERVICES = new Set(["down", "error", "unhealthy", "crashed", "degraded", "warning"]);
 const ACTIONABLE_ALERTS = new Set(["critical", "error", "warning", "warn"]);
+const OVERVIEW_WIDGET_IDS = ["overview-attention", "overview-trend", "overview-recent-changes", "system-card", "overview-service-pulse"];
 
 function token(name, fallback = "transparent") {
   return globalThis.getComputedStyle?.(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -188,6 +189,7 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
   let active = false;
   let node = "local";
   let nodeName = "local";
+  let hiddenWidgets = new Set();
   let latest = { services: [], containers: [], alerts: [], admin: false, remote: false, partial: false, connection: "connecting" };
 
   function setTrendStatus(message, level = "info") {
@@ -220,6 +222,14 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
       chart.update("none");
     }
     resolutionLabel.textContent = "24H · WAITING";
+  }
+
+  function widgetVisible(id) {
+    return !hiddenWidgets.has(id);
+  }
+
+  function resizeChart() {
+    window.requestAnimationFrame(() => chart?.resize());
   }
 
   function actionButton(label, handler, disabled = false) {
@@ -399,7 +409,7 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
   }
 
   async function loadEvents(force = false) {
-    if (!active || !changesList) return;
+    if (!active || !changesList || !widgetVisible("overview-recent-changes")) return;
     const requestedNode = node;
     const cached = eventCache.get(requestedNode);
     if (!force && cached && Date.now() - cached.loadedAt < EVENTS_TTL_MS) {
@@ -459,7 +469,7 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
   }
 
   async function loadTrend(force = false) {
-    if (!active || typeof api?.systemHistory !== "function") return;
+    if (!active || !widgetVisible("overview-trend") || typeof api?.systemHistory !== "function") return;
     const requestedNode = node;
     if (request && requestNode !== requestedNode) {
       cancelTrendRequest();
@@ -520,6 +530,28 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
       }
       return attention;
     },
+    applyPreferences(preferences = {}) {
+      hiddenWidgets = new Set((Array.isArray(preferences.hiddenOverviewWidgets) ? preferences.hiddenOverviewWidgets : [])
+        .filter((id) => id !== "overview-attention" && OVERVIEW_WIDGET_IDS.includes(id)));
+      for (const id of OVERVIEW_WIDGET_IDS) {
+        const widget = document.getElementById(id);
+        if (!widget) continue;
+        widget.hidden = hiddenWidgets.has(id);
+        widget.setAttribute("data-widget-visible", String(!widget.hidden));
+        const requestedSize = preferences.overviewWidgetSizes?.[id];
+        if (["small", "medium", "full"].includes(requestedSize)) widget.dataset.widgetSize = requestedSize;
+      }
+      if (!widgetVisible("overview-trend")) {
+        cancelTrendRequest();
+        clearTrend();
+      }
+      if (!widgetVisible("overview-recent-changes")) cancelEventRequest();
+      resizeChart();
+      if (active) {
+        if (widgetVisible("overview-trend")) loadTrend();
+        if (widgetVisible("overview-recent-changes")) loadEvents();
+      }
+    },
     setNode(nextNode, label = "") {
       const next = nextNode || "local";
       if (next !== node) {
@@ -550,9 +582,9 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
     },
     activate() {
       active = true;
-      window.requestAnimationFrame(() => chart?.resize());
-      loadTrend();
-      loadEvents();
+      resizeChart();
+      if (widgetVisible("overview-trend")) loadTrend();
+      if (widgetVisible("overview-recent-changes")) loadEvents();
     },
     deactivate() {
       active = false;

@@ -242,6 +242,8 @@ func TestDashboardPreferencesPersistWorkspaceLayout(t *testing.T) {
 		dashboardconfig.WorkspaceContainers, dashboardconfig.WorkspaceNodes, dashboardconfig.WorkspaceHistory,
 		dashboardconfig.WorkspaceLogs, dashboardconfig.WorkspaceTopology,
 	}
+	preferences.HiddenOverviewWidgets = []string{dashboardconfig.OverviewWidgetRecentChanges}
+	preferences.OverviewWidgetSizes[dashboardconfig.OverviewWidgetTrend] = dashboardconfig.OverviewWidgetSizeFull
 	updated, err := database.UpdateDashboardUIPreferences(ctx, preferences, "admin@example.com")
 	if err != nil {
 		t.Fatal(err)

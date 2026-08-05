@@ -1,4 +1,4 @@
-const CACHE_NAME = "homelab-dashboard-shell-v1";
+const CACHE_NAME = "homelab-dashboard-shell-v2";
 const SHELL = [
   "./",
   "./index.html",

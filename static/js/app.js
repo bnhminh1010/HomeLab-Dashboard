@@ -34,6 +34,7 @@ let lastSessionRenewalAt = 0;
 let preferenceSaveTimer = null;
 let preferenceSavePending = {};
 let sessionAdmin = false;
+let sessionAuthenticated = false;
 let sessionHostShellCapability = false;
 let snapshotPartial = false;
 let snapshotPartialSources = [];
@@ -44,6 +45,14 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = "homelab.sidebar.collapsed";
 const THEME_STORAGE_KEY = "homelab.theme";
 const WORKSPACE_ORDER = ["overview", "services", "containers", "nodes", "history", "logs", "alerts", "topology"];
 const WORKSPACES = new Set(WORKSPACE_ORDER);
+const OVERVIEW_WIDGET_ORDER = ["overview-attention", "overview-trend", "overview-recent-changes", "system-card", "overview-service-pulse"];
+const OVERVIEW_WIDGET_DEFAULT_SIZES = {
+  "overview-attention": "full",
+  "overview-trend": "medium",
+  "overview-recent-changes": "small",
+  "system-card": "medium",
+  "overview-service-pulse": "small",
+};
 const ROUTE_RANGES = new Set(["1h", "6h", "24h", "7d", "30d", "90d"]);
 const ROUTE_KINDS = new Set(["system", "container", "service"]);
 const ROUTE_STATES = {
@@ -147,6 +156,22 @@ const settingsController = createSettingsController({
     applyWorkspacePreferences(updated);
     return workspacePreferences;
   },
+  onOverviewPreferencesApplied: async (next) => {
+    if (!sessionAuthenticated) throw new Error("Sign in to save overview widget preferences.");
+    const update = {
+      hiddenOverviewWidgets: next.hiddenOverviewWidgets,
+      overviewWidgetSizes: next.overviewWidgetSizes,
+    };
+    if (demo) {
+      const merged = { ...workspacePreferences, ...update };
+      storeValue("homelab.demo.workspace-preferences", JSON.stringify(merged));
+      applyWorkspacePreferences(merged);
+      return workspacePreferences;
+    }
+    const updated = await api.updatePreferences(update);
+    applyWorkspacePreferences(updated);
+    return workspacePreferences;
+  },
 });
 
 function storageValue(key) {
@@ -168,7 +193,14 @@ function normalizeWorkspacePreferences(preferences = {}) {
   for (const workspace of WORKSPACE_ORDER) if (!seen.has(workspace)) order.push(workspace);
   const hidden = [...new Set(Array.isArray(preferences.hiddenWorkspaces) ? preferences.hiddenWorkspaces : [])]
     .filter((workspace) => workspace !== "overview" && WORKSPACES.has(workspace));
-  return { workspaceOrder: order, hiddenWorkspaces: hidden };
+  const hiddenOverviewWidgets = [...new Set(Array.isArray(preferences.hiddenOverviewWidgets) ? preferences.hiddenOverviewWidgets : [])]
+    .filter((widget) => widget !== "overview-attention" && OVERVIEW_WIDGET_ORDER.includes(widget));
+  const overviewWidgetSizes = {};
+  for (const widget of OVERVIEW_WIDGET_ORDER) {
+    const requested = preferences.overviewWidgetSizes?.[widget];
+    overviewWidgetSizes[widget] = ["small", "medium", "full"].includes(requested) ? requested : OVERVIEW_WIDGET_DEFAULT_SIZES[widget];
+  }
+  return { workspaceOrder: order, hiddenWorkspaces: hidden, hiddenOverviewWidgets, overviewWidgetSizes };
 }
 
 function themeName() {
@@ -200,6 +232,7 @@ function applyTheme(next, { persist = false } = {}) {
 
 function applyWorkspacePreferences(preferences) {
   workspacePreferences = normalizeWorkspacePreferences(preferences);
+  overviewController.applyPreferences(workspacePreferences);
   workspaceNavigation?.applyPreferences(workspacePreferences);
   settingsController.setWorkspacePreferences(workspacePreferences);
   const visibleRoute = normalizeRoute(currentRoute);
@@ -1020,20 +1053,23 @@ function applySession(session = {}) {
   const login = typeof identity === "string" ? identity : identity.login || identity.email || identity.name || session.login || "tailnet user";
   const role = String(session.role || "viewer").toLowerCase();
   const admin = role === "admin";
+  const authenticated = session.authenticated === true || (session.authenticated !== false && Boolean(session.csrfToken) && login !== "unauthenticated");
+  sessionAuthenticated = authenticated;
   sessionAdmin = admin;
   sessionHostShellCapability = session.capabilities?.hostShell === true;
   document.body.classList.toggle("viewer", !admin);
   document.body.classList.toggle("admin", admin);
-  setMetricText(elements["session-user"], login);
-  setMetricText(elements["session-role"], admin ? "ADMIN" : "VIEWER");
+  setMetricText(elements["session-user"], authenticated ? login : "unauthenticated");
+  setMetricText(elements["session-role"], authenticated ? (admin ? "ADMIN" : "VIEWER") : "SIGN IN");
   const identityGroup = document.getElementById("session-identity");
-  identityGroup.setAttribute("aria-label", `Signed in as ${login}, role ${admin ? "administrator" : "viewer"}`);
-  identityGroup.title = `${login} · ${admin ? "ADMIN" : "VIEWER"}`;
+  identityGroup.setAttribute("aria-label", authenticated ? `Signed in as ${login}, role ${admin ? "administrator" : "viewer"}` : "Not signed in; sign in to save dashboard preferences");
+  identityGroup.title = authenticated ? `${login} · ${admin ? "ADMIN" : "VIEWER"}` : "Not signed in";
   servicesController.setAdmin(admin);
   containersController.setAdmin(admin);
   alertsController.setAdmin(admin);
   nodesController.setAdmin(admin);
   settingsController.setAdmin(admin);
+  settingsController.setSession({ authenticated });
   operationsController.setAdmin(admin);
   terminal.setHostShellCapability(sessionHostShellCapability);
   updateOverview();

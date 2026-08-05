@@ -168,8 +168,9 @@ func validateServiceCapacity(current Snapshot, incoming Document, mode ImportMod
 // preserveLegacyV1Sections keeps a v1 import scoped to the configuration that
 // schema knew about. In particular, a v1 replace must not silently erase
 // SLO policies or manual topology authored after the dashboard was upgraded.
-// Workspace layout fields are also preserved when absent from an older v1 or
-// v2 document so importing an existing backup cannot reset a newer sidebar.
+// Workspace and overview widget layout fields are also preserved when absent
+// from an older v1 or v2 document so importing an existing backup cannot reset
+// a newer sidebar or overview arrangement.
 func preserveLegacyV1Sections(document Document, current Snapshot) Document {
 	currentDocument := documentFromSnapshot(current)
 	if document.legacyV1 {
@@ -182,7 +183,24 @@ func preserveLegacyV1Sections(document Document, current Snapshot) Document {
 	if document.UIPreferences.WorkspaceOrder == nil {
 		document.UIPreferences.WorkspaceOrder = append([]string(nil), currentDocument.UIPreferences.WorkspaceOrder...)
 	}
+	if document.UIPreferences.HiddenOverviewWidgets == nil {
+		document.UIPreferences.HiddenOverviewWidgets = append([]string(nil), currentDocument.UIPreferences.HiddenOverviewWidgets...)
+	}
+	if document.UIPreferences.OverviewWidgetSizes == nil {
+		document.UIPreferences.OverviewWidgetSizes = cloneOverviewWidgetSizes(currentDocument.UIPreferences.OverviewWidgetSizes)
+	}
 	return document
+}
+
+func cloneOverviewWidgetSizes(sizes map[string]string) map[string]string {
+	if sizes == nil {
+		return nil
+	}
+	clone := make(map[string]string, len(sizes))
+	for widget, size := range sizes {
+		clone[widget] = size
+	}
+	return clone
 }
 
 // skipUnenrolledTopologyDependencies prevents an import from creating an edge

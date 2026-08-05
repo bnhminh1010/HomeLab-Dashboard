@@ -238,6 +238,46 @@ func validateUIPreferences(preferences UIPreferences) error {
 			ordered[workspace] = struct{}{}
 		}
 	}
+	validWidgets := make(map[string]struct{}, len(canonicalOverviewWidgetOrder))
+	for _, widget := range canonicalOverviewWidgetOrder {
+		validWidgets[widget] = struct{}{}
+	}
+	if preferences.HiddenOverviewWidgets != nil {
+		hidden := make(map[string]struct{}, len(preferences.HiddenOverviewWidgets))
+		for index, widget := range preferences.HiddenOverviewWidgets {
+			if _, ok := validWidgets[widget]; !ok {
+				return invalid(fmt.Sprintf("uiPreferences.hiddenOverviewWidgets[%d]", index), "must be a valid overview widget id")
+			}
+			if widget == OverviewWidgetAttention {
+				return invalid(fmt.Sprintf("uiPreferences.hiddenOverviewWidgets[%d]", index), "overview attention cannot be hidden")
+			}
+			if _, duplicate := hidden[widget]; duplicate {
+				return invalid(fmt.Sprintf("uiPreferences.hiddenOverviewWidgets[%d]", index), "duplicate overview widget id")
+			}
+			hidden[widget] = struct{}{}
+		}
+	}
+	if preferences.OverviewWidgetSizes != nil {
+		if len(preferences.OverviewWidgetSizes) != len(canonicalOverviewWidgetOrder) {
+			return invalid("uiPreferences.overviewWidgetSizes", "must define a size for every overview widget")
+		}
+		for _, widget := range canonicalOverviewWidgetOrder {
+			size, ok := preferences.OverviewWidgetSizes[widget]
+			if !ok {
+				return invalid("uiPreferences.overviewWidgetSizes", "must define a size for every overview widget")
+			}
+			switch size {
+			case OverviewWidgetSizeSmall, OverviewWidgetSizeMedium, OverviewWidgetSizeFull:
+			default:
+				return invalid("uiPreferences.overviewWidgetSizes."+widget, "must be small, medium, or full")
+			}
+		}
+		for widget := range preferences.OverviewWidgetSizes {
+			if _, ok := validWidgets[widget]; !ok {
+				return invalid("uiPreferences.overviewWidgetSizes."+widget, "must be a valid overview widget id")
+			}
+		}
+	}
 	return nil
 }
 

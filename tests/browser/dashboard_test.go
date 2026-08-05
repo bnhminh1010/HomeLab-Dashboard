@@ -120,7 +120,8 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
           const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
           const gridColumns = (selector) => {
             const value = getComputedStyle(document.querySelector(selector)).gridTemplateColumns.trim();
-            return value && value !== 'none' ? value.split(/\s+/).length : 0;
+            if (!value || value === 'none') return 0;
+            return value.match(/minmax\([^)]*\)|(?:\d+(?:\.\d+)?px)/g)?.length || 0;
           };
           const isVisibleInViewport = (node) => {
             const style = getComputedStyle(node);
@@ -229,11 +230,11 @@ func TestDemoDashboardResponsiveColdLoad(t *testing.T) {
 			if report.OverviewOuterColumns != 1 {
 				t.Fatalf("overview outer workspace must always occupy one grid column: %+v", report)
 			}
-			if viewport.width >= 900 && report.OverviewLayoutColumns != 2 {
-				t.Fatalf("overview must retain its two-pane workbench layout from 900px upward: %+v", report)
+			if viewport.width >= 1280 && report.OverviewLayoutColumns != 12 {
+				t.Fatalf("wide overview must use the 12-column widget grid: %+v", report)
 			}
-			if viewport.width < 900 && report.OverviewLayoutColumns != 1 {
-				t.Fatalf("overview must collapse to one content column below 900px: %+v", report)
+			if viewport.width < 1280 && report.OverviewLayoutColumns != 1 {
+				t.Fatalf("overview must collapse to one content column below the wide workbench breakpoint: %+v", report)
 			}
 			if report.SystemSparklines != 0 {
 				t.Fatalf("overview system snapshot must not duplicate the dedicated resource trend with sparklines: %+v", report)
@@ -1684,15 +1685,18 @@ func TestDemoVisualCustomization(t *testing.T) {
 	defer timeout()
 
 	var report struct {
-		LightTheme        bool     `json:"lightTheme"`
-		ThemePersisted    bool     `json:"themePersisted"`
-		ThemeRestored     bool     `json:"themeRestored"`
-		ChartRecolored    bool     `json:"chartRecolored"`
-		WorkspaceCount    int      `json:"workspaceCount"`
-		OverviewProtected bool     `json:"overviewProtected"`
-		TopologyHidden    bool     `json:"topologyHidden"`
-		RouteFallback     bool     `json:"routeFallback"`
-		Order             []string `json:"order"`
+		LightTheme                  bool     `json:"lightTheme"`
+		ThemePersisted              bool     `json:"themePersisted"`
+		ThemeRestored               bool     `json:"themeRestored"`
+		ChartRecolored              bool     `json:"chartRecolored"`
+		WorkspaceCount              int      `json:"workspaceCount"`
+		OverviewProtected           bool     `json:"overviewProtected"`
+		TopologyHidden              bool     `json:"topologyHidden"`
+		OverviewWidgetCount         int      `json:"overviewWidgetCount"`
+		AttentionWidgetRequired     bool     `json:"attentionWidgetRequired"`
+		OverviewWidgetLayoutApplied bool     `json:"overviewWidgetLayoutApplied"`
+		RouteFallback               bool     `json:"routeFallback"`
+		Order                       []string `json:"order"`
 	}
 	err = chromedp.Run(ctx,
 		chromedp.EmulateViewport(1440, 900),
@@ -1715,8 +1719,14 @@ func TestDemoVisualCustomization(t *testing.T) {
 		chromedp.Poll(`document.querySelectorAll('#sidebar-workspaces-list [data-workspace-config]').length === 8`, nil, chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Evaluate(`(() => ({
           workspaceCount: document.querySelectorAll('#sidebar-workspaces-list [data-workspace-config]').length,
-          overviewProtected: document.querySelector('[data-workspace-config="overview"] input')?.disabled === true
+          overviewProtected: document.querySelector('[data-workspace-config="overview"] input')?.disabled === true,
+          overviewWidgetCount: document.querySelectorAll('#overview-widgets-list .overview-widget-config-item').length,
+          attentionWidgetRequired: document.querySelector('#overview-widgets-list input[aria-label="Needs Attention visibility"]')?.disabled === true
         }))()`, &report),
+		chromedp.Evaluate(`(() => { const select = document.querySelector('#overview-widgets-list [aria-label="Resource Trend size"]'); select.value = 'full'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`, nil),
+		chromedp.Click(`#overview-widgets-list [aria-label="Recent Changes visibility"]`, chromedp.ByQuery),
+		chromedp.Click("#overview-config-apply", chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('#overview-recent-changes')?.hidden === true && document.querySelector('#overview-trend')?.dataset.widgetSize === 'full'`, nil, chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Click(`[data-workspace-config="alerts"] [data-workspace-move="-1"]`, chromedp.ByQuery),
 		chromedp.Click(`[data-workspace-config="topology"] input`, chromedp.ByQuery),
 		chromedp.Click("#workspace-config-apply", chromedp.ByQuery),
@@ -1728,6 +1738,8 @@ func TestDemoVisualCustomization(t *testing.T) {
 		chromedp.Poll(`location.hash === '#overview' && !document.querySelector('#workspace-overview').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Evaluate(`(() => ({
           topologyHidden: document.querySelector('[data-workspace="topology"]')?.hidden === true,
+          overviewWidgetLayoutApplied: document.querySelector('#overview-recent-changes')?.hidden === true
+            && document.querySelector('#overview-trend')?.dataset.widgetSize === 'full',
           routeFallback: location.hash === '#overview' && !document.querySelector('#workspace-overview').hidden,
           order: [...document.querySelectorAll('#workspace-sidebar [data-workspace]')].map((item) => item.dataset.workspace)
         }))()`, &report),
@@ -1735,7 +1747,7 @@ func TestDemoVisualCustomization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.LightTheme || !report.ThemePersisted || !report.ThemeRestored || !report.ChartRecolored || report.WorkspaceCount != 8 || !report.OverviewProtected || !report.TopologyHidden || !report.RouteFallback {
+	if !report.LightTheme || !report.ThemePersisted || !report.ThemeRestored || !report.ChartRecolored || report.WorkspaceCount != 8 || !report.OverviewProtected || report.OverviewWidgetCount != 5 || !report.AttentionWidgetRequired || !report.OverviewWidgetLayoutApplied || !report.TopologyHidden || !report.RouteFallback {
 		t.Fatalf("visual customization regression: %+v", report)
 	}
 	alerts, logs := -1, -1
@@ -1749,6 +1761,88 @@ func TestDemoVisualCustomization(t *testing.T) {
 	}
 	if alerts < 0 || logs < 0 || alerts >= logs {
 		t.Fatalf("workspace reorder was not applied: %+v", report.Order)
+	}
+}
+
+func TestDemoWidgetCancelAndUnauthenticatedState(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+	ctx, cancel := newBrowserContext(allocator)
+	defer cancel()
+	ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
+	defer timeout()
+
+	var cancelReport struct {
+		DialogClosed       bool `json:"dialogClosed"`
+		TrendSizeRestored  bool `json:"trendSizeRestored"`
+		RecentStillVisible bool `json:"recentStillVisible"`
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(1440, 900),
+		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+		chromedp.Click("#settings-open", chromedp.ByQuery),
+		chromedp.WaitVisible("#settings-dialog", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+          const select = document.querySelector('#overview-widgets-list [aria-label="Resource Trend size"]');
+          select.value = 'full';
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          document.querySelector('#overview-widgets-list [aria-label="Recent Changes visibility"]').click();
+          return true;
+        })()`, nil),
+		chromedp.Click("#overview-config-cancel", chromedp.ByQuery),
+		chromedp.Poll(`!document.querySelector('#settings-dialog')?.open`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`({
+          dialogClosed: !document.querySelector('#settings-dialog')?.open,
+          trendSizeRestored: document.querySelector('#overview-trend')?.dataset.widgetSize === 'medium',
+          recentStillVisible: document.querySelector('#overview-recent-changes')?.hidden === false
+        })`, &cancelReport),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !cancelReport.DialogClosed || !cancelReport.TrendSizeRestored || !cancelReport.RecentStillVisible {
+		t.Fatalf("widget cancel regression: %+v", cancelReport)
+	}
+
+	var unauthReport struct {
+		WidgetCount      int  `json:"widgetCount"`
+		ControlsDisabled bool `json:"controlsDisabled"`
+		ApplyDisabled    bool `json:"applyDisabled"`
+		ReadonlyVisible  bool `json:"readonlyVisible"`
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(server.URL+"/?demo=1&auth=unauthenticated"),
+		chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+		chromedp.Click("#settings-open", chromedp.ByQuery),
+		chromedp.WaitVisible("#settings-dialog", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+          const controls = [...document.querySelectorAll('#overview-widgets-list input, #overview-widgets-list select')];
+          return {
+            widgetCount: document.querySelectorAll('#overview-widgets-list .overview-widget-config-item').length,
+            controlsDisabled: controls.length === 10 && controls.every((control) => control.disabled),
+            applyDisabled: document.querySelector('#overview-config-apply')?.disabled === true,
+            readonlyVisible: document.querySelector('#overview-config-readonly')?.hidden === false
+          };
+        })()`, &unauthReport),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if unauthReport.WidgetCount != 5 || !unauthReport.ControlsDisabled || !unauthReport.ApplyDisabled || !unauthReport.ReadonlyVisible {
+		t.Fatalf("unauthenticated widget state regression: %+v", unauthReport)
 	}
 }
 

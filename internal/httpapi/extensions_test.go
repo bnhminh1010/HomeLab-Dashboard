@@ -185,6 +185,19 @@ func TestHistoryAndAlertAPIs(t *testing.T) {
 		!strings.Contains(preferencesResponse.Body.String(), `"workspaceOrder":["overview","alerts"`) {
 		t.Fatalf("preferences update status=%d body=%s", preferencesResponse.Code, preferencesResponse.Body.String())
 	}
+	viewerCSRF, viewerCookie, _ := startTestBrowserSession(t, server, "viewer@example.com")
+	viewerWidgetRequest := authenticatedMutation(http.MethodPatch, "/api/v1/preferences", `{"hiddenOverviewWidgets":["overview-recent-changes"]}`, "viewer@example.com", viewerCSRF, viewerCookie)
+	viewerWidgetResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(viewerWidgetResponse, viewerWidgetRequest)
+	if viewerWidgetResponse.Code != http.StatusOK || !strings.Contains(viewerWidgetResponse.Body.String(), `"hiddenOverviewWidgets":["overview-recent-changes"]`) {
+		t.Fatalf("viewer widget preference update status=%d body=%s", viewerWidgetResponse.Code, viewerWidgetResponse.Body.String())
+	}
+	viewerProtectedRequest := authenticatedMutation(http.MethodPatch, "/api/v1/preferences", `{"historyRange":"1h"}`, "viewer@example.com", viewerCSRF, viewerCookie)
+	viewerProtectedResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(viewerProtectedResponse, viewerProtectedRequest)
+	if viewerProtectedResponse.Code != http.StatusForbidden {
+		t.Fatalf("viewer protected preference update status=%d body=%s", viewerProtectedResponse.Code, viewerProtectedResponse.Body.String())
+	}
 }
 
 func TestNTFYStatusRedactsDestinationForViewer(t *testing.T) {

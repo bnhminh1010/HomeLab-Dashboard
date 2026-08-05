@@ -1,10 +1,27 @@
 const MAX_CONFIG_BYTES = 1024 * 1024;
-const CONFIG_VERSION = "homelab-dashboard.config/v1";
+const CONFIG_VERSION = "homelab-dashboard.config/v2";
+const LEGACY_CONFIG_VERSION = "homelab-dashboard.config/v1";
 const WORKSPACE_ORDER = ["overview", "services", "containers", "nodes", "history", "logs", "alerts", "topology"];
 const WORKSPACE_LABELS = {
   overview: "OVERVIEW", services: "SERVICES", containers: "CONTAINERS", nodes: "NODES",
   history: "HISTORY", logs: "LOGS", alerts: "ALERTS", topology: "TOPOLOGY",
 };
+const OVERVIEW_WIDGET_ORDER = ["overview-attention", "overview-trend", "overview-recent-changes", "system-card", "overview-service-pulse"];
+const OVERVIEW_WIDGET_LABELS = {
+  "overview-attention": "Needs Attention",
+  "overview-trend": "Resource Trend",
+  "overview-recent-changes": "Recent Changes",
+  "system-card": "System Snapshot",
+  "overview-service-pulse": "Probe Coverage",
+};
+const OVERVIEW_WIDGET_DEFAULT_SIZES = {
+  "overview-attention": "full",
+  "overview-trend": "medium",
+  "overview-recent-changes": "small",
+  "system-card": "medium",
+  "overview-service-pulse": "small",
+};
+const OVERVIEW_WIDGET_SIZES = new Set(["small", "medium", "full"]);
 
 function normalizeWorkspacePreferences(preferences = {}) {
   const seen = new Set();
@@ -17,7 +34,14 @@ function normalizeWorkspacePreferences(preferences = {}) {
   for (const workspace of WORKSPACE_ORDER) if (!seen.has(workspace)) order.push(workspace);
   const hidden = [...new Set(Array.isArray(preferences.hiddenWorkspaces) ? preferences.hiddenWorkspaces : [])]
     .filter((workspace) => workspace !== "overview" && WORKSPACE_ORDER.includes(workspace));
-  return { workspaceOrder: order, hiddenWorkspaces: hidden };
+  const hiddenOverviewWidgets = [...new Set(Array.isArray(preferences.hiddenOverviewWidgets) ? preferences.hiddenOverviewWidgets : [])]
+    .filter((widget) => widget !== "overview-attention" && OVERVIEW_WIDGET_ORDER.includes(widget));
+  const overviewWidgetSizes = {};
+  for (const widget of OVERVIEW_WIDGET_ORDER) {
+    const requested = preferences.overviewWidgetSizes?.[widget];
+    overviewWidgetSizes[widget] = OVERVIEW_WIDGET_SIZES.has(requested) ? requested : OVERVIEW_WIDGET_DEFAULT_SIZES[widget];
+  }
+  return { workspaceOrder: order, hiddenWorkspaces: hidden, hiddenOverviewWidgets, overviewWidgetSizes };
 }
 
 function demoDocument() {
@@ -65,7 +89,7 @@ function previewSummary(preview) {
   return wrapper;
 }
 
-export function createSettingsController({ api, demo = false, toast, onApplied, onWorkspacePreferencesApplied }) {
+export function createSettingsController({ api, demo = false, toast, onApplied, onWorkspacePreferencesApplied, onOverviewPreferencesApplied }) {
   const openButton = document.getElementById("settings-open");
   const dialog = document.getElementById("settings-dialog");
   const exportButton = document.getElementById("config-export");
@@ -79,13 +103,19 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
   const workspaceApplyButton = document.getElementById("workspace-config-apply");
   const workspaceCancelButton = document.getElementById("workspace-config-cancel");
   const workspaceReadonly = document.getElementById("workspace-config-readonly");
+  const overviewWidgetsList = document.getElementById("overview-widgets-list");
+  const overviewApplyButton = document.getElementById("overview-config-apply");
+  const overviewCancelButton = document.getElementById("overview-config-cancel");
+  const overviewReadonly = document.getElementById("overview-config-readonly");
   let admin = false;
+  let authenticated = Boolean(demo);
   let opener = null;
   let parsedDocument = null;
   let validPreview = null;
   let previewMode = "";
   let workspacePreferences = normalizeWorkspacePreferences();
   let workspaceDraft = normalizeWorkspacePreferences();
+  let overviewDraft = normalizeWorkspacePreferences();
 
   const mode = () => modePicker.querySelector('input[name="config-import-mode"]:checked')?.value || "merge";
 
@@ -107,7 +137,9 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
   function open() {
     opener = document.activeElement;
     workspaceDraft = normalizeWorkspacePreferences(workspacePreferences);
+    overviewDraft = normalizeWorkspacePreferences(workspacePreferences);
     renderWorkspaceList();
+    renderOverviewWidgets();
     if (!dialog.open) dialog.showModal();
     dialog.querySelector("[data-dialog-close]")?.focus();
   }
@@ -167,6 +199,50 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
     workspaceCancelButton.disabled = !admin;
   }
 
+  function renderOverviewWidgets() {
+    if (!overviewWidgetsList) return;
+    overviewWidgetsList.replaceChildren();
+    const hidden = new Set(overviewDraft.hiddenOverviewWidgets);
+    for (const widget of OVERVIEW_WIDGET_ORDER) {
+      const item = documentElement("div");
+      item.className = "overview-widget-config-item";
+      const label = documentElement("label");
+      label.className = "workspace-config-label";
+      const visible = documentElement("input");
+      visible.type = "checkbox";
+      visible.checked = !hidden.has(widget);
+      visible.disabled = widget === "overview-attention" || !authenticated;
+      visible.setAttribute("aria-label", `${OVERVIEW_WIDGET_LABELS[widget]} visibility`);
+      visible.addEventListener("change", () => {
+        const nextHidden = new Set(overviewDraft.hiddenOverviewWidgets);
+        if (visible.checked) nextHidden.delete(widget);
+        else nextHidden.add(widget);
+        overviewDraft.hiddenOverviewWidgets = [...nextHidden];
+      });
+      const text = documentElement("span");
+      text.textContent = widget === "overview-attention" ? `${OVERVIEW_WIDGET_LABELS[widget]} · REQUIRED` : OVERVIEW_WIDGET_LABELS[widget];
+      label.append(visible, text);
+      const size = documentElement("select");
+      size.className = "overview-widget-size-select mono";
+      size.disabled = !authenticated;
+      size.setAttribute("aria-label", `${OVERVIEW_WIDGET_LABELS[widget]} size`);
+      for (const optionValue of ["small", "medium", "full"]) {
+        const option = documentElement("option");
+        option.value = optionValue;
+        option.textContent = optionValue.toUpperCase();
+        option.selected = overviewDraft.overviewWidgetSizes[widget] === optionValue;
+        size.append(option);
+      }
+      size.addEventListener("change", () => { overviewDraft.overviewWidgetSizes[widget] = size.value; });
+      item.append(label, size);
+      overviewWidgetsList.append(item);
+    }
+    overviewReadonly.hidden = authenticated;
+    overviewReadonly.textContent = authenticated ? "" : "Sign in to save overview widget preferences.";
+    overviewApplyButton.disabled = !authenticated;
+    overviewCancelButton.disabled = false;
+  }
+
   async function readFile(file) {
     parsedDocument = null;
     resetPreview("Reading configuration file…");
@@ -185,7 +261,7 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
       if (new TextEncoder().encode(text).byteLength > MAX_CONFIG_BYTES) throw new Error("The decoded file exceeds 1 MiB.");
       const candidate = JSON.parse(text);
       if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) throw new Error("The top-level JSON value must be an object.");
-      if (candidate.version !== CONFIG_VERSION) throw new Error(`Unsupported config version: ${candidate.version || "missing"}.`);
+      if (![CONFIG_VERSION, LEGACY_CONFIG_VERSION].includes(candidate.version)) throw new Error(`Unsupported config version: ${candidate.version || "missing"}.`);
       parsedDocument = candidate;
       previewButton.disabled = !admin;
       resetPreview(`Ready to preview ${file.name} in ${mode()} mode.`);
@@ -281,6 +357,13 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
     workspaceDraft = normalizeWorkspacePreferences(workspacePreferences);
     renderWorkspaceList();
     setStatus("Workspace layout changes discarded.");
+    close();
+  });
+  overviewCancelButton?.addEventListener("click", () => {
+    overviewDraft = normalizeWorkspacePreferences(workspacePreferences);
+    renderOverviewWidgets();
+    setStatus("Overview widget changes discarded.");
+    close();
   });
   workspaceApplyButton?.addEventListener("click", async () => {
     if (!admin || typeof onWorkspacePreferencesApplied !== "function") return;
@@ -299,6 +382,23 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
       renderWorkspaceList();
     }
   });
+  overviewApplyButton?.addEventListener("click", async () => {
+    if (!authenticated || typeof onOverviewPreferencesApplied !== "function") return;
+    overviewApplyButton.disabled = true;
+    overviewCancelButton.disabled = true;
+    setStatus("Saving overview widget layout…");
+    try {
+      const saved = await onOverviewPreferencesApplied(normalizeWorkspacePreferences(overviewDraft));
+      workspacePreferences = normalizeWorkspacePreferences(saved || overviewDraft);
+      overviewDraft = normalizeWorkspacePreferences(workspacePreferences);
+      renderOverviewWidgets();
+      setStatus("Overview widget layout saved.");
+      toast("Overview widgets updated.");
+    } catch (error) {
+      setStatus(error?.message || "Unable to save overview widget layout.", "error");
+      renderOverviewWidgets();
+    }
+  });
 
   return {
     setAdmin(value) {
@@ -307,11 +407,19 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
       previewButton.disabled = !admin || !parsedDocument;
       applyButton.disabled = !admin || !validPreview || previewMode !== mode();
       renderWorkspaceList();
+      renderOverviewWidgets();
+    },
+    setSession(value = {}) {
+      authenticated = value.authenticated === true;
+      renderWorkspaceList();
+      renderOverviewWidgets();
     },
     setWorkspacePreferences(preferences) {
       workspacePreferences = normalizeWorkspacePreferences(preferences);
       workspaceDraft = normalizeWorkspacePreferences(workspacePreferences);
+      overviewDraft = normalizeWorkspacePreferences(workspacePreferences);
       renderWorkspaceList();
+      renderOverviewWidgets();
     },
     open,
   };

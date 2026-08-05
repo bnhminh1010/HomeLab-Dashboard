@@ -75,9 +75,29 @@ export class DemoApi {
   constructor() { this.demo = true; }
 
   async session() {
+    const authMode = new URLSearchParams(window.location.search).get("auth");
+    if (authMode === "unauthenticated") {
+      return {
+        identity: { login: "unauthenticated", name: "Unauthenticated" },
+        role: "viewer",
+        authenticated: false,
+        csrfToken: "",
+        capabilities: { history: true },
+      };
+    }
+    if (authMode === "viewer") {
+      return {
+        identity: { login: "viewer@tailnet", name: "Demo Viewer" },
+        role: "viewer",
+        authenticated: true,
+        csrfToken: "demo",
+        capabilities: { history: true },
+      };
+    }
     return {
       identity: { login: "binhminh@tailnet", name: "Binh Minh" },
       role: "admin",
+      authenticated: true,
       csrfToken: "demo",
       capabilities: { manageServices: true, containerExec: true, hostShell: true },
     };
