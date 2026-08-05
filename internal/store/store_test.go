@@ -94,3 +94,41 @@ func TestStoreEnforcesServiceCapacityAtomically(t *testing.T) {
 		t.Fatalf("overflow service error = %v", err)
 	}
 }
+
+func TestWidgetContentRevisionAndPersistence(t *testing.T) {
+	ctx := context.Background()
+	database, err := Open(ctx, filepath.Join(t.TempDir(), "widgets.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	items, revision, err := database.ListLaunchpadBookmarks(ctx)
+	if err != nil || len(items) != 0 || revision != 0 {
+		t.Fatalf("initial launchpad = %#v revision=%d err=%v", items, revision, err)
+	}
+	bookmark := model.LaunchpadBookmark{ID: "router", Title: "Router", URL: "https://router.example", Icon: "network", Tag: "NET"}
+	nextRevision, err := database.ReplaceLaunchpadBookmarks(ctx, []model.LaunchpadBookmark{bookmark}, revision, "admin")
+	if err != nil || nextRevision != 1 {
+		t.Fatalf("save launchpad revision=%d err=%v", nextRevision, err)
+	}
+	if _, err := database.ReplaceLaunchpadBookmarks(ctx, nil, revision, "admin"); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale launchpad write error=%v", err)
+	}
+	items, revision, err = database.ListLaunchpadBookmarks(ctx)
+	if err != nil || revision != 1 || len(items) != 1 || items[0].URL != bookmark.URL {
+		t.Fatalf("saved launchpad = %#v revision=%d err=%v", items, revision, err)
+	}
+
+	note, err := database.GetOperatorNote(ctx)
+	if err != nil || note.Revision != 0 || note.Text != "" {
+		t.Fatalf("initial operator note = %#v err=%v", note, err)
+	}
+	saved, err := database.UpdateOperatorNote(ctx, "Check backup retention", note.Revision, "admin")
+	if err != nil || saved.Revision != 1 || saved.Text != "Check backup retention" {
+		t.Fatalf("save operator note = %#v err=%v", saved, err)
+	}
+	if _, err := database.UpdateOperatorNote(ctx, "stale", note.Revision, "admin"); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale operator note write error=%v", err)
+	}
+}

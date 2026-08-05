@@ -60,6 +60,13 @@ type PreferencesRepository interface {
 	UpdateDashboardUIPreferences(context.Context, dashboardconfig.UIPreferences, string) (dashboardconfig.UIPreferences, error)
 }
 
+type WidgetContentRepository interface {
+	ListLaunchpadBookmarks(context.Context) ([]model.LaunchpadBookmark, int64, error)
+	ReplaceLaunchpadBookmarks(context.Context, []model.LaunchpadBookmark, int64, string) (int64, error)
+	GetOperatorNote(context.Context) (model.OperatorNote, error)
+	UpdateOperatorNote(context.Context, string, int64, string) (model.OperatorNote, error)
+}
+
 type TopologyRepository interface {
 	ListTopologyDependencies(context.Context, string) ([]topology.Dependency, error)
 	CreateTopologyDependency(context.Context, topology.DependencyInput) (topology.Dependency, error)
@@ -106,6 +113,7 @@ type Options struct {
 	DashboardConfig        *dashboardconfig.Service
 	DashboardConfigApplied func()
 	Preferences            PreferencesRepository
+	WidgetContent          WidgetContentRepository
 	SLO                    *slo.Service
 	Operations             operations.Repository
 	Topology               TopologyRepository
@@ -251,6 +259,12 @@ func (s *Server) routes() {
 		authenticatedAPI.GET("/preferences", s.getDashboardPreferences)
 		authenticatedAPI.PATCH("/preferences", s.updateDashboardPreferences)
 	}
+	if s.options.WidgetContent != nil {
+		authenticatedAPI.GET("/widgets/launchpad", s.getLaunchpad)
+		authenticatedAPI.PUT("/widgets/launchpad", s.putLaunchpad)
+		authenticatedAPI.GET("/widgets/operator-note", s.getOperatorNote)
+		authenticatedAPI.PUT("/widgets/operator-note", s.putOperatorNote)
+	}
 	compatibilityAPI := s.router.Group("/api")
 	compatibilityAPI.Use(s.requireSession())
 	compatibilityAPI.GET("/services", s.listServices)
@@ -331,19 +345,20 @@ func (s *Server) createSession(c *gin.Context) {
 		"role":      principal.Role,
 		"csrfToken": session.CSRF,
 		"capabilities": gin.H{
-			"manageServices":   principal.Role == auth.RoleAdmin,
-			"containerExec":    principal.Role == auth.RoleAdmin,
-			"hostShell":        s.hostShellAllowed(principal),
-			"manageAlerts":     principal.Role == auth.RoleAdmin && s.options.Alerts != nil,
-			"manageNodes":      principal.Role == auth.RoleAdmin && s.options.Nodes != nil,
-			"manageConfig":     principal.Role == auth.RoleAdmin && s.options.DashboardConfig != nil,
-			"history":          s.options.History != nil,
-			"multiNode":        s.options.NodeRegistry != nil,
-			"slo":              s.options.SLO != nil,
-			"operations":       s.options.Operations != nil,
-			"topology":         s.options.Topology != nil,
-			"healthChecks":     s.options.Checks != nil,
-			"manageContainers": principal.Role == auth.RoleAdmin && s.options.ContainerLifecycle != nil,
+			"manageServices":      principal.Role == auth.RoleAdmin,
+			"manageWidgetContent": principal.Role == auth.RoleAdmin && s.options.WidgetContent != nil,
+			"containerExec":       principal.Role == auth.RoleAdmin,
+			"hostShell":           s.hostShellAllowed(principal),
+			"manageAlerts":        principal.Role == auth.RoleAdmin && s.options.Alerts != nil,
+			"manageNodes":         principal.Role == auth.RoleAdmin && s.options.Nodes != nil,
+			"manageConfig":        principal.Role == auth.RoleAdmin && s.options.DashboardConfig != nil,
+			"history":             s.options.History != nil,
+			"multiNode":           s.options.NodeRegistry != nil,
+			"slo":                 s.options.SLO != nil,
+			"operations":          s.options.Operations != nil,
+			"topology":            s.options.Topology != nil,
+			"healthChecks":        s.options.Checks != nil,
+			"manageContainers":    principal.Role == auth.RoleAdmin && s.options.ContainerLifecycle != nil,
 		},
 	})
 }

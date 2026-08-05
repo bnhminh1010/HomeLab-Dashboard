@@ -274,6 +274,36 @@
           <div id="overview-service-pulse-list" class="overview-action-list"></div>
           <div id="overview-service-pulse-empty" class="overview-empty-state">No services have a configured health probe.</div>
         </section>
+
+        <section id="overview-quick-launchpad" class="panel overview-widget overview-content-widget overview-quick-launchpad" data-widget-size="full" data-overview-widget="overview-quick-launchpad" aria-labelledby="overview-quick-launchpad-title" hidden>
+          <header class="panel-header compact"><div><span class="panel-context mono">SHORTCUTS</span><h2 id="overview-quick-launchpad-title">Quick Launchpad</h2></div><div class="panel-actions"><span id="overview-launchpad-count" class="count-badge mono">0</span></div></header>
+          <div id="overview-launchpad-list" class="launchpad-list" aria-label="Saved dashboard bookmarks"></div>
+          <div id="overview-launchpad-empty" class="overview-empty-state">No launchpad links configured.</div>
+        </section>
+
+        <section id="overview-service-groups" class="panel overview-widget overview-content-widget overview-service-groups" data-widget-size="medium" data-overview-widget="overview-service-groups" aria-labelledby="overview-service-groups-title" hidden>
+          <header class="panel-header compact"><div><span class="panel-context mono">INVENTORY</span><h2 id="overview-service-groups-title">Service Groups</h2></div><span id="overview-service-groups-count" class="count-badge mono">0</span></header>
+          <div id="overview-service-groups-list" class="service-groups-list"></div>
+          <div id="overview-service-groups-empty" class="overview-empty-state">No service groups available.</div>
+        </section>
+
+        <section id="overview-top-containers" class="panel overview-widget overview-content-widget overview-top-containers" data-widget-size="medium" data-overview-widget="overview-top-containers" aria-labelledby="overview-top-containers-title" hidden>
+          <header class="panel-header compact"><div><span class="panel-context mono">RUNTIME</span><h2 id="overview-top-containers-title">Top Containers</h2></div><div id="overview-top-containers-sort" class="segmented-control" role="group" aria-label="Container ranking"><button type="button" data-container-rank="cpu" aria-pressed="true">CPU</button><button type="button" data-container-rank="ram" aria-pressed="false">RAM</button><button type="button" data-container-rank="issues" aria-pressed="false">ISSUES</button></div></header>
+          <div id="overview-top-containers-list" class="top-containers-list"></div>
+          <div id="overview-top-containers-empty" class="overview-empty-state">No containers reported.</div>
+        </section>
+
+        <section id="overview-storage-pools" class="panel overview-widget overview-content-widget overview-storage-pools" data-widget-size="small" data-overview-widget="overview-storage-pools" aria-labelledby="overview-storage-pools-title" hidden>
+          <header class="panel-header compact"><div><span class="panel-context mono">CAPACITY</span><h2 id="overview-storage-pools-title">Storage Pools</h2></div><span class="panel-context mono">SMART NOT COLLECTED</span></header>
+          <div id="overview-storage-pools-list" class="storage-pools-list"></div>
+          <div id="overview-storage-pools-empty" class="overview-empty-state">No disk data in the latest snapshot.</div>
+        </section>
+
+        <section id="overview-operator-notes" class="panel overview-widget overview-content-widget overview-operator-notes" data-widget-size="small" data-overview-widget="overview-operator-notes" aria-labelledby="overview-operator-notes-title" hidden>
+          <header class="panel-header compact"><div><span class="panel-context mono">HANDOFF</span><h2 id="overview-operator-notes-title">Operator Notes</h2></div><span id="overview-note-status" class="panel-context mono" role="status" aria-live="polite">NOT LOADED</span></header>
+          <label class="operator-note-field"><span class="visually-hidden">Shared operator note</span><textarea id="overview-operator-note-input" maxlength="4096" rows="5" placeholder="No note recorded."></textarea></label>
+          <footer class="overview-trend-footer mono"><span id="overview-note-updated">SHARED NOTE</span><span id="overview-note-permission">READ ONLY</span></footer>
+        </section>
       </div>
       </section>
 
@@ -556,6 +586,8 @@
       <input name="id" type="hidden">
       <div class="form-grid">
         <label class="full"><span>NAME</span><input name="name" type="text" maxlength="40" required></label>
+        <label><span>CATEGORY</span><input name="category" type="text" maxlength="40" placeholder="Uncategorized"></label>
+        <label><span>TAGS <small>(comma separated)</small></span><input name="tags" type="text" maxlength="160" placeholder="ops, internal"></label>
         <label class="full"><span>DISPLAY URL OR PORT</span><input name="displayUrl" type="text" maxlength="300" placeholder="8080 or https://service.tailnet.ts.net" required></label>
         <label><span>PROBE TYPE</span><select name="probeType"><option value="none">NONE</option><option value="http">HTTP / HTTPS</option><option value="tcp">TCP</option></select></label>
         <label><span>PROBE ENDPOINT <small>(optional)</small></span><input name="probeUrl" type="text" maxlength="300" placeholder="https://service.tailnet.ts.net/health" autocapitalize="off" spellcheck="false"></label>
@@ -572,6 +604,21 @@
       <input name="id" type="hidden">
       <p id="delete-form-error" class="form-error" role="alert" hidden></p>
       <footer><button class="button button-ghost" type="button" data-dialog-close>CANCEL</button><button class="button button-danger" type="submit">DELETE</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="launchpad-dialog" class="modal modal-small" aria-labelledby="launchpad-dialog-title">
+    <form id="launchpad-form" class="modal-form" autocomplete="off">
+      <header><div><h2 id="launchpad-dialog-title">Add launchpad link</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close dialog">×</button></header>
+      <input name="id" type="hidden">
+      <div class="form-grid">
+        <label class="full"><span>TITLE</span><input name="title" maxlength="80" required></label>
+        <label class="full"><span>URL</span><input name="url" type="url" maxlength="400" placeholder="https://service.example" required></label>
+        <label><span>ICON</span><select name="icon"><option value="link">LINK</option><option value="server">SERVER</option><option value="storage">STORAGE</option><option value="network">NETWORK</option></select></label>
+        <label><span>TAG <small>(optional)</small></span><input name="tag" maxlength="16"></label>
+      </div>
+      <p id="launchpad-form-error" class="form-error" role="alert" hidden></p>
+      <footer><button class="button button-ghost" type="button" data-dialog-close>CANCEL</button><button id="launchpad-form-submit" class="button button-primary" type="submit">ADD LINK</button></footer>
     </form>
   </dialog>
 
@@ -708,6 +755,13 @@
         <div id="overview-widgets-list" class="overview-widgets-config-list"></div>
         <p id="overview-config-readonly" class="workspace-config-readonly" hidden>Overview widget settings are unavailable.</p>
         <div class="settings-actions"><button id="overview-config-cancel" class="button button-ghost" type="button">CANCEL</button><button id="overview-config-apply" class="button button-primary" type="button">APPLY WIDGETS</button></div>
+      </section>
+      <section class="settings-section" aria-labelledby="launchpad-config-title">
+        <div class="subsection-header"><h3 id="launchpad-config-title">QUICK LAUNCHPAD</h3><button id="launchpad-add" class="button button-ghost button-small admin-only" type="button">+ ADD LINK</button></div>
+        <p>Shared bookmarks for the homelab. Links are limited to HTTP or HTTPS and are never pre-seeded.</p>
+        <div id="launchpad-config-list" class="launchpad-config-list"></div>
+        <p id="launchpad-config-empty" class="workspace-config-readonly">No launchpad links configured.</p>
+        <p id="launchpad-config-readonly" class="workspace-config-readonly" hidden>Only administrators can edit launchpad links.</p>
       </section>
       <p id="settings-status" class="dialog-status mono" role="status"></p>
     </div>

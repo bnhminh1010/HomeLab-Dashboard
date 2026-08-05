@@ -13,6 +13,7 @@ import { createServicesController } from "./services.js";
 import { createSettingsController } from "./settings.js";
 import { MetricsStream } from "./socket.js";
 import { createTerminalController } from "./terminal.js";
+import { OVERVIEW_WIDGET_DEFAULT_HIDDEN, OVERVIEW_WIDGET_DEFAULT_SIZES, OVERVIEW_WIDGET_ORDER, normalizeOverviewPreferences } from "./widget-catalog.js";
 
 const demo = new URLSearchParams(window.location.search).get("demo") === "1";
 const api = demo ? new DemoApi() : new DashboardApi();
@@ -45,14 +46,6 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = "homelab.sidebar.collapsed";
 const THEME_STORAGE_KEY = "homelab.theme";
 const WORKSPACE_ORDER = ["overview", "services", "containers", "nodes", "history", "logs", "alerts", "topology"];
 const WORKSPACES = new Set(WORKSPACE_ORDER);
-const OVERVIEW_WIDGET_ORDER = ["overview-attention", "overview-trend", "overview-recent-changes", "system-card", "overview-service-pulse"];
-const OVERVIEW_WIDGET_DEFAULT_SIZES = {
-  "overview-attention": "full",
-  "overview-trend": "medium",
-  "overview-recent-changes": "small",
-  "system-card": "medium",
-  "overview-service-pulse": "small",
-};
 const ROUTE_RANGES = new Set(["1h", "6h", "24h", "7d", "30d", "90d"]);
 const ROUTE_KINDS = new Set(["system", "container", "service"]);
 const ROUTE_STATES = {
@@ -200,14 +193,8 @@ function normalizeWorkspacePreferences(preferences = {}) {
   for (const workspace of WORKSPACE_ORDER) if (!seen.has(workspace)) order.push(workspace);
   const hidden = [...new Set(Array.isArray(preferences.hiddenWorkspaces) ? preferences.hiddenWorkspaces : [])]
     .filter((workspace) => workspace !== "overview" && WORKSPACES.has(workspace));
-  const hiddenOverviewWidgets = [...new Set(Array.isArray(preferences.hiddenOverviewWidgets) ? preferences.hiddenOverviewWidgets : [])]
-    .filter((widget) => widget !== "overview-attention" && OVERVIEW_WIDGET_ORDER.includes(widget));
-  const overviewWidgetSizes = {};
-  for (const widget of OVERVIEW_WIDGET_ORDER) {
-    const requested = preferences.overviewWidgetSizes?.[widget];
-    overviewWidgetSizes[widget] = ["small", "medium", "full"].includes(requested) ? requested : OVERVIEW_WIDGET_DEFAULT_SIZES[widget];
-  }
-  return { workspaceOrder: order, hiddenWorkspaces: hidden, hiddenOverviewWidgets, overviewWidgetSizes };
+  const overview = normalizeOverviewPreferences(preferences);
+  return { workspaceOrder: order, hiddenWorkspaces: hidden, ...overview };
 }
 
 function themeName() {
@@ -255,7 +242,7 @@ async function applyOverviewWidgetIntent(intent = {}) {
     overviewWidgetSizes: { ...previous.overviewWidgetSizes },
   };
   if (intent.reset) {
-    next.hiddenOverviewWidgets = [];
+    next.hiddenOverviewWidgets = [...OVERVIEW_WIDGET_DEFAULT_HIDDEN];
     next.overviewWidgetSizes = { ...OVERVIEW_WIDGET_DEFAULT_SIZES };
   } else if (OVERVIEW_WIDGET_ORDER.includes(intent.widgetID)) {
     if (intent.hidden && intent.widgetID !== "overview-attention") next.hiddenOverviewWidgets.push(intent.widgetID);

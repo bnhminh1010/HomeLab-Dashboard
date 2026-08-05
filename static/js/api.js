@@ -70,6 +70,22 @@ export class DashboardApi {
     return this.request(`/api/services/${encodeURIComponent(id)}`, { method: "PATCH", mutation: true, body: service });
   }
 
+  getLaunchpad(signal) {
+    return this.request("/api/v1/widgets/launchpad", { signal });
+  }
+
+  updateLaunchpad(items, revision) {
+    return this.request("/api/v1/widgets/launchpad", { method: "PUT", mutation: true, body: { items, revision } });
+  }
+
+  getOperatorNote(signal) {
+    return this.request("/api/v1/widgets/operator-note", { signal });
+  }
+
+  updateOperatorNote(text, revision) {
+    return this.request("/api/v1/widgets/operator-note", { method: "PUT", mutation: true, body: { text, revision } });
+  }
+
   deleteService(id) {
     return this.request(`/api/services/${encodeURIComponent(id)}`, { method: "DELETE", mutation: true });
   }

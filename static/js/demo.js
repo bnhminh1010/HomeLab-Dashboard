@@ -2,12 +2,14 @@ const nowIso = () => new Date().toISOString();
 const edgeMode = new URLSearchParams(window.location.search).get("edge") === "1";
 const edgeContainerID = "04fe5d1ce9fc995c2f071051aaff95fb94a0fcdc39cfc54cc5cea05d5678edfc";
 const edgeUnknownContainerID = "8d439abf2f349e6c2d35f0df8c139738571c3ba6d7eefcb732c8ee86f67b0a91";
+const DEMO_LAUNCHPAD_KEY = "homelab.demo.launchpad";
+const DEMO_NOTE_KEY = "homelab.demo.operator-note";
 
 const demoServices = [
-  { id: "svc_immich", name: "Immich", displayUrl: "https://immich.homelab.ts.net", probeUrl: "http://100.64.0.10:2283/api/server/ping", status: "up", latencyMs: 12, lastCheckedAt: nowIso() },
-  { id: "svc_crw", name: "fastCRW", displayUrl: "https://crw.homelab.ts.net", probeUrl: "http://100.64.0.11:3000/health", status: "up", latencyMs: 7, lastCheckedAt: nowIso() },
-  { id: "svc_hermes", name: "Hermes", displayUrl: "https://bot.homelab.ts.net", probeUrl: "", status: "unknown", latencyMs: null, lastCheckedAt: null },
-  { id: "svc_glance", name: "Glance", displayUrl: "https://glance.homelab.ts.net", probeUrl: "http://100.64.0.12:8082/health", status: "up", latencyMs: 18, lastCheckedAt: nowIso() },
+  { id: "svc_immich", name: "Immich", category: "Media", tags: ["photos"], displayUrl: "https://immich.homelab.ts.net", probeUrl: "http://100.64.0.10:2283/api/server/ping", status: "up", latencyMs: 12, lastCheckedAt: nowIso() },
+  { id: "svc_crw", name: "fastCRW", category: "Tools", tags: ["internal"], displayUrl: "https://crw.homelab.ts.net", probeUrl: "http://100.64.0.11:3000/health", status: "up", latencyMs: 7, lastCheckedAt: nowIso() },
+  { id: "svc_hermes", name: "Hermes", category: "Automation", tags: [], displayUrl: "https://bot.homelab.ts.net", probeUrl: "", status: "unknown", latencyMs: null, lastCheckedAt: null },
+  { id: "svc_glance", name: "Glance", category: "Monitoring", tags: ["ops"], displayUrl: "https://glance.homelab.ts.net", probeUrl: "http://100.64.0.12:8082/health", status: "up", latencyMs: 18, lastCheckedAt: nowIso() },
 ];
 
 const demoContainers = [
@@ -71,6 +73,17 @@ function snapshot() {
   };
 }
 
+function demoStorageRead(key, fallback) {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : fallback;
+  } catch { return fallback; }
+}
+
+function demoStorageWrite(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Demo persistence is optional. */ }
+}
+
 export class DemoApi {
   constructor() { this.demo = true; }
 
@@ -99,7 +112,7 @@ export class DemoApi {
       role: "admin",
       authenticated: true,
       csrfToken: "demo",
-      capabilities: { manageServices: true, containerExec: true, hostShell: true },
+        capabilities: { manageServices: true, manageWidgetContent: true, containerExec: true, hostShell: true },
     };
   }
 
@@ -172,6 +185,38 @@ export class DemoApi {
     const updated = { ...(demoServices[index] || {}), ...service, id, status: service.probeUrl ? "up" : "unknown", lastCheckedAt: service.probeUrl ? nowIso() : null };
     if (index >= 0) demoServices[index] = updated;
     return { data: { service: updated } };
+  }
+
+  async getLaunchpad() {
+    return demoStorageRead(DEMO_LAUNCHPAD_KEY, { items: [], revision: 0 });
+  }
+
+  async updateLaunchpad(items, revision) {
+    const current = await this.getLaunchpad();
+    if (revision != null && Number(revision) !== Number(current.revision)) {
+      const error = new Error("Launchpad changed in another session.");
+      error.status = 409;
+      throw error;
+    }
+    const next = { items: Array.isArray(items) ? items : [], revision: Number(current.revision || 0) + 1 };
+    demoStorageWrite(DEMO_LAUNCHPAD_KEY, next);
+    return next;
+  }
+
+  async getOperatorNote() {
+    return demoStorageRead(DEMO_NOTE_KEY, { text: "", revision: 0, updatedAt: null, updatedBy: "" });
+  }
+
+  async updateOperatorNote(text, revision) {
+    const current = await this.getOperatorNote();
+    if (revision != null && Number(revision) !== Number(current.revision)) {
+      const error = new Error("Operator note changed in another session.");
+      error.status = 409;
+      throw error;
+    }
+    const next = { text: String(text || "").slice(0, 4096), revision: Number(current.revision || 0) + 1, updatedAt: nowIso(), updatedBy: "Demo operator" };
+    demoStorageWrite(DEMO_NOTE_KEY, next);
+    return next;
   }
 
   async deleteService(id) {

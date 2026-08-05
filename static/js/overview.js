@@ -1,4 +1,5 @@
-import { clamp, safeHttpUrl, timeAgo } from "./format.js";
+import { bytes, clamp, rate, safeHttpUrl, timeAgo } from "./format.js";
+import { OVERVIEW_WIDGET_ORDER } from "./widget-catalog.js";
 
 const HISTORY_TTL_MS = 5 * 60 * 1000;
 const HISTORY_RETRY_DELAY_MS = 30 * 1000;
@@ -8,7 +9,13 @@ const MAX_RECENT_CHANGES = 5;
 const PROBLEM_CONTAINERS = new Set(["crashed", "unhealthy", "dead", "restarting"]);
 const PROBLEM_SERVICES = new Set(["down", "error", "unhealthy", "crashed", "degraded", "warning"]);
 const ACTIONABLE_ALERTS = new Set(["critical", "error", "warning", "warn"]);
-const OVERVIEW_WIDGET_IDS = ["overview-attention", "overview-trend", "overview-recent-changes", "system-card", "overview-service-pulse"];
+const OVERVIEW_WIDGET_IDS = OVERVIEW_WIDGET_ORDER;
+const ICONS = Object.freeze({
+  link: '<path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/>',
+  server: '<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01M11 7h7M11 17h7"/>',
+  storage: '<path d="M4 5h16v5H4zM4 14h16v5H4z"/><path d="M8 7h.01M8 16h.01"/>',
+  network: '<circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="m6.7 7.1 4.1 8.1M17.3 7.1l-4.1 8.1M7 6h10"/>',
+});
 
 function token(name, fallback = "transparent") {
   return globalThis.getComputedStyle?.(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -166,6 +173,19 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
   const serviceList = document.getElementById("overview-service-pulse-list");
   const serviceEmpty = document.getElementById("overview-service-pulse-empty");
   const serviceCount = document.getElementById("overview-service-pulse-count");
+  const launchpadList = document.getElementById("overview-launchpad-list");
+  const launchpadEmpty = document.getElementById("overview-launchpad-empty");
+  const launchpadCount = document.getElementById("overview-launchpad-count");
+  const serviceGroupsList = document.getElementById("overview-service-groups-list");
+  const serviceGroupsEmpty = document.getElementById("overview-service-groups-empty");
+  const serviceGroupsCount = document.getElementById("overview-service-groups-count");
+  const topContainersList = document.getElementById("overview-top-containers-list");
+  const topContainersEmpty = document.getElementById("overview-top-containers-empty");
+  const storagePoolsList = document.getElementById("overview-storage-pools-list");
+  const storagePoolsEmpty = document.getElementById("overview-storage-pools-empty");
+  const noteInput = document.getElementById("overview-operator-note-input");
+  const noteStatus = document.getElementById("overview-note-status");
+  const noteUpdated = document.getElementById("overview-note-updated");
   const chartWrap = document.getElementById("overview-trend-chart-wrap");
   const chartStatus = document.getElementById("overview-trend-status");
   const nodeLabel = document.getElementById("overview-trend-node");
@@ -191,6 +211,11 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
   let nodeName = "local";
   let hiddenWidgets = new Set();
   let latest = { services: [], containers: [], alerts: [], admin: false, remote: false, partial: false, connection: "connecting" };
+  let launchpad = { items: [], revision: 0 };
+  let operatorNote = { text: "", revision: 0, updatedAt: null, updatedBy: "" };
+  let widgetContentLoaded = false;
+  let noteSaveTimer = 0;
+  let containerRank = "cpu";
 
   function setTrendStatus(message, level = "info") {
     chartStatus.textContent = message;
@@ -435,6 +460,147 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
     return article;
   }
 
+  function iconSvg(name) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.7");
+    svg.setAttribute("aria-hidden", "true");
+    svg.innerHTML = ICONS[name] || ICONS.link;
+    return svg;
+  }
+
+  function renderLaunchpad() {
+    if (!launchpadList) return;
+    const items = Array.isArray(launchpad.items) ? launchpad.items.slice(0, 24) : [];
+    launchpadList.replaceChildren(...items.map((item) => {
+      const article = document.createElement("article");
+      article.className = "launchpad-item";
+      const link = document.createElement("a");
+      link.className = "launchpad-link";
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      const url = safeHttpUrl(item.url);
+      if (url) link.href = url.toString();
+      link.append(iconSvg(item.icon), Object.assign(document.createElement("span"), { textContent: String(item.title || "Untitled") }));
+      link.title = item.url || "";
+      article.append(link);
+      if (item.tag) {
+        const tag = document.createElement("span");
+        tag.className = "launchpad-tag mono";
+        tag.textContent = String(item.tag).toUpperCase();
+        article.append(tag);
+      }
+      return article;
+    }));
+    launchpadCount.textContent = String(items.length);
+    launchpadEmpty.hidden = items.length > 0;
+  }
+
+  function renderServiceGroups() {
+    if (!serviceGroupsList) return;
+    const groups = new Map();
+    for (const service of Array.isArray(latest.services) ? latest.services : []) {
+      const category = String(service.category || "Uncategorized").trim() || "Uncategorized";
+      if (!groups.has(category)) groups.set(category, []);
+      groups.get(category).push(service);
+    }
+    const entries = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    serviceGroupsList.replaceChildren(...entries.map(([category, services]) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "service-group-row";
+      const up = services.filter((item) => ["up", "running", "healthy"].includes(serviceState(item))).length;
+      const issue = services.filter((item) => PROBLEM_SERVICES.has(serviceState(item))).length;
+      const tags = [...new Set(services.flatMap((item) => Array.isArray(item.tags) ? item.tags : []))].slice(0, 3);
+      const copy = document.createElement("span");
+      copy.className = "service-group-copy";
+      copy.innerHTML = `<strong></strong><span></span>`;
+      copy.firstElementChild.textContent = category;
+      copy.lastElementChild.textContent = tags.length ? tags.map((tag) => String(tag).toUpperCase()).join(" · ") : "No tags";
+      const count = document.createElement("span");
+      count.className = "service-group-count mono";
+      count.textContent = `${up}/${services.length} UP${issue ? ` · ${issue} ISSUE${issue === 1 ? "" : "S"}` : ""}`;
+      row.append(copy, count);
+      row.addEventListener("click", () => onNavigate?.({ workspace: "services", state: "all", query: category }));
+      return row;
+    }));
+    serviceGroupsCount.textContent = String(entries.length);
+    serviceGroupsEmpty.hidden = entries.length > 0;
+  }
+
+  function renderTopContainers() {
+    if (!topContainersList) return;
+    const containers = (Array.isArray(latest.containers) ? latest.containers : []).map((item) => {
+      const memory = numeric(item.memoryUsageBytes ?? item.memoryUsage);
+      const limit = numeric(item.memoryLimitBytes ?? item.memoryLimit);
+      return { item, state: containerState(item), cpu: numeric(item.cpuNormalizedPercent ?? item.cpuUsagePercent ?? item.cpuPercent), ram: limit > 0 ? memory / limit * 100 : 0, restarts: numeric(item.restartCount ?? item.restarts) };
+    });
+    containers.sort((a, b) => containerRank === "ram" ? b.ram - a.ram : containerRank === "issues" ? (PROBLEM_CONTAINERS.has(b.state) ? 1 : 0) - (PROBLEM_CONTAINERS.has(a.state) ? 1 : 0) || b.restarts - a.restarts : b.cpu - a.cpu);
+    const rows = containers.slice(0, 5);
+    topContainersList.replaceChildren(...rows.map(({ item, cpu, ram, state, restarts }) => {
+      const row = document.createElement("div");
+      row.className = "top-container-row";
+      const name = document.createElement("strong");
+      name.textContent = String(item.name || item.id || "Unnamed container");
+      name.title = name.textContent;
+      const detail = document.createElement("span");
+      detail.className = "mono";
+      detail.textContent = containerRank === "ram" ? `${ram.toFixed(1)}% RAM` : containerRank === "issues" ? `${state.toUpperCase()} · ${restarts} RESTARTS` : `${cpu.toFixed(1)}% CPU`;
+      const dot = document.createElement("span");
+      dot.className = "status-dot";
+      dot.dataset.state = PROBLEM_CONTAINERS.has(state) ? "down" : state === "running" ? "up" : "muted";
+      row.append(dot, name, detail);
+      return row;
+    }));
+    topContainersEmpty.hidden = rows.length > 0;
+  }
+
+  function renderStoragePools() {
+    if (!storagePoolsList) return;
+    const disks = Array.isArray(latest.disks) ? latest.disks : [];
+    storagePoolsList.replaceChildren(...disks.map((disk) => {
+      const row = document.createElement("div");
+      row.className = "storage-pool-row";
+      const percentValue = numeric(disk.usagePercent ?? disk.percent);
+      row.innerHTML = '<div class="storage-pool-heading"><strong></strong><span class="mono"></span></div><div class="progress progress-thin"><span class="progress-fill"></span></div><div class="storage-pool-meta mono"><span></span><span></span></div>';
+      row.querySelector("strong").textContent = String(disk.mountPoint || "/");
+      row.querySelector(".storage-pool-heading span").textContent = `${percentValue.toFixed(1)}% USED`;
+      row.querySelector(".progress").style.setProperty("--progress", clamp(percentValue));
+      row.querySelector(".progress").dataset.level = percentValue > 90 ? "critical" : percentValue >= 80 ? "hot" : percentValue >= 50 ? "warning" : "normal";
+      row.querySelector(".storage-pool-meta span").textContent = `${bytes(disk.usedBytes ?? disk.used)} / ${bytes(disk.totalBytes ?? disk.total)} · ${disk.device || "device unavailable"}`;
+      row.querySelector(".storage-pool-meta span:last-child").textContent = `R ${rate(disk.readBytesPerSecond ?? disk.readRate)} · W ${rate(disk.writeBytesPerSecond ?? disk.writeRate)}`;
+      return row;
+    }));
+    storagePoolsEmpty.hidden = disks.length > 0;
+  }
+
+  function renderOperatorNote() {
+    if (!noteInput) return;
+    noteInput.value = String(operatorNote.text || "");
+    noteInput.disabled = !latest.admin;
+    noteStatus.textContent = latest.admin ? "EDITABLE" : "READ ONLY";
+    noteUpdated.textContent = operatorNote.updatedAt ? `UPDATED ${timeAgo(operatorNote.updatedAt)}` : "SHARED NOTE";
+  }
+
+  async function loadWidgetContent(force = false) {
+    if (!active || (!widgetVisible("overview-quick-launchpad") && !widgetVisible("overview-operator-notes")) || (widgetContentLoaded && !force)) return;
+    widgetContentLoaded = true;
+    try {
+      if (widgetVisible("overview-quick-launchpad") && typeof api?.getLaunchpad === "function") launchpad = normalizeLaunchpad(await api.getLaunchpad());
+      if (widgetVisible("overview-operator-notes") && typeof api?.getOperatorNote === "function") operatorNote = normalizeNote(await api.getOperatorNote());
+      renderLaunchpad();
+      renderOperatorNote();
+    } catch (error) {
+      widgetContentLoaded = false;
+      noteStatus.textContent = error?.message || "CONTENT UNAVAILABLE";
+    }
+  }
+
+  function normalizeLaunchpad(payload) { const data = payload?.data || payload || {}; const revision = Number(data.revision); return { items: Array.isArray(data.items) ? data.items : [], revision: Number.isFinite(revision) ? revision : 0 }; }
+  function normalizeNote(payload) { const data = payload?.data || payload || {}; const revision = Number(data.revision); return { text: String(data.text || "").slice(0, 4096), revision: Number.isFinite(revision) ? revision : 0, updatedAt: data.updatedAt || data.updated_at || null, updatedBy: String(data.updatedBy || data.updated_by || "") }; }
+
   function renderAttention() {
     const incidents = collectOverviewIncidents(latest);
     const visible = incidents.slice(0, MAX_ATTENTION);
@@ -647,15 +813,42 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
   openHistoryButton?.addEventListener("click", () => onNavigate?.({ workspace: "history", node, range: "24h", kind: "system" }));
   refreshButton?.addEventListener("click", () => loadTrend(true));
   changesRefreshButton?.addEventListener("click", () => loadEvents(true));
+  for (const button of document.querySelectorAll("[data-container-rank]")) {
+    button.addEventListener("click", () => {
+      containerRank = button.dataset.containerRank || "cpu";
+      for (const peer of document.querySelectorAll("[data-container-rank]")) peer.setAttribute("aria-pressed", String(peer === button));
+      renderTopContainers();
+    });
+  }
+  noteInput?.addEventListener("input", () => {
+    if (!latest.admin || typeof api?.updateOperatorNote !== "function") return;
+    noteStatus.textContent = "SAVING…";
+    window.clearTimeout(noteSaveTimer);
+    noteSaveTimer = window.setTimeout(async () => {
+      try {
+        operatorNote = normalizeNote(await api.updateOperatorNote(noteInput.value.slice(0, 4096), operatorNote.revision));
+        noteStatus.textContent = "SAVED";
+        renderOperatorNote();
+      } catch (error) {
+        noteStatus.textContent = error?.status === 409 ? "CONFLICT — RELOAD" : "SAVE FAILED";
+      }
+    }, 500);
+  });
 
   return {
     update(next) {
       latest = { ...latest, ...next };
       const attention = renderAttention();
       renderServicePulse();
+      renderServiceGroups();
+      renderTopContainers();
+      renderStoragePools();
+      renderLaunchpad();
+      renderOperatorNote();
       if (active) {
         loadTrend();
         loadEvents();
+        loadWidgetContent();
       }
       return attention;
     },
@@ -675,14 +868,18 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
         clearTrend();
       }
       if (!widgetVisible("overview-recent-changes")) cancelEventRequest();
+      if (!widgetVisible("overview-quick-launchpad") && !widgetVisible("overview-operator-notes")) widgetContentLoaded = false;
       resizeChart();
       if (active) {
         if (widgetVisible("overview-trend")) loadTrend();
         if (widgetVisible("overview-recent-changes")) loadEvents();
+        loadWidgetContent(true);
       }
     },
     setAdmin(value) {
       widgetMenuAuthenticated = Boolean(value);
+      latest.admin = widgetMenuAuthenticated;
+      renderOperatorNote();
       for (const trigger of widgetMenuTriggers.values()) trigger.hidden = !widgetMenuAuthenticated;
       if (!widgetMenuAuthenticated) closeWidgetPopover({ restoreFocus: false });
     },
@@ -722,6 +919,7 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
       resizeChart();
       if (widgetVisible("overview-trend")) loadTrend();
       if (widgetVisible("overview-recent-changes")) loadEvents();
+      loadWidgetContent();
     },
     deactivate() {
       active = false;

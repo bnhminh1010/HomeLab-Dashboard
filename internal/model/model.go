@@ -12,12 +12,14 @@ const (
 )
 
 type ServiceInput struct {
-	Name       string `json:"name"`
-	Icon       string `json:"icon,omitempty"`
-	DisplayURL string `json:"displayUrl"`
-	URL        string `json:"url,omitempty"`
-	Port       string `json:"port,omitempty"`
-	ProbeURL   string `json:"probeUrl,omitempty"`
+	Name       string   `json:"name"`
+	Icon       string   `json:"icon,omitempty"`
+	DisplayURL string   `json:"displayUrl"`
+	URL        string   `json:"url,omitempty"`
+	Port       string   `json:"port,omitempty"`
+	ProbeURL   string   `json:"probeUrl,omitempty"`
+	Category   string   `json:"category,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 type Service struct {
@@ -32,6 +34,26 @@ type Service struct {
 	LatencyMS           *int64        `json:"latencyMs,omitempty"`
 	CreatedAt           time.Time     `json:"createdAt"`
 	UpdatedAt           time.Time     `json:"updatedAt"`
+	Category            string        `json:"category,omitempty"`
+	Tags                []string      `json:"tags,omitempty"`
+}
+
+type LaunchpadBookmark struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	URL       string    `json:"url"`
+	Icon      string    `json:"icon,omitempty"`
+	Tag       string    `json:"tag,omitempty"`
+	SortOrder int       `json:"sortOrder"`
+	CreatedAt time.Time `json:"createdAt,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt,omitempty"`
+}
+
+type OperatorNote struct {
+	Text      string    `json:"text"`
+	Revision  int64     `json:"revision"`
+	UpdatedAt time.Time `json:"updatedAt,omitempty"`
+	UpdatedBy string    `json:"updatedBy,omitempty"`
 }
 
 type CPUStats struct {

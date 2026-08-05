@@ -115,7 +115,7 @@ func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 
 func (s *Store) ListServices(ctx context.Context) ([]model.Service, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, icon, display_url, probe_url, created_at, updated_at
+		SELECT id, name, icon, display_url, probe_url, category, tags_json, created_at, updated_at
 		FROM services ORDER BY lower(name), id`)
 	if err != nil {
 		return nil, fmt.Errorf("list services: %w", err)
@@ -137,7 +137,7 @@ func (s *Store) ListServices(ctx context.Context) ([]model.Service, error) {
 
 func (s *Store) GetService(ctx context.Context, id string) (model.Service, error) {
 	service, err := scanService(s.db.QueryRowContext(ctx, `
-		SELECT id, name, icon, display_url, probe_url, created_at, updated_at
+		SELECT id, name, icon, display_url, probe_url, category, tags_json, created_at, updated_at
 		FROM services WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Service{}, ErrNotFound
@@ -163,9 +163,9 @@ func (s *Store) CreateService(ctx context.Context, service model.Service) (model
 		return model.Service{}, servicecatalog.ErrServiceLimit
 	}
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO services(id, name, icon, display_url, probe_url, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		service.ID, service.Name, service.Icon, service.DisplayURL, service.ProbeURL,
+		INSERT INTO services(id, name, icon, display_url, probe_url, category, tags_json, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		service.ID, service.Name, service.Icon, service.DisplayURL, service.ProbeURL, service.Category, encodeTags(service.Tags),
 		now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
 		return model.Service{}, fmt.Errorf("create service: %w", err)
@@ -179,8 +179,8 @@ func (s *Store) CreateService(ctx context.Context, service model.Service) (model
 func (s *Store) UpdateService(ctx context.Context, id string, input model.ServiceInput) (model.Service, error) {
 	now := s.now().UTC()
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE services SET name = ?, icon = ?, display_url = ?, probe_url = ?, updated_at = ?
-		WHERE id = ?`, input.Name, input.Icon, input.DisplayURL, input.ProbeURL,
+		UPDATE services SET name = ?, icon = ?, display_url = ?, probe_url = ?, category = ?, tags_json = ?, updated_at = ?
+		WHERE id = ?`, input.Name, input.Icon, input.DisplayURL, input.ProbeURL, input.Category, encodeTags(input.Tags),
 		now.Format(time.RFC3339Nano), id)
 	if err != nil {
 		return model.Service{}, fmt.Errorf("update service: %w", err)
@@ -265,10 +265,19 @@ type scanner interface {
 
 func scanService(row scanner) (model.Service, error) {
 	var service model.Service
-	var created, updated string
+	var created, updated, tagsJSON string
 	if err := row.Scan(&service.ID, &service.Name, &service.Icon, &service.DisplayURL,
-		&service.ProbeURL, &created, &updated); err != nil {
+		&service.ProbeURL, &service.Category, &tagsJSON, &created, &updated); err != nil {
 		return model.Service{}, err
+	}
+	if service.Category == "" {
+		service.Category = "Uncategorized"
+	}
+	if err := json.Unmarshal([]byte(tagsJSON), &service.Tags); err != nil {
+		return model.Service{}, fmt.Errorf("decode service tags: %w", err)
+	}
+	if service.Tags == nil {
+		service.Tags = []string{}
 	}
 	var err error
 	service.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
@@ -281,4 +290,114 @@ func scanService(row scanner) (model.Service, error) {
 	}
 	service.Status = model.ServiceStatusUnknown
 	return service, nil
+}
+
+func encodeTags(tags []string) string {
+	if tags == nil {
+		tags = []string{}
+	}
+	b, _ := json.Marshal(tags)
+	return string(b)
+}
+
+func (s *Store) ListLaunchpadBookmarks(ctx context.Context) ([]model.LaunchpadBookmark, int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,title,url,icon,tag,sort_order,created_at,updated_at FROM launchpad_bookmarks ORDER BY sort_order,id`)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list launchpad bookmarks: %w", err)
+	}
+	defer rows.Close()
+	items := []model.LaunchpadBookmark{}
+	for rows.Next() {
+		var item model.LaunchpadBookmark
+		var created, updated string
+		if err := rows.Scan(&item.ID, &item.Title, &item.URL, &item.Icon, &item.Tag, &item.SortOrder, &created, &updated); err != nil {
+			return nil, 0, err
+		}
+		item.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			return nil, 0, err
+		}
+		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	var revision int64
+	if err := s.db.QueryRowContext(ctx, `SELECT launchpad_revision FROM widget_content_meta WHERE singleton_id=1`).Scan(&revision); err != nil {
+		return nil, 0, err
+	}
+	return items, revision, nil
+}
+
+func (s *Store) ReplaceLaunchpadBookmarks(ctx context.Context, items []model.LaunchpadBookmark, expectedRevision int64, actor string) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var revision int64
+	if err := tx.QueryRowContext(ctx, `SELECT launchpad_revision FROM widget_content_meta WHERE singleton_id=1`).Scan(&revision); err != nil {
+		return 0, err
+	}
+	if revision != expectedRevision {
+		return 0, ErrRevisionConflict
+	}
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM launchpad_bookmarks`); err != nil {
+		return 0, err
+	}
+	for i := range items {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO launchpad_bookmarks(id,title,url,icon,tag,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`, items[i].ID, items[i].Title, items[i].URL, items[i].Icon, items[i].Tag, i, now, now); err != nil {
+			return 0, err
+		}
+	}
+	revision++
+	if _, err := tx.ExecContext(ctx, `UPDATE widget_content_meta SET launchpad_revision=? WHERE singleton_id=1`, revision); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return revision, nil
+}
+
+func (s *Store) GetOperatorNote(ctx context.Context) (model.OperatorNote, error) {
+	var note model.OperatorNote
+	var updated string
+	if err := s.db.QueryRowContext(ctx, `SELECT text,revision,updated_at,updated_by FROM operator_notes WHERE singleton_id=1`).Scan(&note.Text, &note.Revision, &updated, &note.UpdatedBy); err != nil {
+		return note, err
+	}
+	var err error
+	note.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+	return note, err
+}
+
+var ErrRevisionConflict = errors.New("widget content revision conflict")
+
+func (s *Store) UpdateOperatorNote(ctx context.Context, text string, expectedRevision int64, actor string) (model.OperatorNote, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.OperatorNote{}, err
+	}
+	defer tx.Rollback()
+	var revision int64
+	if err := tx.QueryRowContext(ctx, `SELECT revision FROM operator_notes WHERE singleton_id=1`).Scan(&revision); err != nil {
+		return model.OperatorNote{}, err
+	}
+	if revision != expectedRevision {
+		return model.OperatorNote{}, ErrRevisionConflict
+	}
+	revision++
+	now := s.now().UTC()
+	if _, err := tx.ExecContext(ctx, `UPDATE operator_notes SET text=?,revision=?,updated_at=?,updated_by=? WHERE singleton_id=1`, text, revision, now.Format(time.RFC3339Nano), actor); err != nil {
+		return model.OperatorNote{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return model.OperatorNote{}, err
+	}
+	return model.OperatorNote{Text: text, Revision: revision, UpdatedAt: now, UpdatedBy: actor}, nil
 }

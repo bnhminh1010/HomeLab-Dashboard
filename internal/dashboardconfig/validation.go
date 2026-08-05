@@ -3,6 +3,7 @@ package dashboardconfig
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -22,6 +23,10 @@ const (
 	maxNodes  = 4
 	maxRuleMS = int64((30 * 24 * time.Hour) / time.Millisecond)
 )
+
+var validLaunchpadIcons = map[string]struct{}{
+	"link": {}, "server": {}, "storage": {}, "network": {},
+}
 
 var allowedHistoryRanges = map[string]struct{}{
 	"1h": {}, "6h": {}, "24h": {}, "7d": {}, "30d": {}, "90d": {},
@@ -72,6 +77,33 @@ func validateDocument(document Document) error {
 	if len(document.SLOPolicies) > maxServices {
 		return invalid("sloPolicies", fmt.Sprintf("must contain at most %d entries", maxServices))
 	}
+	if len(document.LaunchpadBookmarks) > 24 {
+		return invalid("launchpadBookmarks", "must contain at most 24 entries")
+	}
+	bookmarkIDs := make(map[string]struct{}, len(document.LaunchpadBookmarks))
+	for index, bookmark := range document.LaunchpadBookmarks {
+		path := fmt.Sprintf("launchpadBookmarks[%d]", index)
+		if !validID(bookmark.ID, 128) {
+			return invalid(path+".id", "must be a non-empty identifier of at most 128 bytes")
+		}
+		if _, duplicate := bookmarkIDs[bookmark.ID]; duplicate {
+			return invalid(path+".id", "duplicate bookmark id")
+		}
+		bookmarkIDs[bookmark.ID] = struct{}{}
+		if bookmark.Title != strings.TrimSpace(bookmark.Title) || utf8.RuneCountInString(bookmark.Title) < 1 || utf8.RuneCountInString(bookmark.Title) > 80 || strings.ContainsAny(bookmark.Title, "\x00\r\n") {
+			return invalid(path+".title", "must be trimmed, single-line, and at most 80 characters")
+		}
+		if bookmark.Tag != strings.TrimSpace(bookmark.Tag) || utf8.RuneCountInString(bookmark.Tag) > 16 || strings.ContainsAny(bookmark.Tag, "\x00\r\n") {
+			return invalid(path+".tag", "must be trimmed, single-line, and at most 16 characters")
+		}
+		parsedURL, parseErr := url.ParseRequestURI(bookmark.URL)
+		if parseErr != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+			return invalid(path+".url", "must use HTTP or HTTPS")
+		}
+		if _, allowed := validLaunchpadIcons[bookmark.Icon]; !allowed {
+			return invalid(path+".icon", "must be one of link, server, storage, or network")
+		}
+	}
 
 	serviceIDs := make(map[string]struct{}, len(document.Services))
 	for index, service := range document.Services {
@@ -91,7 +123,7 @@ func validateDocument(document Document) error {
 		}
 		if err := services.ValidateInput(model.ServiceInput{
 			Name: service.Name, Icon: service.Icon,
-			DisplayURL: service.DisplayURL, ProbeURL: service.ProbeURL,
+			DisplayURL: service.DisplayURL, ProbeURL: service.ProbeURL, Category: service.Category, Tags: service.Tags,
 		}); err != nil {
 			return invalid(path, err.Error())
 		}

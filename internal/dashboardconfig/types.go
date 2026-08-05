@@ -19,9 +19,10 @@ import (
 const (
 	// DocumentVersion is emitted for every new export. Decode upgrades the
 	// previous portable schema so existing v1 backup files remain importable.
-	DocumentVersion       = "homelab-dashboard.config/v2"
-	legacyDocumentVersion = "homelab-dashboard.config/v1"
-	MaxDocumentBytes      = 1 << 20
+	DocumentVersion         = "homelab-dashboard.config/v3"
+	previousDocumentVersion = "homelab-dashboard.config/v2"
+	legacyDocumentVersion   = "homelab-dashboard.config/v1"
+	MaxDocumentBytes        = 1 << 20
 )
 
 var (
@@ -50,26 +51,30 @@ func (mode ImportMode) Valid() bool {
 // not silently suppress another operator's notifications. Adding a field is a
 // schema change and must be reviewed as such.
 type Document struct {
-	Version       string             `json:"version"`
-	Services      []ServiceConfig    `json:"services"`
-	AlertRules    []AlertRuleConfig  `json:"alertRules"`
-	SLOPolicies   []SLOPolicyConfig  `json:"sloPolicies"`
-	Dependencies  []DependencyConfig `json:"topologyDependencies"`
-	UIPreferences UIPreferences      `json:"uiPreferences"`
-	Nodes         []NodeMetadata     `json:"nodes"`
+	Version            string                    `json:"version"`
+	Services           []ServiceConfig           `json:"services"`
+	AlertRules         []AlertRuleConfig         `json:"alertRules"`
+	SLOPolicies        []SLOPolicyConfig         `json:"sloPolicies"`
+	Dependencies       []DependencyConfig        `json:"topologyDependencies"`
+	UIPreferences      UIPreferences             `json:"uiPreferences"`
+	Nodes              []NodeMetadata            `json:"nodes"`
+	LaunchpadBookmarks []model.LaunchpadBookmark `json:"launchpadBookmarks,omitempty"`
 
 	// legacyV1 is set only by Decode. It lets import preserve portable sections
 	// introduced after v1 instead of treating their absence as a destructive
 	// replace request. It is deliberately not part of the JSON schema.
-	legacyV1 bool
+	legacyV1      bool
+	legacyContent bool
 }
 
 type ServiceConfig struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Icon       string `json:"icon,omitempty"`
-	DisplayURL string `json:"displayUrl"`
-	ProbeURL   string `json:"probeUrl,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Icon       string   `json:"icon,omitempty"`
+	DisplayURL string   `json:"displayUrl"`
+	ProbeURL   string   `json:"probeUrl,omitempty"`
+	Category   string   `json:"category,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 type AlertRuleConfig struct {
@@ -119,14 +124,19 @@ type UIPreferences struct {
 }
 
 const (
-	OverviewWidgetAttention     = "overview-attention"
-	OverviewWidgetTrend         = "overview-trend"
-	OverviewWidgetRecentChanges = "overview-recent-changes"
-	OverviewWidgetSystem        = "system-card"
-	OverviewWidgetServicePulse  = "overview-service-pulse"
-	OverviewWidgetSizeSmall     = "small"
-	OverviewWidgetSizeMedium    = "medium"
-	OverviewWidgetSizeFull      = "full"
+	OverviewWidgetAttention      = "overview-attention"
+	OverviewWidgetTrend          = "overview-trend"
+	OverviewWidgetRecentChanges  = "overview-recent-changes"
+	OverviewWidgetSystem         = "system-card"
+	OverviewWidgetServicePulse   = "overview-service-pulse"
+	OverviewWidgetQuickLaunchpad = "overview-quick-launchpad"
+	OverviewWidgetServiceGroups  = "overview-service-groups"
+	OverviewWidgetTopContainers  = "overview-top-containers"
+	OverviewWidgetStoragePools   = "overview-storage-pools"
+	OverviewWidgetOperatorNotes  = "overview-operator-notes"
+	OverviewWidgetSizeSmall      = "small"
+	OverviewWidgetSizeMedium     = "medium"
+	OverviewWidgetSizeFull       = "full"
 )
 
 var canonicalOverviewWidgetOrder = []string{
@@ -135,6 +145,11 @@ var canonicalOverviewWidgetOrder = []string{
 	OverviewWidgetRecentChanges,
 	OverviewWidgetSystem,
 	OverviewWidgetServicePulse,
+	OverviewWidgetQuickLaunchpad,
+	OverviewWidgetServiceGroups,
+	OverviewWidgetTopContainers,
+	OverviewWidgetStoragePools,
+	OverviewWidgetOperatorNotes,
 }
 
 const (
@@ -166,7 +181,7 @@ func DefaultUIPreferences() UIPreferences {
 		DefaultNodeID:         "local",
 		HiddenWorkspaces:      []string{},
 		WorkspaceOrder:        DefaultWorkspaceOrder(),
-		HiddenOverviewWidgets: []string{},
+		HiddenOverviewWidgets: append([]string(nil), canonicalOverviewWidgetOrder[5:]...),
 		OverviewWidgetSizes:   DefaultOverviewWidgetSizes(),
 	}
 }
@@ -182,11 +197,16 @@ func DefaultWorkspaceOrder() []string {
 // widgets. The map is copied so callers can safely customize their draft.
 func DefaultOverviewWidgetSizes() map[string]string {
 	return map[string]string{
-		OverviewWidgetAttention:     OverviewWidgetSizeFull,
-		OverviewWidgetTrend:         OverviewWidgetSizeMedium,
-		OverviewWidgetRecentChanges: OverviewWidgetSizeSmall,
-		OverviewWidgetSystem:        OverviewWidgetSizeMedium,
-		OverviewWidgetServicePulse:  OverviewWidgetSizeSmall,
+		OverviewWidgetAttention:      OverviewWidgetSizeFull,
+		OverviewWidgetTrend:          OverviewWidgetSizeMedium,
+		OverviewWidgetRecentChanges:  OverviewWidgetSizeSmall,
+		OverviewWidgetSystem:         OverviewWidgetSizeMedium,
+		OverviewWidgetServicePulse:   OverviewWidgetSizeSmall,
+		OverviewWidgetQuickLaunchpad: OverviewWidgetSizeFull,
+		OverviewWidgetServiceGroups:  OverviewWidgetSizeMedium,
+		OverviewWidgetTopContainers:  OverviewWidgetSizeMedium,
+		OverviewWidgetStoragePools:   OverviewWidgetSizeSmall,
+		OverviewWidgetOperatorNotes:  OverviewWidgetSizeSmall,
 	}
 }
 
@@ -205,6 +225,13 @@ func NormalizeUIPreferences(preferences UIPreferences) UIPreferences {
 	}
 	if preferences.OverviewWidgetSizes == nil {
 		preferences.OverviewWidgetSizes = DefaultOverviewWidgetSizes()
+	} else {
+		defaults := DefaultOverviewWidgetSizes()
+		for widget, size := range defaults {
+			if _, ok := preferences.OverviewWidgetSizes[widget]; !ok {
+				preferences.OverviewWidgetSizes[widget] = size
+			}
+		}
 	}
 	return preferences
 }
@@ -257,12 +284,14 @@ type NodeMetadata struct {
 // Snapshot is the repository boundary. It uses existing domain types on the
 // trusted side and is projected into the sanitized Document before encoding.
 type Snapshot struct {
-	Services      []model.Service
-	AlertRules    []alerts.AlertRule
-	SLOPolicies   []slo.Policy
-	Dependencies  []topology.Dependency
-	UIPreferences UIPreferences
-	Nodes         []nodes.Node
+	Services           []model.Service
+	AlertRules         []alerts.AlertRule
+	SLOPolicies        []slo.Policy
+	Dependencies       []topology.Dependency
+	UIPreferences      UIPreferences
+	Nodes              []nodes.Node
+	LaunchpadBookmarks []model.LaunchpadBookmark
+	LaunchpadRevision  int64
 }
 
 type Repository interface {

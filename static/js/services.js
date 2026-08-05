@@ -12,6 +12,8 @@ function normalizedService(service = {}, index = 0) {
     key: id || displayUrl || `${name}-${index}`,
     originalIndex: index,
     name,
+    category: String(service.category || "Uncategorized").trim() || "Uncategorized",
+    tags: [...new Set((Array.isArray(service.tags) ? service.tags : String(service.tags || "").split(",")).map((tag) => String(tag).trim()).filter(Boolean))].slice(0, 8),
     displayUrl,
     probeUrl: String(service.probeUrl || service.probeURL || ""),
     status: String(service.status || service.health?.status || "unknown").toLowerCase(),
@@ -106,12 +108,16 @@ export function createServicesController({ api, toast, onChanged }) {
     const rawProbeUrl = probeType === "none" ? "" : payload.probeUrl.trim();
     const probeUrl = rawProbeUrl ? safeProbeUrl(rawProbeUrl) : null;
     if (!payload.name.trim()) throw new Error("Service name is required.");
+    const category = payload.category.trim() || "Uncategorized";
+    if (category.length > 40) throw new Error("Category must be 40 characters or fewer.");
     if (!displayUrl) throw new Error("Display URL must be an absolute HTTP or HTTPS URL without credentials.");
     if (rawProbeUrl && !probeUrl) throw new Error("Probe endpoint must be HTTP/HTTPS or tcp://host:port without credentials or paths.");
     if (probeType === "http" && probeUrl && !["http:", "https:"].includes(probeUrl.protocol)) throw new Error("HTTP probe type requires an HTTP or HTTPS URL.");
     if (probeType === "tcp" && probeUrl?.protocol !== "tcp:") throw new Error("TCP probe type requires tcp://host:port.");
     return {
       name: payload.name.trim(),
+      category,
+      tags: [...new Set(payload.tags.split(",").map((tag) => tag.trim()).filter(Boolean))].slice(0, 8),
       displayUrl: displayUrl.toString(),
       probeUrl: probeUrl?.toString() || "",
     };
@@ -124,6 +130,8 @@ export function createServicesController({ api, toast, onChanged }) {
       displayUrl: String(data.get("displayUrl") || ""),
       probeType: String(data.get("probeType") || "none"),
       probeUrl: String(data.get("probeUrl") || ""),
+      category: String(data.get("category") || ""),
+      tags: String(data.get("tags") || ""),
     });
   }
 
@@ -361,6 +369,8 @@ export function createServicesController({ api, toast, onChanged }) {
   function openEdit(service, invoker) {
     serviceForm.elements.id.value = service.id;
     serviceForm.elements.name.value = service.name;
+    serviceForm.elements.category.value = service.category;
+    serviceForm.elements.tags.value = service.tags.join(", ");
     serviceForm.elements.displayUrl.value = service.displayUrl;
     const probeType = service.probeUrl.toLowerCase().startsWith("tcp:") ? "tcp" : service.probeUrl ? "http" : "none";
     serviceForm.elements.probeType.value = probeType;

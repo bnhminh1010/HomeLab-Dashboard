@@ -1747,7 +1747,7 @@ func TestDemoVisualCustomization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.LightTheme || !report.ThemePersisted || !report.ThemeRestored || !report.ChartRecolored || report.WorkspaceCount != 8 || !report.OverviewProtected || report.OverviewWidgetCount != 5 || !report.AttentionWidgetRequired || !report.OverviewWidgetLayoutApplied || !report.TopologyHidden || !report.RouteFallback {
+	if !report.LightTheme || !report.ThemePersisted || !report.ThemeRestored || !report.ChartRecolored || report.WorkspaceCount != 8 || !report.OverviewProtected || report.OverviewWidgetCount != 10 || !report.AttentionWidgetRequired || !report.OverviewWidgetLayoutApplied || !report.TopologyHidden || !report.RouteFallback {
 		t.Fatalf("visual customization regression: %+v", report)
 	}
 	alerts, logs := -1, -1
@@ -1833,7 +1833,7 @@ func TestDemoWidgetCancelAndUnauthenticatedState(t *testing.T) {
           const controls = [...document.querySelectorAll('#overview-widgets-list input, #overview-widgets-list select')];
           return {
             widgetCount: document.querySelectorAll('#overview-widgets-list .overview-widget-config-item').length,
-            controlsDisabled: controls.length === 10 && controls.every((control) => control.disabled),
+            controlsDisabled: controls.length === 20 && controls.every((control) => control.disabled),
             applyDisabled: document.querySelector('#overview-config-apply')?.disabled === true,
             readonlyVisible: document.querySelector('#overview-config-readonly')?.hidden === false
           };
@@ -1841,7 +1841,7 @@ func TestDemoWidgetCancelAndUnauthenticatedState(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if unauthReport.WidgetCount != 5 || !unauthReport.ControlsDisabled || !unauthReport.ApplyDisabled || !unauthReport.ReadonlyVisible {
+	if unauthReport.WidgetCount != 10 || !unauthReport.ControlsDisabled || !unauthReport.ApplyDisabled || !unauthReport.ReadonlyVisible {
 		t.Fatalf("unauthenticated widget state regression: %+v", unauthReport)
 	}
 }

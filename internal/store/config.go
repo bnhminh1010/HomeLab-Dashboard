@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -156,6 +157,11 @@ func (s *Store) ApplyDashboardConfig(
 	if err := applyConfigServices(ctx, tx, current.Services, incoming.Services, mode, now); err != nil {
 		return err
 	}
+	if mode == dashboardconfig.ImportReplace || len(incoming.LaunchpadBookmarks) > 0 {
+		if err := replaceConfigBookmarks(ctx, tx, incoming.LaunchpadBookmarks, now); err != nil {
+			return err
+		}
+	}
 	if err := applyConfigAlertRules(ctx, tx, current.AlertRules, incoming.AlertRules, mode, now); err != nil {
 		return err
 	}
@@ -207,7 +213,7 @@ func loadDashboardConfigTx(ctx context.Context, tx *sql.Tx) (dashboardconfig.Sna
 		Nodes: make([]nodes.Node, 0),
 	}
 	serviceRows, err := tx.QueryContext(ctx, `
-		SELECT id, name, icon, display_url, probe_url, created_at, updated_at
+		SELECT id, name, icon, display_url, probe_url, category, tags_json, created_at, updated_at
 		FROM services ORDER BY id`)
 	if err != nil {
 		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard config services: %w", err)
@@ -337,7 +343,38 @@ func loadDashboardConfigTx(ctx context.Context, tx *sql.Tx) (dashboardconfig.Sna
 	if err := nodeRows.Err(); err != nil {
 		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard config nodes: %w", err)
 	}
+	bookmarkRows, err := tx.QueryContext(ctx, `SELECT id,title,url,icon,tag,sort_order,created_at,updated_at FROM launchpad_bookmarks ORDER BY sort_order,id`)
+	if err != nil {
+		return dashboardconfig.Snapshot{}, fmt.Errorf("load dashboard bookmarks: %w", err)
+	}
+	for bookmarkRows.Next() {
+		var item model.LaunchpadBookmark
+		var created, updated string
+		if err := bookmarkRows.Scan(&item.ID, &item.Title, &item.URL, &item.Icon, &item.Tag, &item.SortOrder, &created, &updated); err != nil {
+			return dashboardconfig.Snapshot{}, err
+		}
+		item.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+		item.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+		snapshot.LaunchpadBookmarks = append(snapshot.LaunchpadBookmarks, item)
+	}
+	bookmarkRows.Close()
+	if err := tx.QueryRowContext(ctx, `SELECT launchpad_revision FROM widget_content_meta WHERE singleton_id=1`).Scan(&snapshot.LaunchpadRevision); err != nil {
+		return dashboardconfig.Snapshot{}, err
+	}
 	return snapshot, nil
+}
+
+func replaceConfigBookmarks(ctx context.Context, tx *sql.Tx, items []model.LaunchpadBookmark, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM launchpad_bookmarks`); err != nil {
+		return err
+	}
+	for i, item := range items {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO launchpad_bookmarks(id,title,url,icon,tag,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`, item.ID, item.Title, item.URL, item.Icon, item.Tag, i, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE widget_content_meta SET launchpad_revision=launchpad_revision+1 WHERE singleton_id=1`)
+	return err
 }
 
 func encodeDashboardWorkspacePreferences(preferences dashboardconfig.UIPreferences) (string, string, string, string, error) {
@@ -401,17 +438,17 @@ func applyConfigServices(
 		}
 		if exists {
 			if _, err := tx.ExecContext(ctx, `
-				UPDATE services SET name = ?, icon = ?, display_url = ?, probe_url = ?, updated_at = ?
-				WHERE id = ?`, service.Name, service.Icon, service.DisplayURL, service.ProbeURL,
+				UPDATE services SET name = ?, icon = ?, display_url = ?, probe_url = ?, category = ?, tags_json = ?, updated_at = ?
+				WHERE id = ?`, service.Name, service.Icon, service.DisplayURL, service.ProbeURL, service.Category, encodeTags(service.Tags),
 				now.Format(time.RFC3339Nano), service.ID); err != nil {
 				return fmt.Errorf("update imported service %s: %w", service.ID, err)
 			}
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO services(id, name, icon, display_url, probe_url, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`, service.ID, service.Name, service.Icon,
-			service.DisplayURL, service.ProbeURL, now.Format(time.RFC3339Nano),
+			INSERT INTO services(id, name, icon, display_url, probe_url, category, tags_json, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, service.ID, service.Name, service.Icon,
+			service.DisplayURL, service.ProbeURL, service.Category, encodeTags(service.Tags), now.Format(time.RFC3339Nano),
 			now.Format(time.RFC3339Nano)); err != nil {
 			return fmt.Errorf("insert imported service %s: %w", service.ID, err)
 		}
@@ -684,7 +721,7 @@ func applyConfigNodeMetadata(
 
 func sameServiceDefinition(left, right model.Service) bool {
 	return left.ID == right.ID && left.Name == right.Name && left.Icon == right.Icon &&
-		left.DisplayURL == right.DisplayURL && left.ProbeURL == right.ProbeURL
+		left.DisplayURL == right.DisplayURL && left.ProbeURL == right.ProbeURL && left.Category == right.Category && reflect.DeepEqual(left.Tags, right.Tags)
 }
 
 func sameAlertRuleDefinition(left, right alerts.AlertRule) bool {

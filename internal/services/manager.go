@@ -119,6 +119,7 @@ func (m *Manager) Create(ctx context.Context, input model.ServiceInput) (model.S
 	return m.repository.CreateService(ctx, model.Service{
 		ID: id, Name: input.Name, Icon: input.Icon,
 		DisplayURL: input.DisplayURL, ProbeURL: input.ProbeURL,
+		Category: input.Category, Tags: input.Tags,
 		Status: model.ServiceStatusUnknown,
 	})
 }
@@ -190,6 +191,26 @@ func ValidateInput(input model.ServiceInput) error {
 			fields["probeUrl"] = err.Error()
 		}
 	}
+	if input.Category == "" {
+		input.Category = "Uncategorized"
+	}
+	if utf8.RuneCountInString(input.Category) > 40 || strings.ContainsAny(input.Category, "\x00\r\n") {
+		fields["category"] = "must be at most 40 characters and single-line"
+	}
+	if len(input.Tags) > 8 {
+		fields["tags"] = "must contain at most 8 tags"
+	}
+	seen := map[string]struct{}{}
+	for i, tag := range input.Tags {
+		if tag != strings.TrimSpace(tag) || utf8.RuneCountInString(tag) < 1 || utf8.RuneCountInString(tag) > 20 || strings.ContainsAny(tag, "\x00\r\n") {
+			fields[fmt.Sprintf("tags[%d]", i)] = "must be trimmed, single-line, and at most 20 characters"
+		}
+		key := strings.ToLower(strings.TrimSpace(tag))
+		if _, ok := seen[key]; ok {
+			fields[fmt.Sprintf("tags[%d]", i)] = "duplicate tag"
+		}
+		seen[key] = struct{}{}
+	}
 	if len(fields) > 0 {
 		return &ValidationError{Fields: fields}
 	}
@@ -234,6 +255,13 @@ func normalize(input model.ServiceInput) model.ServiceInput {
 	input.URL = ""
 	input.Port = ""
 	input.ProbeURL = strings.TrimSpace(input.ProbeURL)
+	input.Category = strings.TrimSpace(input.Category)
+	if input.Category == "" {
+		input.Category = "Uncategorized"
+	}
+	for i := range input.Tags {
+		input.Tags[i] = strings.TrimSpace(input.Tags[i])
+	}
 	return input
 }
 

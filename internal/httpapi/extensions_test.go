@@ -118,7 +118,7 @@ func TestHistoryAndAlertAPIs(t *testing.T) {
 	exportRequest := authenticatedRead("/api/v1/config/export", "admin@example.com", cookie)
 	exportResponse := httptest.NewRecorder()
 	server.Handler().ServeHTTP(exportResponse, exportRequest)
-	if exportResponse.Code != http.StatusOK || !strings.Contains(exportResponse.Body.String(), `"version": "homelab-dashboard.config/v2"`) {
+	if exportResponse.Code != http.StatusOK || !strings.Contains(exportResponse.Body.String(), `"version": "homelab-dashboard.config/v3"`) {
 		t.Fatalf("config export status=%d body=%s", exportResponse.Code, exportResponse.Body.String())
 	}
 	for _, forbidden := range []string{"credential", "ntfy", "audit_events", "session"} {

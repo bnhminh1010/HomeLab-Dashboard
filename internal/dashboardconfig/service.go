@@ -189,6 +189,9 @@ func preserveLegacyV1Sections(document Document, current Snapshot) Document {
 	if document.UIPreferences.OverviewWidgetSizes == nil {
 		document.UIPreferences.OverviewWidgetSizes = cloneOverviewWidgetSizes(currentDocument.UIPreferences.OverviewWidgetSizes)
 	}
+	if document.legacyContent {
+		document.LaunchpadBookmarks = append([]model.LaunchpadBookmark(nil), current.LaunchpadBookmarks...)
+	}
 	return document
 }
 
@@ -328,7 +331,7 @@ func normalizeDefaultNode(document Document, current Snapshot) (Document, []stri
 
 // Decode enforces the 1 MiB limit, rejects unknown fields and trailing JSON,
 // and validates every portable value. v1 documents are upgraded in memory to
-// v2 with explicit empty new sections; callers always receive the current DTO.
+// v3 with explicit empty new sections; callers always receive the current DTO.
 func Decode(raw []byte) (Document, error) {
 	if len(raw) > MaxDocumentBytes {
 		return Document{}, ErrDocumentTooLarge
@@ -364,8 +367,12 @@ func Decode(raw []byte) (Document, error) {
 		document.SLOPolicies = []SLOPolicyConfig{}
 		document.Dependencies = []DependencyConfig{}
 		document.legacyV1 = true
+		document.legacyContent = true
+	case previousDocumentVersion:
+		document.Version = DocumentVersion
+		document.legacyContent = true
 	case DocumentVersion:
-		// v2 validation below requires every portable section to be explicit.
+		// v3 validation below requires every portable section to be explicit.
 	default:
 		return Document{}, fmt.Errorf("%w: got %q", ErrUnsupportedVersion, document.Version)
 	}
@@ -468,8 +475,10 @@ func documentFromSnapshot(snapshot Snapshot) Document {
 		document.Services = append(document.Services, ServiceConfig{
 			ID: service.ID, Name: service.Name, Icon: service.Icon,
 			DisplayURL: service.DisplayURL, ProbeURL: service.ProbeURL,
+			Category: service.Category, Tags: append([]string(nil), service.Tags...),
 		})
 	}
+	document.LaunchpadBookmarks = append([]model.LaunchpadBookmark(nil), snapshot.LaunchpadBookmarks...)
 	for _, rule := range snapshot.AlertRules {
 		document.AlertRules = append(document.AlertRules, alertRuleFromDomain(rule))
 	}
@@ -519,9 +528,11 @@ func snapshotFromDocument(document Document) Snapshot {
 		snapshot.Services = append(snapshot.Services, model.Service{
 			ID: service.ID, Name: service.Name, Icon: service.Icon,
 			DisplayURL: service.DisplayURL, ProbeURL: service.ProbeURL,
+			Category: service.Category, Tags: append([]string(nil), service.Tags...),
 			Status: model.ServiceStatusUnknown,
 		})
 	}
+	snapshot.LaunchpadBookmarks = append([]model.LaunchpadBookmark(nil), document.LaunchpadBookmarks...)
 	for _, rule := range document.AlertRules {
 		snapshot.AlertRules = append(snapshot.AlertRules, rule.domain())
 	}

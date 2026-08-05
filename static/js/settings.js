@@ -1,27 +1,15 @@
+import { safeHttpUrl } from "./format.js";
+
 const MAX_CONFIG_BYTES = 1024 * 1024;
-const CONFIG_VERSION = "homelab-dashboard.config/v2";
+const CONFIG_VERSION = "homelab-dashboard.config/v3";
+const PREVIOUS_CONFIG_VERSION = "homelab-dashboard.config/v2";
 const LEGACY_CONFIG_VERSION = "homelab-dashboard.config/v1";
 const WORKSPACE_ORDER = ["overview", "services", "containers", "nodes", "history", "logs", "alerts", "topology"];
 const WORKSPACE_LABELS = {
   overview: "OVERVIEW", services: "SERVICES", containers: "CONTAINERS", nodes: "NODES",
   history: "HISTORY", logs: "LOGS", alerts: "ALERTS", topology: "TOPOLOGY",
 };
-const OVERVIEW_WIDGET_ORDER = ["overview-attention", "overview-trend", "overview-recent-changes", "system-card", "overview-service-pulse"];
-const OVERVIEW_WIDGET_LABELS = {
-  "overview-attention": "Needs Attention",
-  "overview-trend": "Resource Trend",
-  "overview-recent-changes": "Recent Changes",
-  "system-card": "System Snapshot",
-  "overview-service-pulse": "Probe Coverage",
-};
-const OVERVIEW_WIDGET_DEFAULT_SIZES = {
-  "overview-attention": "full",
-  "overview-trend": "medium",
-  "overview-recent-changes": "small",
-  "system-card": "medium",
-  "overview-service-pulse": "small",
-};
-const OVERVIEW_WIDGET_SIZES = new Set(["small", "medium", "full"]);
+import { OVERVIEW_WIDGET_LABELS, OVERVIEW_WIDGET_ORDER, normalizeOverviewPreferences } from "./widget-catalog.js";
 
 function normalizeWorkspacePreferences(preferences = {}) {
   const seen = new Set();
@@ -34,14 +22,7 @@ function normalizeWorkspacePreferences(preferences = {}) {
   for (const workspace of WORKSPACE_ORDER) if (!seen.has(workspace)) order.push(workspace);
   const hidden = [...new Set(Array.isArray(preferences.hiddenWorkspaces) ? preferences.hiddenWorkspaces : [])]
     .filter((workspace) => workspace !== "overview" && WORKSPACE_ORDER.includes(workspace));
-  const hiddenOverviewWidgets = [...new Set(Array.isArray(preferences.hiddenOverviewWidgets) ? preferences.hiddenOverviewWidgets : [])]
-    .filter((widget) => widget !== "overview-attention" && OVERVIEW_WIDGET_ORDER.includes(widget));
-  const overviewWidgetSizes = {};
-  for (const widget of OVERVIEW_WIDGET_ORDER) {
-    const requested = preferences.overviewWidgetSizes?.[widget];
-    overviewWidgetSizes[widget] = OVERVIEW_WIDGET_SIZES.has(requested) ? requested : OVERVIEW_WIDGET_DEFAULT_SIZES[widget];
-  }
-  return { workspaceOrder: order, hiddenWorkspaces: hidden, hiddenOverviewWidgets, overviewWidgetSizes };
+  return { workspaceOrder: order, hiddenWorkspaces: hidden, ...normalizeOverviewPreferences(preferences) };
 }
 
 function demoDocument() {
@@ -107,6 +88,15 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
   const overviewApplyButton = document.getElementById("overview-config-apply");
   const overviewCancelButton = document.getElementById("overview-config-cancel");
   const overviewReadonly = document.getElementById("overview-config-readonly");
+  const launchpadList = document.getElementById("launchpad-config-list");
+  const launchpadEmpty = document.getElementById("launchpad-config-empty");
+  const launchpadReadonly = document.getElementById("launchpad-config-readonly");
+  const launchpadAdd = document.getElementById("launchpad-add");
+  const launchpadDialog = document.getElementById("launchpad-dialog");
+  const launchpadForm = document.getElementById("launchpad-form");
+  const launchpadTitle = document.getElementById("launchpad-dialog-title");
+  const launchpadSubmit = document.getElementById("launchpad-form-submit");
+  const launchpadError = document.getElementById("launchpad-form-error");
   let admin = false;
   let authenticated = Boolean(demo);
   let opener = null;
@@ -116,12 +106,105 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
   let workspacePreferences = normalizeWorkspacePreferences();
   let workspaceDraft = normalizeWorkspacePreferences();
   let overviewDraft = normalizeWorkspacePreferences();
+  let launchpad = { items: [], revision: 0 };
+  let launchpadInvoker = null;
 
   const mode = () => modePicker.querySelector('input[name="config-import-mode"]:checked')?.value || "merge";
 
   function setStatus(message, level = "info") {
     status.textContent = message || "";
     status.dataset.level = level;
+  }
+
+  function normalizeLaunchpad(payload = {}) {
+    const data = payload?.data || payload || {};
+    const revision = Number(data.revision);
+    return { items: Array.isArray(data.items) ? data.items.slice(0, 24) : [], revision: Number.isFinite(revision) ? revision : 0 };
+  }
+
+  function renderLaunchpad() {
+    if (!launchpadList) return;
+    launchpadList.replaceChildren(...launchpad.items.map((item, index) => {
+      const row = documentElement("div");
+      row.className = "launchpad-config-item";
+      const copy = documentElement("div");
+      const title = documentElement("strong");
+      title.textContent = String(item.title || "Untitled");
+      const url = documentElement("span");
+      url.textContent = String(item.url || "");
+      copy.append(title, url);
+      const actions = documentElement("div");
+      actions.className = "launchpad-config-actions";
+      for (const [direction, symbol, label] of [[-1, "↑", "Move up"], [1, "↓", "Move down"]]) {
+        const button = documentElement("button");
+        button.type = "button";
+        button.className = "button button-ghost button-small";
+        button.textContent = symbol;
+        button.title = label;
+        button.disabled = !admin || (direction < 0 ? index === 0 : index === launchpad.items.length - 1);
+        button.addEventListener("click", () => saveLaunchpad(reorderLaunchpad(index, index + direction)));
+        actions.append(button);
+      }
+      const edit = documentElement("button");
+      edit.type = "button";
+      edit.className = "button button-ghost button-small";
+      edit.textContent = "EDIT";
+      edit.disabled = !admin;
+      edit.addEventListener("click", () => openLaunchpadEditor(item));
+      const remove = documentElement("button");
+      remove.type = "button";
+      remove.className = "button button-ghost button-small";
+      remove.textContent = "REMOVE";
+      remove.disabled = !admin;
+      remove.addEventListener("click", () => saveLaunchpad(launchpad.items.filter((_, itemIndex) => itemIndex !== index)));
+      actions.append(edit, remove);
+      row.append(copy, actions);
+      return row;
+    }));
+    launchpadEmpty.hidden = launchpad.items.length > 0;
+    launchpadReadonly.hidden = admin;
+    launchpadAdd.disabled = !admin;
+  }
+
+  function reorderLaunchpad(from, to) {
+    if (to < 0 || to >= launchpad.items.length) return launchpad.items;
+    const items = [...launchpad.items];
+    [items[from], items[to]] = [items[to], items[from]];
+    return items;
+  }
+
+  async function loadLaunchpad() {
+    if (typeof api?.getLaunchpad !== "function") return;
+    try { launchpad = normalizeLaunchpad(await api.getLaunchpad()); renderLaunchpad(); }
+    catch (error) { setStatus(error?.message || "Unable to load launchpad links.", "error"); }
+  }
+
+  async function saveLaunchpad(items) {
+    if (!admin || typeof api?.updateLaunchpad !== "function") return;
+    try {
+      const saved = await api.updateLaunchpad(items, launchpad.revision);
+      launchpad = normalizeLaunchpad(saved);
+      renderLaunchpad();
+      toast("Launchpad links updated.");
+      return true;
+    } catch (error) { setStatus(error?.message || "Unable to save launchpad links.", "error"); }
+    return false;
+  }
+
+  function openLaunchpadEditor(item = null) {
+    if (!admin || !launchpadDialog || !launchpadForm) return;
+    launchpadInvoker = document.activeElement;
+    launchpadForm.reset();
+    launchpadForm.elements.id.value = item?.id || "";
+    launchpadForm.elements.title.value = item?.title || "";
+    launchpadForm.elements.url.value = item?.url || "";
+    launchpadForm.elements.icon.value = item?.icon || "link";
+    launchpadForm.elements.tag.value = item?.tag || "";
+    launchpadTitle.textContent = item ? "Edit launchpad link" : "Add launchpad link";
+    launchpadSubmit.textContent = item ? "SAVE LINK" : "ADD LINK";
+    launchpadError.hidden = true;
+    launchpadDialog.showModal();
+    launchpadForm.elements.title.focus();
   }
 
   function resetPreview(message = "Select a JSON file to preview an import.") {
@@ -262,7 +345,7 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
       if (new TextEncoder().encode(text).byteLength > MAX_CONFIG_BYTES) throw new Error("The decoded file exceeds 1 MiB.");
       const candidate = JSON.parse(text);
       if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) throw new Error("The top-level JSON value must be an object.");
-      if (![CONFIG_VERSION, LEGACY_CONFIG_VERSION].includes(candidate.version)) throw new Error(`Unsupported config version: ${candidate.version || "missing"}.`);
+      if (![CONFIG_VERSION, PREVIOUS_CONFIG_VERSION, LEGACY_CONFIG_VERSION].includes(candidate.version)) throw new Error(`Unsupported config version: ${candidate.version || "missing"}.`);
       parsedDocument = candidate;
       previewButton.disabled = !admin;
       resetPreview(`Ready to preview ${file.name} in ${mode()} mode.`);
@@ -274,6 +357,31 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
   }
 
   openButton.addEventListener("click", open);
+  launchpadAdd?.addEventListener("click", () => openLaunchpadEditor());
+  launchpadForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!admin) return;
+    const data = new FormData(launchpadForm);
+    const url = safeHttpUrl(String(data.get("url") || ""));
+    const title = String(data.get("title") || "").trim();
+    if (!title || !url) {
+      launchpadError.textContent = "Title and a valid HTTP/HTTPS URL are required.";
+      launchpadError.hidden = false;
+      return;
+    }
+    const item = { id: String(data.get("id") || `bookmark-${Date.now()}`), title: title.slice(0, 80), url: url.toString(), icon: String(data.get("icon") || "link"), tag: String(data.get("tag") || "").trim().slice(0, 16) };
+    const existing = launchpad.items.findIndex((candidate) => candidate.id === item.id);
+    const items = [...launchpad.items];
+    if (existing >= 0) items[existing] = item;
+    else items.push(item);
+    launchpadSubmit.disabled = true;
+    const saved = await saveLaunchpad(items);
+    launchpadSubmit.disabled = false;
+    if (saved) launchpadDialog.close();
+  });
+  launchpadDialog?.querySelectorAll("[data-dialog-close]").forEach((button) => button.addEventListener("click", () => launchpadDialog.close()));
+  launchpadDialog?.addEventListener("close", () => { if (launchpadInvoker?.isConnected) launchpadInvoker.focus(); launchpadInvoker = null; });
+  loadLaunchpad();
   dialog.querySelectorAll("[data-dialog-close]").forEach((button) => button.addEventListener("click", close));
   dialog.addEventListener("close", () => {
     if (opener?.isConnected) opener.focus();
@@ -409,11 +517,13 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
       applyButton.disabled = !admin || !validPreview || previewMode !== mode();
       renderWorkspaceList();
       renderOverviewWidgets();
+      renderLaunchpad();
     },
     setSession(value = {}) {
       authenticated = value.authenticated === true;
       renderWorkspaceList();
       renderOverviewWidgets();
+      renderLaunchpad();
     },
     setWorkspacePreferences(preferences) {
       workspacePreferences = normalizeWorkspacePreferences(preferences);
@@ -421,6 +531,7 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
       overviewDraft = normalizeWorkspacePreferences(workspacePreferences);
       renderWorkspaceList();
       renderOverviewWidgets();
+      renderLaunchpad();
     },
     open,
   };

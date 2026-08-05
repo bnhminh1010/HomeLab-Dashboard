@@ -287,6 +287,7 @@ func run() error {
 		DashboardConfig:        dashboardConfig,
 		DashboardConfigApplied: serviceManager.InvalidateHealth,
 		Preferences:            database,
+		WidgetContent:          database,
 		SLO:                    sloService,
 		Operations:             database,
 		Topology:               database,
