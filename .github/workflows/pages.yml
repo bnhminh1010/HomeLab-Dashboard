@@ -14,6 +14,9 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  PAGES_ARTIFACT_NAME: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
+
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -43,7 +46,10 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: _site
       - name: Deploy Pages artifact
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
