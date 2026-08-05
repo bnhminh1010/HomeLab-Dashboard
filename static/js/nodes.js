@@ -1,3 +1,5 @@
+import { copyText, showCopied } from "./format.js";
+
 const MAX_TOTAL_NODES = 5;
 const MAX_REMOTE_NODES = MAX_TOTAL_NODES - 1;
 
@@ -224,15 +226,15 @@ export function createNodesController({ api, demo = false, toast, onSelect }) {
   copyButton.addEventListener("click", async () => {
     if (!token.textContent) return;
     try {
-      await navigator.clipboard.writeText(token.textContent);
-      toast("Enrollment token copied.");
-    } catch {
+      await copyText(token.textContent);
+      showCopied(copyButton, "COPY TOKEN");
+    } catch (error) {
       const selection = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(token);
       selection.removeAllRanges();
       selection.addRange(range);
-      toast("Clipboard unavailable; token selected for manual copy.");
+      toast(error?.message || "Clipboard unavailable; token selected for manual copy.");
     }
   });
 

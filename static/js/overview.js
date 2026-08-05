@@ -156,7 +156,7 @@ export function collectOverviewIncidents({ alerts = [], services = [], container
   return incidents.sort((left, right) => incidentPriority(left) - incidentPriority(right));
 }
 
-export function createOverviewController({ api, demo = false, toast, onNavigate, onOpenContainerTerminal }) {
+export function createOverviewController({ api, demo = false, toast, onNavigate, onOpenContainerTerminal, onWidgetPreferences }) {
   const attentionPanel = document.getElementById("overview-attention");
   const attentionTitle = document.getElementById("overview-attention-title");
   const attentionList = document.getElementById("overview-attention-list");
@@ -227,6 +227,135 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
   function widgetVisible(id) {
     return !hiddenWidgets.has(id);
   }
+
+  const widgetPopover = document.getElementById("overview-widget-popover");
+  const widgetMenuTitle = document.getElementById("overview-widget-menu-title");
+  const widgetMenuSize = document.getElementById("overview-widget-menu-size");
+  const widgetMenuHide = document.getElementById("overview-widget-menu-hide");
+  const widgetMenuReset = document.getElementById("overview-widget-menu-reset");
+  const widgetMenuTriggers = new Map();
+  let widgetMenuWidget = "";
+  let widgetMenuTrigger = null;
+  let widgetMenuAuthenticated = false;
+  let widgetMenuBusy = false;
+
+  function setWidgetMenuBusy(value) {
+    widgetMenuBusy = Boolean(value);
+    for (const control of [widgetMenuHide, widgetMenuReset, ...widgetMenuSize.querySelectorAll("button")]) {
+      if (control) control.disabled = widgetMenuBusy;
+    }
+  }
+
+  function restoreWidgetFocus(trigger) {
+    if (trigger?.isConnected && !trigger.closest("[hidden]")) {
+      trigger.focus({ preventScroll: true });
+      return;
+    }
+    document.getElementById("overview-title")?.focus({ preventScroll: true });
+  }
+
+  function positionWidgetPopover() {
+    if (!widgetPopover?.matches(":popover-open") || !widgetMenuTrigger) return;
+    const triggerRect = widgetMenuTrigger.getBoundingClientRect();
+    const menuRect = widgetPopover.getBoundingClientRect();
+    const left = Math.max(8, Math.min(window.innerWidth - menuRect.width - 8, triggerRect.right - menuRect.width));
+    const top = triggerRect.bottom + menuRect.height + 8 <= window.innerHeight
+      ? triggerRect.bottom + 6
+      : Math.max(8, triggerRect.top - menuRect.height - 6);
+    widgetPopover.style.left = `${left}px`;
+    widgetPopover.style.top = `${top}px`;
+  }
+
+  function closeWidgetPopover({ restoreFocus = true } = {}) {
+    if (!widgetPopover?.matches(":popover-open")) return;
+    widgetPopover.hidePopover();
+    if (restoreFocus && widgetMenuTrigger?.isConnected) widgetMenuTrigger.focus({ preventScroll: true });
+    widgetMenuTrigger = null;
+    widgetMenuWidget = "";
+  }
+
+  function requestWidgetPreferences(update) {
+    if (widgetMenuBusy) return;
+    const trigger = widgetMenuTrigger;
+    setWidgetMenuBusy(true);
+    closeWidgetPopover({ restoreFocus: false });
+    Promise.resolve(onWidgetPreferences?.(update))
+      .catch((error) => toast?.(error?.message || "Unable to save overview widget preferences.", "error"))
+      .finally(() => {
+        setWidgetMenuBusy(false);
+        restoreWidgetFocus(trigger);
+      });
+  }
+
+  function openWidgetPopover(widgetID, trigger) {
+    if (!widgetPopover || !widgetMenuAuthenticated || widgetMenuBusy) return;
+    widgetMenuWidget = widgetID;
+    widgetMenuTrigger = trigger;
+    widgetMenuTitle.textContent = document.getElementById(widgetID)?.querySelector("h2")?.textContent || "Overview widget";
+    widgetMenuSize.replaceChildren();
+    const currentSize = document.getElementById(widgetID)?.dataset.widgetSize || "medium";
+    for (const size of ["small", "medium", "full"]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "text-button widget-size-option";
+      button.textContent = size.toUpperCase();
+      button.dataset.size = size;
+      button.setAttribute("role", "menuitemradio");
+      button.setAttribute("aria-checked", String(size === currentSize));
+      button.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        const buttons = [...widgetMenuSize.querySelectorAll("button")];
+        const current = buttons.indexOf(button);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : current + (event.key === "ArrowRight" ? 1 : -1);
+        if (!buttons[next]) return;
+        event.preventDefault();
+        buttons[next].focus();
+      });
+      button.addEventListener("click", () => requestWidgetPreferences({ widgetID, size }));
+      widgetMenuSize.append(button);
+    }
+    widgetMenuHide.hidden = widgetID === "overview-attention";
+    widgetMenuReset.hidden = false;
+    widgetPopover.showPopover();
+    positionWidgetPopover();
+  }
+
+  function setupWidgetMenus() {
+    for (const widgetID of OVERVIEW_WIDGET_IDS) {
+      const panel = document.getElementById(widgetID);
+      const header = panel?.querySelector(".panel-header");
+      let actions = header?.querySelector(".panel-actions");
+      if (header && !actions) {
+        actions = document.createElement("div");
+        actions.className = "panel-actions";
+        header.append(actions);
+      }
+      if (!panel || !actions || widgetMenuTriggers.has(widgetID)) continue;
+      const trigger = document.createElement("button");
+      trigger.type = "button";
+      trigger.className = "icon-button widget-menu-trigger";
+      trigger.hidden = !widgetMenuAuthenticated;
+      trigger.setAttribute("aria-label", `Configure ${panel.querySelector("h2")?.textContent || "overview widget"}`);
+      trigger.setAttribute("aria-haspopup", "menu");
+      trigger.title = "Configure widget";
+      trigger.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
+      trigger.addEventListener("click", () => openWidgetPopover(widgetID, trigger));
+      actions.append(trigger);
+      widgetMenuTriggers.set(widgetID, trigger);
+    }
+    window.addEventListener("resize", positionWidgetPopover);
+    widgetPopover?.addEventListener("toggle", (event) => {
+      if (event.newState !== "closed") return;
+      const trigger = widgetMenuTrigger;
+      widgetMenuTrigger = null;
+      widgetMenuWidget = "";
+      if (!widgetMenuBusy) restoreWidgetFocus(trigger);
+    });
+    widgetMenuHide?.addEventListener("click", () => requestWidgetPreferences({ widgetID: widgetMenuWidget, hidden: true }));
+    widgetMenuReset?.addEventListener("click", () => requestWidgetPreferences({ reset: true }));
+  }
+
+  setupWidgetMenus();
 
   function resizeChart() {
     window.requestAnimationFrame(() => chart?.resize());
@@ -552,6 +681,14 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
         if (widgetVisible("overview-recent-changes")) loadEvents();
       }
     },
+    setAdmin(value) {
+      widgetMenuAuthenticated = Boolean(value);
+      for (const trigger of widgetMenuTriggers.values()) trigger.hidden = !widgetMenuAuthenticated;
+      if (!widgetMenuAuthenticated) closeWidgetPopover({ restoreFocus: false });
+    },
+    setAuthenticated(value) {
+      this.setAdmin(value);
+    },
     setNode(nextNode, label = "") {
       const next = nextNode || "local";
       if (next !== node) {
@@ -595,6 +732,7 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
       request?.abort();
       eventRequest?.abort();
       chart?.destroy();
+      window.removeEventListener("resize", positionWidgetPopover);
     },
   };
 }

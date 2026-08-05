@@ -88,6 +88,29 @@ export function setText(element, value, animate = false) {
   }
 }
 
+export async function copyText(value) {
+  const text = String(value ?? "");
+  if (!text) throw new Error("Nothing to copy.");
+  if (!navigator.clipboard?.writeText) throw new Error("Clipboard is unavailable in this context.");
+  await navigator.clipboard.writeText(text);
+}
+
+export function showCopied(button, idleLabel = "COPY", duration = 2500) {
+  if (!button) return;
+  const original = button.dataset.idleLabel || button.textContent || idleLabel;
+  button.dataset.idleLabel = original;
+  button.textContent = "COPIED";
+  button.setAttribute("aria-label", "Copied");
+  window.clearTimeout(Number(button.dataset.copyTimer || 0));
+  const timer = window.setTimeout(() => {
+    if (!button.isConnected) return;
+    button.textContent = original;
+    button.removeAttribute("aria-label");
+    delete button.dataset.copyTimer;
+  }, duration);
+  button.dataset.copyTimer = String(timer);
+}
+
 export function setProgress(element, value, maximum = 100) {
   if (!element) return;
   const safeMaximum = Math.max(1, number(maximum, 100));

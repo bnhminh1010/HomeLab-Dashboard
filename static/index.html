@@ -190,7 +190,9 @@
             <div>
               <h2 id="overview-recent-changes-title">Recent Changes</h2>
             </div>
-            <button id="overview-recent-changes-refresh" class="text-button" type="button">REFRESH</button>
+            <div class="panel-actions">
+              <button id="overview-recent-changes-refresh" class="text-button" type="button">REFRESH</button>
+            </div>
           </header>
           <div id="overview-recent-changes-list" class="overview-action-list" aria-label="Recent operational changes"></div>
           <div id="overview-recent-changes-empty" class="overview-empty-state">No recorded operational changes in the last 24 hours.</div>
@@ -205,7 +207,9 @@
               <h2 id="system-title" class="visually-hidden">System health and metrics</h2>
               <div id="system-hostname" class="node-name mono">Connecting…</div>
             </div>
-            <span id="system-status" class="badge badge-muted"><span class="status-dot" aria-hidden="true"></span>WAITING</span>
+            <div class="panel-actions">
+              <span id="system-status" class="badge badge-muted"><span class="status-dot" aria-hidden="true"></span>WAITING</span>
+            </div>
           </header>
 
           <div class="metric-block">
@@ -298,6 +302,7 @@
               <button class="range-button" type="button" data-history-range="30d">30D</button>
               <button class="range-button" type="button" data-history-range="90d">90D</button>
             </div>
+            <button id="history-export" class="text-button" type="button" disabled>EXPORT CSV</button>
           </div>
         </header>
         <div class="history-body">
@@ -349,7 +354,8 @@
             <label><span class="visually-hidden">Log level</span><select id="logs-level" aria-label="Filter logs by level"><option value="">All levels</option><option value="debug">Debug</option><option value="info">Info</option><option value="warn">Warn</option><option value="error">Error</option></select></label>
             <div class="logs-search">
               <label for="logs-search" class="visually-hidden">Search log text</label>
-              <input id="logs-search" type="search" maxlength="160" placeholder="Search text; press Enter" autocomplete="off">
+              <kbd class="search-shortcut" aria-hidden="true">/</kbd>
+              <input id="logs-search" data-workspace-filter type="search" maxlength="160" placeholder="Search text; press Enter" autocomplete="off">
               <button id="logs-regex-toggle" class="logs-regex-toggle" type="button" aria-label="Use regular expression search" aria-pressed="false" title="Use Regular Expression (.*)">.*</button>
             </div>
             <span id="logs-match-status" class="logs-match-status mono" role="status" aria-live="polite">NO SEARCH</span>
@@ -395,7 +401,10 @@
           </header>
           <div id="services-filter-bar" class="inventory-filter-bar" role="group" aria-label="Filter services" data-collapsed="true">
             <label class="visually-hidden" for="services-filter-input">Filter services by name, endpoint, or status</label>
-            <input id="services-filter-input" class="inventory-filter-input mono" data-workspace-filter type="search" placeholder="FILTER NAME OR ENDPOINT" autocomplete="off" />
+            <div class="inventory-filter-input-wrap">
+              <input id="services-filter-input" class="inventory-filter-input mono" data-workspace-filter type="search" placeholder="FILTER NAME OR ENDPOINT" autocomplete="off" />
+              <kbd class="search-shortcut" aria-hidden="true">/</kbd>
+            </div>
             <div class="inventory-filter-controls">
               <button class="inventory-filter is-active" type="button" data-service-filter="all" aria-pressed="true">ALL</button>
               <button class="inventory-filter" type="button" data-service-filter="attention" aria-pressed="false">NEEDS ATTENTION</button>
@@ -441,7 +450,10 @@
           </header>
           <div id="containers-filter-bar" class="inventory-filter-bar" role="group" aria-label="Filter containers" data-collapsed="true">
             <label class="visually-hidden" for="containers-filter-input">Filter containers by name, image, or state</label>
-            <input id="containers-filter-input" class="inventory-filter-input mono" data-workspace-filter type="search" placeholder="FILTER NAME, IMAGE, OR STATE" autocomplete="off" />
+            <div class="inventory-filter-input-wrap">
+              <input id="containers-filter-input" class="inventory-filter-input mono" data-workspace-filter type="search" placeholder="FILTER NAME, IMAGE, OR STATE" autocomplete="off" />
+              <kbd class="search-shortcut" aria-hidden="true">/</kbd>
+            </div>
             <div class="inventory-filter-controls">
               <button class="inventory-filter is-active" type="button" data-container-filter="all" aria-pressed="true">ALL</button>
               <button class="inventory-filter" type="button" data-container-filter="attention" aria-pressed="false">NEEDS ATTENTION</button>
@@ -477,7 +489,17 @@
 
       <section id="workspace-topology" class="dashboard-workspace workspace-topology" data-workspace-panel="topology" aria-labelledby="topology-title" hidden>
         <section class="panel topology-panel" aria-labelledby="topology-title" data-workspace-focus tabindex="-1">
-          <header class="panel-header"><div><h2 id="topology-title" tabindex="-1">Service Topology</h2></div><span id="topology-count" class="count-badge mono">0</span></header>
+          <header class="panel-header">
+            <div><h2 id="topology-title" tabindex="-1">Service Topology</h2></div>
+            <div class="panel-actions topology-actions">
+              <span id="topology-count" class="count-badge mono">0</span>
+              <button id="topology-arrange-toggle" class="text-button" type="button" aria-pressed="false">ARRANGE</button>
+              <button id="topology-zoom-out" class="icon-button" type="button" aria-label="Zoom topology out" title="Zoom out">−</button>
+              <span id="topology-zoom-level" class="panel-context mono">100%</span>
+              <button id="topology-zoom-in" class="icon-button" type="button" aria-label="Zoom topology in" title="Zoom in">+</button>
+              <button id="topology-reset-layout" class="text-button" type="button">RESET</button>
+            </div>
+          </header>
           <p class="topology-hint">Arrows run from the dependent service to the service it needs. Relationships are curated; no traffic is inferred.</p>
           <p id="topology-scroll-hint" class="topology-scroll-hint">Scroll horizontally to inspect the map.</p>
           <div id="topology-canvas" class="topology-canvas" role="region" aria-label="Manual service dependency topology" aria-describedby="topology-scroll-hint"></div>
@@ -678,7 +700,7 @@
         <p>Choose which workspaces appear in the sidebar and their order. Overview is always available.</p>
         <div id="sidebar-workspaces-list" class="sidebar-workspaces-list"></div>
         <p id="workspace-config-readonly" class="workspace-config-readonly" hidden>Only administrators can change the workspace layout.</p>
-        <div class="settings-actions admin-only"><button id="workspace-config-cancel" class="button button-ghost" type="button">CANCEL</button><button id="workspace-config-apply" class="button button-primary" type="button">APPLY LAYOUT</button></div>
+        <div class="settings-actions"><button id="workspace-config-cancel" class="button button-ghost" type="button">CANCEL</button><button id="workspace-config-apply" class="button button-primary admin-only" type="button">APPLY LAYOUT</button></div>
       </section>
       <section class="settings-section" aria-labelledby="overview-config-title">
         <div class="subsection-header"><h3 id="overview-config-title">OVERVIEW WIDGETS</h3></div>
@@ -697,7 +719,7 @@
       <p id="keyboard-shortcuts-description">Shortcuts are disabled while typing in a field, using the terminal, or when another dialog is open.</p>
       <dl class="shortcut-list">
         <div><dt><kbd>g</kbd> then <kbd>o</kbd>/<kbd>s</kbd>/<kbd>c</kbd>/<kbd>n</kbd>/<kbd>h</kbd>/<kbd>l</kbd>/<kbd>a</kbd>/<kbd>t</kbd></dt><dd>Overview · Services · Containers · Nodes · History · Logs · Alerts · Topology</dd></div>
-        <div><dt><kbd>/</kbd></dt><dd>Focus the visible inventory filter</dd></div>
+        <div><dt><kbd>/</kbd></dt><dd>Focus search or filter in the current workspace</dd></div>
         <div><dt><kbd>Ctrl</kbd> + <kbd>`</kbd></dt><dd>Focus terminal workbench</dd></div>
         <div><dt><kbd>?</kbd></dt><dd>Show this list</dd></div>
         <div><dt><kbd>Esc</kbd></dt><dd>Close the current dialog or menu</dd></div>
@@ -708,6 +730,12 @@
 
   <div id="context-menu" class="context-menu" role="menu" hidden></div>
   <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div id="overview-widget-popover" class="widget-menu-popover" popover="auto" role="menu" aria-label="Overview widget options">
+    <div id="overview-widget-menu-title" class="widget-menu-title"></div>
+    <div id="overview-widget-menu-size" class="widget-menu-size" role="group" aria-label="Widget size"></div>
+    <button id="overview-widget-menu-hide" class="text-button widget-menu-action" type="button" role="menuitem">HIDE WIDGET</button>
+    <button id="overview-widget-menu-reset" class="text-button widget-menu-action" type="button" role="menuitem">RESET OVERVIEW</button>
+  </div>
   <div id="dashboard-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <script src="./lib/chart.umd.min.js"></script>

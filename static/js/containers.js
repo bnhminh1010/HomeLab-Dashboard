@@ -1,4 +1,4 @@
-import { bytes, clamp, number, percent, setProgress, uptime } from "./format.js";
+import { bytes, clamp, copyText, number, percent, setProgress, showCopied, uptime } from "./format.js";
 
 const RUNNING_STATES = new Set(["running", "healthy"]);
 const ISSUE_STATES = new Set(["crashed", "unhealthy", "dead", "restarting"]);
@@ -166,8 +166,26 @@ export function createContainersController({ terminal, api, toast, onLifecycle }
     updateMetric(memory, memoryText, clamp(memoryPercent));
 
     ports.hidden = container.ports.length === 0;
-    ports.textContent = container.ports.length ? `PORTS ${container.ports.join(", ")}` : "";
-    ports.title = container.ports.join(", ");
+    ports.replaceChildren();
+    if (container.ports.length) {
+      const label = document.createElement("span");
+      label.textContent = "PORTS";
+      ports.append(label);
+      for (const port of container.ports) {
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "container-port-copy";
+        copy.textContent = port;
+        copy.title = `Copy ${port}`;
+        copy.setAttribute("aria-label", `Copy port mapping ${port}`);
+        copy.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          try { await copyText(port); showCopied(copy, port); }
+          catch (error) { toast?.(error?.message || "Unable to copy port mapping.", "error"); }
+        });
+        ports.append(copy);
+      }
+    }
     logs.disabled = container.actions.logs === false || !container.id;
     logs.setAttribute("aria-label", `Open logs for ${container.name}`);
     exec.disabled = !admin || !running || container.protected || container.actions.exec === false || !container.id;

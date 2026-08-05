@@ -160,6 +160,25 @@ function mergeResources(catalog, live) {
   return [...merged.values()].sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
 }
 
+function csvCell(value) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function csvForHistory(points, kind) {
+  const fields = kind === "container"
+    ? ["at", "cpuPercent", "memoryUsageBytes", "memoryLimitBytes", "restartCount"]
+    : kind === "service"
+      ? ["at", "upSeconds", "downSeconds", "degradedSeconds", "unknownSeconds", "transitionCount"]
+      : ["at", "cpuPercent", "memoryUsedBytes", "memoryTotalBytes"];
+  const rows = points.map((point) => fields.map((name) => csvCell(field(point, name, name[0].toUpperCase() + name.slice(1)))).join(","));
+  return [fields.join(","), ...rows].join("\r\n") + "\r\n";
+}
+
+function filePart(value) {
+  return String(value || "unknown").trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "unknown";
+}
+
 export function createHistoryController({ api, demo = false, toast, onRangeChange }) {
   const panel = document.getElementById("history-panel");
   const wrap = document.getElementById("history-chart-wrap");
@@ -172,6 +191,7 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
   const resolutionLabel = document.getElementById("history-resolution");
   const quotaLabel = document.getElementById("history-quota");
   const refreshButton = document.getElementById("history-refresh");
+  const exportButton = document.getElementById("history-export");
   const rangeButtons = [...document.querySelectorAll("[data-history-range]")];
   const kindButtons = [...document.querySelectorAll("[data-history-kind]")];
   const chart = createChart(document.getElementById("history-chart"));
@@ -192,6 +212,11 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
   let resourceSignatures = { container: "", service: "" };
   const selectedResources = { container: "", service: "" };
   let requestedResource = "";
+  let latestExport = null;
+
+  function exportKey() { return `${node}\u0000${kind}\u0000${selectedResources[kind] || ""}\u0000${range}`; }
+  function syncExportButton() { if (exportButton) exportButton.disabled = !latestExport || latestExport.key !== exportKey() || latestExport.points.length === 0; }
+  function clearExport() { latestExport = null; syncExportButton(); }
 
   function selectRange(next) {
     range = RANGE_LABELS.has(next) ? next : "24h";
@@ -201,6 +226,7 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
     }
+    clearExport();
   }
 
   function setRange(nextRange, shouldRefresh = true) {
@@ -286,6 +312,7 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
       chart.data.datasets[1].label = labels[1];
     }
     syncResourcePicker();
+    clearExport();
   }
 
   function setOverlay(message, level = "info") {
@@ -359,6 +386,8 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
       else if (kind === "service") payload = await api.serviceHistory(node, resourceID, range, request.signal);
       else payload = await api.systemHistory(node, range, request.signal);
       render(payload);
+      latestExport = { key: exportKey(), points: Array.isArray(payload?.points) ? payload.points : [] };
+      syncExportButton();
     } catch (error) {
       if (error?.name === "AbortError") return;
       setOverlay(error?.status === 404 ? "No historical samples exist for this resource yet." : (error?.message || "Unable to load metric history."), "error");
@@ -373,9 +402,24 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
   resourceSelect.addEventListener("change", () => {
     selectedResources[kind] = resourceSelect.value;
     syncResourcePicker();
+    clearExport();
     refresh();
   });
   refreshButton.addEventListener("click", () => refresh().catch((error) => toast(error?.message || "History refresh failed.", "error")));
+  exportButton?.addEventListener("click", () => {
+    if (!latestExport || latestExport.key !== exportKey() || !latestExport.points.length) return;
+    const blob = new Blob([csvForHistory(latestExport.points, kind)], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    const resource = kind === "system" ? "system" : (resources[kind].find((item) => item.id === selectedResources[kind])?.label || selectedResources[kind] || kind);
+    link.download = `homelab-${filePart(node)}-${kind}-${filePart(resource)}-${range}.csv`;
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    const href = link.href;
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(href), 0);
+  });
   selectRange(range);
   selectKind(kind);
 
@@ -388,6 +432,7 @@ export function createHistoryController({ api, demo = false, toast, onRangeChang
       catalogResources = { container: [], service: [] };
       selectedResources.container = "";
       selectedResources.service = "";
+      clearExport();
       applyResources(false);
       nodeLabel.textContent = `NODE · ${node.toUpperCase()}`;
       loadCatalog();

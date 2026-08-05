@@ -196,7 +196,8 @@ export function createSettingsController({ api, demo = false, toast, onApplied, 
     });
     workspaceReadonly.hidden = admin;
     workspaceApplyButton.disabled = !admin;
-    workspaceCancelButton.disabled = !admin;
+    // Cancel is a local UI action and must remain available in read-only mode.
+    workspaceCancelButton.disabled = false;
   }
 
   function renderOverviewWidgets() {

@@ -1,4 +1,4 @@
-import { displayEndpoint, safeHttpUrl, timeAgo } from "./format.js";
+import { copyText, displayEndpoint, safeHttpUrl, showCopied, timeAgo } from "./format.js";
 
 const UP_STATES = new Set(["up", "running", "healthy"]);
 const DOWN_STATES = new Set(["down", "error", "unhealthy", "crashed"]);
@@ -308,12 +308,12 @@ export function createServicesController({ api, toast, onChanged }) {
     const copy = menuButton("Copy URL");
     copy.addEventListener("click", async () => {
       const invoker = menuTrigger;
-      closeMenu(false);
       try {
-        await navigator.clipboard.writeText(service.displayUrl);
-        toast("Service URL copied.");
-        invoker?.focus();
+        await copyText(service.displayUrl);
+        showCopied(copy, "COPY URL");
+        copy.focus();
       } catch {
+        closeMenu(false);
         toast("Clipboard access is unavailable in this browser.", "error");
         invoker?.focus();
       }

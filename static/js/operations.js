@@ -91,6 +91,12 @@ export function createOperationsController({ api, demo = false, toast, onSelectN
   const topologyDependent = document.getElementById("topology-dependent");
   const topologyDependency = document.getElementById("topology-dependency");
   const topologyLabel = document.getElementById("topology-label");
+  const topologyArrangeToggle = document.getElementById("topology-arrange-toggle");
+  const topologyZoomOut = document.getElementById("topology-zoom-out");
+  const topologyZoomIn = document.getElementById("topology-zoom-in");
+  const topologyZoomLevel = document.getElementById("topology-zoom-level");
+  const topologyResetLayout = document.getElementById("topology-reset-layout");
+  const TOPOLOGY_POSITIONS_KEY = "homelab.topology.positions.v1";
   let services = [];
   let localSnapshot = null;
   let selectedNode = "local";
@@ -106,7 +112,47 @@ export function createOperationsController({ api, demo = false, toast, onSelectN
   let hasSLOResult = false;
   let hasChecksResult = false;
   let hasTopologyResult = false;
+  let topologyArrange = false;
+  let topologyZoom = 1;
+  let topologyPositions = {};
+  let topologySvg = null;
+  let topologyPositionMap = new Map();
+  let topologyEdgeRefs = [];
+  let topologyDrag = null;
+  let suppressTopologyClickUntil = 0;
   let controllers = { slo: null, events: null, nodes: null, checks: null, topology: null };
+
+  try { topologyPositions = JSON.parse(localStorage.getItem(TOPOLOGY_POSITIONS_KEY) || "{}"); } catch { topologyPositions = {}; }
+
+  function saveTopologyPositions() {
+    try { localStorage.setItem(TOPOLOGY_POSITIONS_KEY, JSON.stringify(topologyPositions)); } catch { /* Storage is optional. */ }
+  }
+
+  function topologyPosition(id, fallback, width, height) {
+    const saved = topologyPositions[selectedNode]?.[id];
+    if (Number.isFinite(saved?.nx) && Number.isFinite(saved?.ny)) {
+      return { ...fallback, x: saved.nx * width, y: saved.ny * height };
+    }
+    return Number.isFinite(saved?.x) && Number.isFinite(saved?.y) ? { ...fallback, x: saved.x, y: saved.y } : fallback;
+  }
+
+  function persistTopologyPositions() {
+    const nodePositions = {};
+    const viewBox = topologySvg?.viewBox?.baseVal;
+    const width = Number(viewBox?.width) || 1;
+    const height = Number(viewBox?.height) || 1;
+    for (const [id, position] of topologyPositionMap) {
+      nodePositions[id] = { nx: Math.max(0, Math.min(1, position.x / width)), ny: Math.max(0, Math.min(1, position.y / height)) };
+    }
+    topologyPositions[selectedNode] = nodePositions;
+    saveTopologyPositions();
+  }
+
+  function setTopologyZoom(next) {
+    topologyZoom = Math.max(0.75, Math.min(1.75, Number(next) || 1));
+    if (topologyZoomLevel) topologyZoomLevel.textContent = `${Math.round(topologyZoom * 100)}%`;
+    if (topologySvg) topologySvg.style.width = `${Math.round(topologyZoom * 100)}%`;
+  }
 
   function abort(name) {
     controllers[name]?.abort();
@@ -455,12 +501,43 @@ export function createOperationsController({ api, demo = false, toast, onSelectN
     topologyCount.textContent = String(topology.length);
     renderTopologyEdgeList();
     const visible = services.slice(0, 100);
-    if (!visible.length) { canvas.textContent = "Add services before drawing their dependencies."; return; }
+    if (!visible.length) {
+      topologyPositions[selectedNode] = {};
+      saveTopologyPositions();
+      canvas.textContent = "Add services before drawing their dependencies.";
+      return;
+    }
     const width = Math.max(360, canvas.clientWidth || 640); const height = Math.max(260, Math.ceil(visible.length / 5) * 116);
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("viewBox", `0 0 ${width} ${height}`); svg.setAttribute("role", "group"); svg.setAttribute("aria-label", "Manual service dependencies");
+    topologySvg = svg;
+    canvas.dataset.arrange = String(topologyArrange);
+    setTopologyZoom(topologyZoom);
     const defs = document.createElementNS(svg.namespaceURI, "defs"); const marker = document.createElementNS(svg.namespaceURI, "marker"); marker.setAttribute("id", "topology-arrow"); marker.setAttribute("viewBox", "0 0 10 10"); marker.setAttribute("refX", "8"); marker.setAttribute("refY", "5"); marker.setAttribute("markerWidth", "6"); marker.setAttribute("markerHeight", "6"); marker.setAttribute("orient", "auto-start-reverse"); const path = document.createElementNS(svg.namespaceURI, "path"); path.setAttribute("d", "M 0 0 L 10 5 L 0 10 z"); marker.append(path); defs.append(marker); svg.append(defs);
     const positions = new Map(); const columns = Math.min(5, Math.max(1, visible.length));
-    visible.forEach((service, index) => positions.set(String(service.id || service.ID), { x: 80 + (index % columns) * ((width - 160) / Math.max(1, columns - 1)), y: 64 + Math.floor(index / columns) * 110, service }));
+    visible.forEach((service, index) => {
+      const id = String(service.id || service.ID);
+      const fallback = { x: columns === 1 ? width / 2 : 80 + (index % columns) * ((width - 160) / Math.max(1, columns - 1)), y: 64 + Math.floor(index / columns) * 110, service };
+      const saved = topologyPosition(id, fallback, width, height);
+      saved.x = Math.max(70, Math.min(width - 70, saved.x));
+      saved.y = Math.max(30, Math.min(height - 30, saved.y));
+      positions.set(id, saved);
+    });
+    topologyPositionMap = positions;
+    persistTopologyPositions();
+    topologyEdgeRefs = [];
+    const updateGeometry = () => {
+      for (const edge of topologyEdgeRefs) {
+        const from = positions.get(edge.from); const to = positions.get(edge.to);
+        if (!from || !to) continue;
+        edge.line.setAttribute("x1", from.x); edge.line.setAttribute("y1", from.y); edge.line.setAttribute("x2", to.x); edge.line.setAttribute("y2", to.y);
+      }
+      for (const item of positions.values()) {
+        item.group?.querySelector("rect")?.setAttribute("x", item.x - 62);
+        item.group?.querySelector("rect")?.setAttribute("y", item.y - 24);
+        item.group?.querySelector("text")?.setAttribute("x", item.x);
+        item.group?.querySelector("text")?.setAttribute("y", item.y + 4);
+      }
+    };
     for (const edge of topology) {
       const from = positions.get(String(edge.dependentServiceId)); const to = positions.get(String(edge.dependencyServiceId)); if (!from || !to) continue;
       const line = document.createElementNS(svg.namespaceURI, "line"); line.setAttribute("class", "topology-edge"); line.setAttribute("x1", from.x); line.setAttribute("y1", from.y); line.setAttribute("x2", to.x); line.setAttribute("y2", to.y); line.setAttribute("marker-end", "url(#topology-arrow)"); line.setAttribute("tabindex", admin ? "0" : "-1"); line.setAttribute("aria-label", `${serviceName(edge.dependentServiceId)} depends on ${serviceName(edge.dependencyServiceId)}${admin ? "; activate to remove" : ""}`);
@@ -475,14 +552,59 @@ export function createOperationsController({ api, demo = false, toast, onSelectN
           }
         });
       }
+      topologyEdgeRefs.push({ line, from: String(edge.dependentServiceId), to: String(edge.dependencyServiceId) });
       svg.append(line);
     }
     for (const position of positions.values()) {
-      const group = document.createElementNS(svg.namespaceURI, "g"); group.setAttribute("class", "topology-node"); group.dataset.level = healthLevel(statusOf(position.service)); group.setAttribute("tabindex", "0"); group.setAttribute("role", "button"); group.setAttribute("aria-label", `Open service ${position.service.name}`);
+      const group = document.createElementNS(svg.namespaceURI, "g"); group.setAttribute("class", "topology-node"); group.dataset.level = healthLevel(statusOf(position.service)); group.setAttribute("tabindex", "0"); group.setAttribute("role", "button"); group.setAttribute("aria-label", `Open service ${position.service.name}`); group.setAttribute("aria-keyshortcuts", "ArrowUp ArrowDown ArrowLeft ArrowRight");
       const rect = document.createElementNS(svg.namespaceURI, "rect"); rect.setAttribute("x", position.x - 62); rect.setAttribute("y", position.y - 24); rect.setAttribute("width", "124"); rect.setAttribute("height", "48"); rect.setAttribute("rx", "5");
       const text = document.createElementNS(svg.namespaceURI, "text"); text.setAttribute("x", position.x); text.setAttribute("y", position.y + 4); text.setAttribute("text-anchor", "middle"); text.textContent = String(position.service.name || "service").slice(0, 20);
-      group.append(rect, text); group.addEventListener("click", () => onOpenServices?.(position.service)); group.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpenServices?.(position.service); } }); svg.append(group);
+      position.group = group;
+      group.append(rect, text);
+      group.addEventListener("pointerdown", (event) => {
+        if (!topologyArrange || event.button !== 0) return;
+        group.setPointerCapture?.(event.pointerId);
+        topologyDrag = { id: String(position.service.id || position.service.ID), pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: position.x, originY: position.y, moved: false };
+        event.preventDefault();
+      });
+      group.addEventListener("pointermove", (event) => {
+        if (!topologyDrag || topologyDrag.pointerId !== event.pointerId || topologyDrag.id !== String(position.service.id || position.service.ID)) return;
+        const bounds = svg.getBoundingClientRect();
+        const dx = (event.clientX - topologyDrag.startX) * width / Math.max(1, bounds.width);
+        const dy = (event.clientY - topologyDrag.startY) * height / Math.max(1, bounds.height);
+        topologyDrag.moved = topologyDrag.moved || Math.hypot(dx, dy) >= 4;
+        position.x = Math.max(70, Math.min(width - 70, topologyDrag.originX + dx));
+        position.y = Math.max(30, Math.min(height - 30, topologyDrag.originY + dy));
+        updateGeometry();
+      });
+      const finishDrag = (event) => {
+        if (!topologyDrag || topologyDrag.pointerId !== event.pointerId) return;
+        if (topologyDrag.moved) { suppressTopologyClickUntil = Date.now() + 200; persistTopologyPositions(); }
+        topologyDrag = null;
+        group.releasePointerCapture?.(event.pointerId);
+      };
+      group.addEventListener("pointerup", finishDrag);
+      group.addEventListener("pointercancel", finishDrag);
+      group.addEventListener("click", () => { if (Date.now() >= suppressTopologyClickUntil) onOpenServices?.(position.service); });
+      group.addEventListener("keydown", (event) => {
+        if (topologyArrange && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+          event.preventDefault();
+          const step = event.shiftKey ? 24 : 8;
+          if (event.key === "ArrowUp") position.y -= step;
+          if (event.key === "ArrowDown") position.y += step;
+          if (event.key === "ArrowLeft") position.x -= step;
+          if (event.key === "ArrowRight") position.x += step;
+          position.x = Math.max(70, Math.min(width - 70, position.x));
+          position.y = Math.max(30, Math.min(height - 30, position.y));
+          updateGeometry();
+          persistTopologyPositions();
+          return;
+        }
+        if (!topologyArrange && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onOpenServices?.(position.service); }
+      });
+      svg.append(group);
     }
+    updateGeometry();
     canvas.append(svg);
   }
 
@@ -542,6 +664,20 @@ export function createOperationsController({ api, demo = false, toast, onSelectN
   });
   for (const button of sloButtons) button.addEventListener("click", () => setSLOWindow(button.dataset.sloWindow));
   nodesRefresh?.addEventListener("click", () => { refreshNodes(); refreshChecks(); });
+  topologyArrangeToggle?.addEventListener("click", () => {
+    topologyArrange = !topologyArrange;
+    topologyArrangeToggle.setAttribute("aria-pressed", String(topologyArrange));
+    topologyArrangeToggle.textContent = topologyArrange ? "DONE" : "ARRANGE";
+    renderTopology();
+  });
+  topologyZoomOut?.addEventListener("click", () => setTopologyZoom(topologyZoom - 0.125));
+  topologyZoomIn?.addEventListener("click", () => setTopologyZoom(topologyZoom + 0.125));
+  topologyResetLayout?.addEventListener("click", () => {
+    topologyPositions[selectedNode] = {};
+    saveTopologyPositions();
+    topologyZoom = 1;
+    renderTopology();
+  });
 
   return {
     setAdmin(value) { admin = Boolean(value); if (services.length) refreshSLO(); renderTopology(); },
@@ -563,6 +699,7 @@ export function createOperationsController({ api, demo = false, toast, onSelectN
       const next = node || "local";
       const changed = next !== selectedNode;
       selectedNode = next;
+      topologyPositions[selectedNode] ||= {};
       if (changed) {
         hasTimelineResult = false;
         displayedTimelineRange = "";

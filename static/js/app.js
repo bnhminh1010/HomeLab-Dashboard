@@ -86,9 +86,15 @@ function toast(message, level = "info") {
   const item = document.createElement("div");
   item.className = "toast";
   item.dataset.level = level;
-  item.textContent = String(message);
+  const content = document.createElement("span");
+  content.className = "toast-message";
+  content.textContent = String(message);
+  const progress = document.createElement("span");
+  progress.className = "toast-progress";
+  progress.setAttribute("aria-hidden", "true");
+  item.append(content, progress);
   region.append(item);
-  window.setTimeout(() => item.remove(), 4500);
+  window.setTimeout(() => item.remove(), 3000);
 }
 
 function setStateText(element, value) { setText(element, value, true); }
@@ -122,6 +128,7 @@ const overviewController = createOverviewController({
   toast,
   onNavigate: (route) => navigateTo(route),
   onOpenContainerTerminal: (container, mode, invoker) => containersController.open(container, mode, invoker),
+  onWidgetPreferences: applyOverviewWidgetIntent,
 });
 const alertsController = createAlertsController({ api, demo, toast });
 const nodesController = createNodesController({
@@ -238,6 +245,40 @@ function applyWorkspacePreferences(preferences) {
   const visibleRoute = normalizeRoute(currentRoute);
   if (visibleRoute.workspace !== currentRoute.workspace) workspaceNavigation?.navigate(visibleRoute, { replace: true, focus: false });
   return workspacePreferences;
+}
+
+async function applyOverviewWidgetIntent(intent = {}) {
+  const previous = workspacePreferences;
+  const next = {
+    ...previous,
+    hiddenOverviewWidgets: [...previous.hiddenOverviewWidgets],
+    overviewWidgetSizes: { ...previous.overviewWidgetSizes },
+  };
+  if (intent.reset) {
+    next.hiddenOverviewWidgets = [];
+    next.overviewWidgetSizes = { ...OVERVIEW_WIDGET_DEFAULT_SIZES };
+  } else if (OVERVIEW_WIDGET_ORDER.includes(intent.widgetID)) {
+    if (intent.hidden && intent.widgetID !== "overview-attention") next.hiddenOverviewWidgets.push(intent.widgetID);
+    if (intent.hidden === false) next.hiddenOverviewWidgets = next.hiddenOverviewWidgets.filter((id) => id !== intent.widgetID);
+    if (["small", "medium", "full"].includes(intent.size)) next.overviewWidgetSizes[intent.widgetID] = intent.size;
+  }
+  applyWorkspacePreferences(next);
+  try {
+    if (!sessionAuthenticated) throw new Error("Sign in to save overview widget preferences.");
+    const update = { hiddenOverviewWidgets: next.hiddenOverviewWidgets, overviewWidgetSizes: next.overviewWidgetSizes };
+    if (demo) {
+      const merged = { ...workspacePreferences, ...update };
+      storeValue("homelab.demo.workspace-preferences", JSON.stringify(merged));
+      applyWorkspacePreferences(merged);
+      return workspacePreferences;
+    }
+    const updated = await api.updatePreferences(update);
+    applyWorkspacePreferences(updated);
+    return workspacePreferences;
+  } catch (error) {
+    applyWorkspacePreferences(previous);
+    throw error;
+  }
 }
 
 function safeRouteValue(value, maxLength = 160) {
@@ -555,10 +596,27 @@ function createKeyboardShortcuts() {
     }
     if (dialog.open) return;
     if (event.key === "/") {
-      event.preventDefault();
-      if (currentRoute.workspace === "services") servicesController.focusFilter();
-      else if (currentRoute.workspace === "containers") containersController.focusFilter();
-      else document.querySelector("[data-workspace-panel]:not([hidden]) [data-workspace-filter]")?.focus({ preventScroll: true });
+      let handled = false;
+      if (currentRoute.workspace === "services") {
+        servicesController.focusFilter();
+        handled = true;
+      } else if (currentRoute.workspace === "containers") {
+        containersController.focusFilter();
+        handled = true;
+      } else if (currentRoute.workspace === "logs") {
+        const search = document.getElementById("logs-search");
+        if (search) {
+          logsController.focusSearch?.();
+          handled = true;
+        }
+      } else {
+        const target = document.querySelector("[data-workspace-panel]:not([hidden]) [data-workspace-filter]");
+        if (target) {
+          target.focus({ preventScroll: true });
+          handled = true;
+        }
+      }
+      if (handled) event.preventDefault();
       return;
     }
     const key = event.key.toLowerCase();
@@ -1070,6 +1128,7 @@ function applySession(session = {}) {
   nodesController.setAdmin(admin);
   settingsController.setAdmin(admin);
   settingsController.setSession({ authenticated });
+  overviewController.setAuthenticated(authenticated);
   operationsController.setAdmin(admin);
   terminal.setHostShellCapability(sessionHostShellCapability);
   updateOverview();

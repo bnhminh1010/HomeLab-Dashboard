@@ -1,3 +1,5 @@
+import { copyText, showCopied } from "./format.js";
+
 const ranges = {
   "15m": 15 * 60 * 1000,
   "1h": 60 * 60 * 1000,
@@ -174,7 +176,23 @@ export function createLogsController({ api, demo, toast }) {
       const line = document.createElement("pre");
       line.className = "historical-log-line";
       appendHighlighted(line, String(entry.line || ""), matcher);
-      row.append(metadata, line);
+      const actions = document.createElement("div");
+      actions.className = "historical-log-actions";
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "text-button";
+      copy.textContent = "COPY";
+      copy.setAttribute("aria-label", "Copy log line");
+      copy.addEventListener("click", async () => {
+        try {
+          await copyText(String(entry.line || ""));
+          showCopied(copy);
+        } catch (error) {
+          toast?.(error?.message || "Unable to copy log line.", "error");
+        }
+      });
+      actions.append(copy);
+      row.append(metadata, line, actions);
       list.append(row);
       if (activeQuery) matchRows.push(row);
     }
@@ -299,6 +317,7 @@ export function createLogsController({ api, demo, toast }) {
   return {
     setResources,
     setNode(next) { node = next || "local"; },
+    focusSearch() { search?.focus({ preventScroll: true }); },
     async activate() {
       await checkStatus();
       if (enabled && Date.now() - lastRefreshAt > 30_000) await load();
