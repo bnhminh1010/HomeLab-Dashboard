@@ -31,6 +31,7 @@ type Config struct {
 	ProbeTimeout           time.Duration
 	ProbeConcurrency       int
 	NetworkInterface       string
+	DiskMounts             []string
 	TailscaleSOCKS5Address string
 	TrustTailscaleHeaders  bool
 	HistoryQuotaBytes      int64
@@ -64,6 +65,7 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		ProbeTimeout:           3 * time.Second,
 		ProbeConcurrency:       4,
 		NetworkInterface:       strings.TrimSpace(getenv("NETWORK_INTERFACE")),
+		DiskMounts:             splitList(getenv("DISK_MOUNTS")),
 		TailscaleSOCKS5Address: strings.TrimSpace(getenv("TAILSCALE_SOCKS5_ADDR")),
 		TrustTailscaleHeaders:  true,
 		HistoryQuotaBytes:      2 << 30,

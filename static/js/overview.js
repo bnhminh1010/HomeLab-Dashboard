@@ -9,6 +9,7 @@ const MAX_RECENT_CHANGES = 5;
 const PROBLEM_CONTAINERS = new Set(["crashed", "unhealthy", "dead", "restarting"]);
 const PROBLEM_SERVICES = new Set(["down", "error", "unhealthy", "crashed", "degraded", "warning"]);
 const ACTIONABLE_ALERTS = new Set(["critical", "error", "warning", "warn"]);
+const SMART_STATUSES = new Set(["PASSED", "FAILED", "STANDBY", "UNAVAILABLE", "TIMEOUT"]);
 const OVERVIEW_WIDGET_IDS = OVERVIEW_WIDGET_ORDER;
 const ICONS = Object.freeze({
   link: '<path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/>',
@@ -40,6 +41,22 @@ function containerState(container = {}) {
 
 function serviceState(service = {}) {
   return String(service?.status || service?.health?.status || "unknown").toLowerCase();
+}
+
+function diskSmartStatus(disk = {}) {
+  const raw = disk.smartStatus ?? disk.smart?.status ?? disk.smart?.health;
+  const status = String(raw || "UNAVAILABLE").trim().toUpperCase();
+  return SMART_STATUSES.has(status) ? status : "UNAVAILABLE";
+}
+
+function storageTemperature(disk = {}) {
+  const value = disk.temperatureCelsius
+    ?? disk.smartTemperatureCelsius
+    ?? disk.smart?.temperatureCelsius
+    ?? disk.temperature
+    ?? disk.temp;
+  const temperature = Number(value);
+  return Number.isFinite(temperature) ? temperature : null;
 }
 
 function incidentLevel(value) {
@@ -183,6 +200,7 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
   const topContainersEmpty = document.getElementById("overview-top-containers-empty");
   const storagePoolsList = document.getElementById("overview-storage-pools-list");
   const storagePoolsEmpty = document.getElementById("overview-storage-pools-empty");
+  const storageSmartStatusLabel = document.getElementById("overview-storage-smart-status");
   const noteInput = document.getElementById("overview-operator-note-input");
   const noteStatus = document.getElementById("overview-note-status");
   const noteUpdated = document.getElementById("overview-note-updated");
@@ -560,17 +578,73 @@ export function createOverviewController({ api, demo = false, toast, onNavigate,
   function renderStoragePools() {
     if (!storagePoolsList) return;
     const disks = Array.isArray(latest.disks) ? latest.disks : [];
+    const statuses = disks.map(diskSmartStatus);
+    const knownStatuses = statuses.filter((status) => status !== "UNAVAILABLE");
+    if (storageSmartStatusLabel) {
+      const counts = new Map();
+      for (const status of knownStatuses) counts.set(status, (counts.get(status) || 0) + 1);
+      storageSmartStatusLabel.textContent = knownStatuses.length
+        ? `SMART ${["PASSED", "FAILED", "STANDBY", "TIMEOUT"].filter((status) => counts.has(status)).map((status) => `${counts.get(status)} ${status}`).join(" · ")}`
+        : "SMART UNAVAILABLE";
+      storageSmartStatusLabel.title = knownStatuses.length
+        ? `${knownStatuses.length} of ${disks.length} disk${disks.length === 1 ? "" : "s"} reported SMART data.`
+        : "SMART data is unavailable for this snapshot.";
+    }
     storagePoolsList.replaceChildren(...disks.map((disk) => {
       const row = document.createElement("div");
       row.className = "storage-pool-row";
       const percentValue = numeric(disk.usagePercent ?? disk.percent);
-      row.innerHTML = '<div class="storage-pool-heading"><strong></strong><span class="mono"></span></div><div class="progress progress-thin"><span class="progress-fill"></span></div><div class="storage-pool-meta mono"><span></span><span></span></div>';
-      row.querySelector("strong").textContent = String(disk.mountPoint || "/");
-      row.querySelector(".storage-pool-heading span").textContent = `${percentValue.toFixed(1)}% USED`;
-      row.querySelector(".progress").style.setProperty("--progress", clamp(percentValue));
-      row.querySelector(".progress").dataset.level = percentValue > 90 ? "critical" : percentValue >= 80 ? "hot" : percentValue >= 50 ? "warning" : "normal";
-      row.querySelector(".storage-pool-meta span").textContent = `${bytes(disk.usedBytes ?? disk.used)} / ${bytes(disk.totalBytes ?? disk.total)} · ${disk.device || "device unavailable"}`;
-      row.querySelector(".storage-pool-meta span:last-child").textContent = `R ${rate(disk.readBytesPerSecond ?? disk.readRate)} · W ${rate(disk.writeBytesPerSecond ?? disk.writeRate)}`;
+      const heading = document.createElement("div");
+      heading.className = "storage-pool-heading";
+      const mount = document.createElement("strong");
+      mount.textContent = String(disk.mountPoint || "/");
+      mount.title = String(disk.mountPoint || "/");
+      const usage = document.createElement("span");
+      usage.className = "mono";
+      usage.textContent = `${percentValue.toFixed(1)}% USED`;
+      heading.append(mount, usage);
+
+      const progress = document.createElement("div");
+      progress.className = "progress progress-thin";
+      progress.setAttribute("role", "progressbar");
+      progress.setAttribute("aria-label", `${mount.textContent} disk usage`);
+      progress.setAttribute("aria-valuemin", "0");
+      progress.setAttribute("aria-valuemax", "100");
+      progress.setAttribute("aria-valuenow", String(clamp(percentValue)));
+      progress.style.setProperty("--progress", clamp(percentValue));
+      progress.dataset.level = percentValue > 90 ? "critical" : percentValue >= 80 ? "hot" : percentValue >= 50 ? "warning" : "normal";
+      progress.append(document.createElement("span"));
+      progress.firstElementChild.className = "progress-fill";
+
+      const statusLine = document.createElement("div");
+      statusLine.className = "storage-pool-status-line mono";
+      const smart = document.createElement("span");
+      smart.className = "storage-pool-smart";
+      const smartStatus = diskSmartStatus(disk);
+      smart.dataset.status = smartStatus;
+      smart.textContent = smartStatus;
+      smart.title = smartStatus === "UNAVAILABLE" ? "SMART data is not available for this disk." : `SMART health: ${smartStatus}`;
+      statusLine.append(smart);
+      const temperature = storageTemperature(disk);
+      if (temperature !== null) {
+        const temperatureLabel = document.createElement("span");
+        temperatureLabel.className = "storage-pool-temperature";
+        temperatureLabel.textContent = `${temperature.toFixed(0)}°C`;
+        temperatureLabel.dataset.level = temperature >= 80 ? "critical" : temperature >= 65 ? "warning" : "normal";
+        temperatureLabel.title = "Drive temperature";
+        statusLine.append(temperatureLabel);
+      }
+
+      const meta = document.createElement("div");
+      meta.className = "storage-pool-meta mono";
+      const capacity = document.createElement("span");
+      capacity.textContent = `${bytes(disk.usedBytes ?? disk.used)} / ${bytes(disk.totalBytes ?? disk.total)} · ${disk.device || "device unavailable"}`;
+      capacity.title = capacity.textContent;
+      const io = document.createElement("span");
+      io.textContent = `R ${rate(disk.readBytesPerSecond ?? disk.readRate)} · W ${rate(disk.writeBytesPerSecond ?? disk.writeRate)}`;
+      io.title = io.textContent;
+      meta.append(capacity, io);
+      row.append(heading, progress, statusLine, meta);
       return row;
     }));
     storagePoolsEmpty.hidden = disks.length > 0;

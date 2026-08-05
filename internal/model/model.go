@@ -84,13 +84,20 @@ type SystemStats struct {
 }
 
 type DiskStats struct {
-	MountPoint          string  `json:"mountPoint"`
-	Device              string  `json:"device"`
-	TotalBytes          uint64  `json:"totalBytes"`
-	UsedBytes           uint64  `json:"usedBytes"`
-	UsagePercent        float64 `json:"usagePercent"`
-	ReadBytesPerSecond  float64 `json:"readBytesPerSecond"`
-	WriteBytesPerSecond float64 `json:"writeBytesPerSecond"`
+	MountPoint          string     `json:"mountPoint"`
+	Device              string     `json:"device"`
+	TotalBytes          uint64     `json:"totalBytes"`
+	UsedBytes           uint64     `json:"usedBytes"`
+	UsagePercent        float64    `json:"usagePercent"`
+	ReadBytesPerSecond  float64    `json:"readBytesPerSecond"`
+	WriteBytesPerSecond float64    `json:"writeBytesPerSecond"`
+	SMART               *SMARTInfo `json:"smart,omitempty"`
+}
+
+type SMARTInfo struct {
+	Status             string   `json:"status"`
+	TemperatureCelsius *float64 `json:"temperatureCelsius,omitempty"`
+	Message            string   `json:"message,omitempty"`
 }
 
 type NetworkStats struct {

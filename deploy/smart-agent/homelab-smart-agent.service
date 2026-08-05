@@ -1,0 +1,23 @@
+[Unit]
+Description=HomeLab Dashboard SMART helper
+Documentation=https://github.com/bnhminh1010/homelab-dashboard
+After=basic.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+RuntimeDirectory=homelab-dashboard
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0077
+Environment=SMART_AGENT_SOCKET=%t/homelab-dashboard/smart-agent.sock
+Environment=SMART_AGENT_MOUNTS=/proc/1/mounts
+Environment=SMARTCTL_BINARY=/usr/sbin/smartctl
+ExecStart=%h/.local/libexec/homelab-smart-agent
+Restart=on-failure
+RestartSec=5s
+KillMode=control-group
+TimeoutStopSec=10s
+
+[Install]
+WantedBy=default.target

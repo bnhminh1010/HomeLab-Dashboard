@@ -224,9 +224,18 @@ button:disabled { opacity: 0.48; cursor: not-allowed; }
 .storage-pool-row { display: grid; gap: 6px; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); }
 .storage-pool-row:last-child { border-bottom: 0; }
 .storage-pool-heading, .storage-pool-meta { display: flex; min-width: 0; justify-content: space-between; gap: 8px; }
-.storage-pool-heading strong { color: var(--text-primary); font: 11px var(--font-mono); }
+.storage-pool-heading strong { min-width: 0; overflow: hidden; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; font: 11px var(--font-mono); }
 .storage-pool-heading span, .storage-pool-meta { color: var(--text-dim); font-size: 9px; }
 .storage-pool-meta span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.storage-pool-status-line { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--text-dim); font-size: 9px; }
+.storage-pool-smart, .storage-pool-temperature { white-space: nowrap; }
+.storage-pool-smart[data-status="PASSED"] { color: var(--green); }
+.storage-pool-smart[data-status="FAILED"] { color: var(--red); }
+.storage-pool-smart[data-status="STANDBY"], .storage-pool-smart[data-status="UNAVAILABLE"] { color: var(--gray); }
+.storage-pool-smart[data-status="TIMEOUT"] { color: var(--yellow); }
+.storage-pool-temperature[data-level="warning"] { color: var(--yellow); }
+.storage-pool-temperature[data-level="critical"] { color: var(--red); }
+#overview-storage-smart-status { min-width: 0; max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .operator-note-field { display: block; padding: 10px 12px 0; }
 .operator-note-field textarea { display: block; width: 100%; min-height: 100px; resize: vertical; box-sizing: border-box; padding: 8px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--bg-recess); font: 11px/1.5 var(--font-mono); }
 .operator-note-field textarea:focus { border-color: var(--accent-muted); outline: 2px solid var(--accent-soft); }

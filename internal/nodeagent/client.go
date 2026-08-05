@@ -37,6 +37,7 @@ type RunOptions struct {
 	SysPath          string
 	RootPath         string
 	NetworkInterface string
+	DiskMounts       []string
 	BackupStatusFile string
 	MaxSessions      int
 	AgentVersion     string
@@ -56,6 +57,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	hostCollector, err := metrics.NewLinuxCollector(metrics.CollectorOptions{
 		ProcPath: options.ProcPath, SysPath: options.SysPath, RootPath: options.RootPath,
 		NetworkInterface: options.NetworkInterface,
+		Mounts:           options.DiskMounts,
 	})
 	if err != nil {
 		return fmt.Errorf("node agent: configure host collector: %w", err)

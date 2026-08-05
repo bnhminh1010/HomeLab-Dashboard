@@ -41,6 +41,43 @@ function demoAlerts() {
   return alerts;
 }
 
+function demoDisks() {
+  return [
+    {
+      mountPoint: "/",
+      device: "/dev/nvme0n1p2",
+      totalBytes: 493_921_239_040,
+      usedBytes: edgeMode ? 459_346_752_307 : 404_800_143_360,
+      usagePercent: edgeMode ? 93 : 82,
+      readBytesPerSecond: 13_002_342 + Math.random() * 500_000,
+      writeBytesPerSecond: 3_302_342 + Math.random() * 300_000,
+      smartStatus: edgeMode ? "TIMEOUT" : "PASSED",
+      temperatureCelsius: edgeMode ? 81 : 38,
+    },
+    {
+      mountPoint: "/boot",
+      device: "/dev/nvme0n1p1",
+      totalBytes: 1_073_741_824,
+      usedBytes: 226_492_416,
+      usagePercent: 21.1,
+      readBytesPerSecond: 0,
+      writeBytesPerSecond: 0,
+      smartStatus: "STANDBY",
+    },
+    {
+      mountPoint: "/srv",
+      device: "/dev/mapper/vg_data-lv_srv",
+      totalBytes: 2_000_000_000_000,
+      usedBytes: edgeMode ? 1_940_000_000_000 : 860_000_000_000,
+      usagePercent: edgeMode ? 97 : 43,
+      readBytesPerSecond: 1_820_000,
+      writeBytesPerSecond: 780_000,
+      smartStatus: edgeMode ? "FAILED" : "UNAVAILABLE",
+      ...(edgeMode ? { temperatureCelsius: 74 } : {}),
+    },
+  ];
+}
+
 function snapshot() {
   const wave = sequence / 5;
   const cpu = edgeMode ? 160 : 25 + Math.sin(wave) * 13 + Math.random() * 3;
@@ -64,7 +101,7 @@ function snapshot() {
         cpu: { usagePercent: cpu, cores: 8, frequencyMHz: 2200, temperatureCelsius: edgeMode ? 86 : 46 },
         memory: { totalBytes: 17_179_869_184, usedBytes: ramUsed, availableBytes: 10_522_001_408, swapTotalBytes: 2_147_483_648, swapUsedBytes: 134_217_728, zramUsedBytes: 67_108_864 },
       },
-      disks: [{ mountPoint: "/", device: "/dev/nvme0n1p2", totalBytes: 493_921_239_040, usedBytes: edgeMode ? 459_346_752_307 : 404_800_143_360, usagePercent: edgeMode ? 93 : 82, readBytesPerSecond: 13_002_342 + Math.random() * 500_000, writeBytesPerSecond: 3_302_342 + Math.random() * 300_000 }],
+      disks: demoDisks(),
       network: { interface: "tailscale0", rxBytesPerSecond: 12_288 + Math.random() * 6000, txBytesPerSecond: 3420 + Math.random() * 1500 },
       services: demoServices.map((service) => ({ ...service, lastCheckedAt: service.probeUrl ? nowIso() : null })),
       containers: demoContainers.map((container, index) => ({ ...container, cpuUsagePercent: Math.max(0, container.cpuUsagePercent + Math.sin(wave + index) * 0.2) })),

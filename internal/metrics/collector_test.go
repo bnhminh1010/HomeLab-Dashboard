@@ -97,6 +97,19 @@ func TestHostRootDevicePrefersHostPIDOneMountTable(t *testing.T) {
 	}
 }
 
+func TestDiscoverMountsPrefersHostPIDOneAndFiltersPseudoFilesystems(t *testing.T) {
+	proc := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(proc, "1"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, filepath.Join(proc, "mounts"), "/dev/old / ext4 rw 0 0\n/dev/old /old ext4 rw 0 0\n")
+	writeFixture(t, filepath.Join(proc, "1", "mounts"), "/dev/root / ext4 rw 0 0\n/dev/data /data xfs rw 0 0\nproc /proc proc rw 0 0\ntmpfs /run tmpfs rw 0 0\n")
+	mounts := discoverMounts(proc)
+	if len(mounts) != 2 || mounts[0] != "/" || mounts[1] != "/data" {
+		t.Fatalf("discoverMounts()=%v", mounts)
+	}
+}
+
 func writeFixture(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), 0o640); err != nil {

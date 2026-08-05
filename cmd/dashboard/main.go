@@ -122,6 +122,7 @@ func run() error {
 	hostCollector, err := metrics.NewLinuxCollector(metrics.CollectorOptions{
 		ProcPath: cfg.HostProcPath, SysPath: cfg.HostSysPath, RootPath: cfg.HostRootPath,
 		NetworkInterface: cfg.NetworkInterface,
+		Mounts:           cfg.DiskMounts,
 	})
 	if err != nil {
 		return fmt.Errorf("configure host metrics: %w", err)

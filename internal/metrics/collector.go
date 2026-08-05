@@ -3,9 +3,11 @@ package metrics
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -33,6 +35,64 @@ type CollectorOptions struct {
 	RootPath         string
 	NetworkInterface string
 	Now              func() time.Time
+	Mounts           []string
+	SMART            SMARTChecker
+}
+
+type SMARTChecker interface {
+	Check(context.Context, string) (model.SMARTInfo, error)
+}
+
+type SmartctlChecker struct {
+	Binary  string
+	Timeout time.Duration
+}
+
+func (checker SmartctlChecker) Check(ctx context.Context, device string) (model.SMARTInfo, error) {
+	if checker.Binary == "" {
+		checker.Binary = "smartctl"
+	}
+	if checker.Timeout <= 0 {
+		checker.Timeout = 2 * time.Second
+	}
+	callCtx, cancel := context.WithTimeout(ctx, checker.Timeout)
+	defer cancel()
+	output, err := exec.CommandContext(callCtx, checker.Binary, "--json", "--all", "-n", "standby", device).CombinedOutput()
+	if err != nil {
+		if callCtx.Err() != nil {
+			return model.SMARTInfo{Status: "TIMEOUT", Message: "smartctl timed out"}, callCtx.Err()
+		}
+		var probe struct {
+			Smartctl struct {
+				ExitStatus int `json:"exit_status"`
+			} `json:"smartctl"`
+		}
+		if json.Unmarshal(output, &probe) == nil && probe.Smartctl.ExitStatus == 2 {
+			return model.SMARTInfo{Status: "STANDBY", Message: "drive stayed in standby"}, nil
+		}
+		return model.SMARTInfo{Status: "UNAVAILABLE", Message: "smartctl unavailable"}, err
+	}
+	var payload struct {
+		SmartStatus struct {
+			Passed bool `json:"passed"`
+		} `json:"smart_status"`
+		Temperature struct {
+			Current float64 `json:"current"`
+		} `json:"temperature"`
+	}
+	if err := json.Unmarshal(output, &payload); err != nil {
+		return model.SMARTInfo{Status: "UNKNOWN", Message: "invalid smartctl response"}, err
+	}
+	status := "FAILED"
+	if payload.SmartStatus.Passed {
+		status = "PASSED"
+	}
+	info := model.SMARTInfo{Status: status}
+	if payload.Temperature.Current != 0 {
+		value := payload.Temperature.Current
+		info.TemperatureCelsius = &value
+	}
+	return info, nil
 }
 
 type LinuxCollector struct {
@@ -46,8 +106,8 @@ type rawSample struct {
 	at        time.Time
 	cpuTotal  uint64
 	cpuIdle   uint64
-	diskRead  uint64
-	diskWrite uint64
+	diskRead  map[string]uint64
+	diskWrite map[string]uint64
 	networkRX uint64
 	networkTX uint64
 }
@@ -84,11 +144,11 @@ func (c *LinuxCollector) Collect(ctx context.Context) (HostSnapshot, error) {
 		return HostSnapshot{}, err
 	}
 	device := hostRootDevice(c.options.ProcPath)
-	disk, err := readDisk(c.options.RootPath, device)
+	disks, err := c.readDisks(ctx, device)
 	if err != nil {
 		return HostSnapshot{}, err
 	}
-	diskRead, diskWrite := readDiskCounters(filepath.Join(c.options.ProcPath, "diskstats"), device)
+	diskRead, diskWrite := c.readDiskCounters(disks)
 	// /proc/net follows the dashboard process namespace. PID 1 under the host
 	// proc mount represents the host network namespace when it is accessible.
 	networkRoot := filepath.Join(c.options.ProcPath, "1", "net")
@@ -117,7 +177,7 @@ func (c *LinuxCollector) Collect(ctx context.Context) (HostSnapshot, error) {
 	c.previous = &current
 	c.mu.Unlock()
 
-	var cpuUsage, readRate, writeRate, rxRate, txRate float64
+	var cpuUsage, rxRate, txRate float64
 	if previous != nil {
 		totalDelta := counterDelta(cpuTotal, previous.cpuTotal)
 		idleDelta := counterDelta(cpuIdle, previous.cpuIdle)
@@ -130,14 +190,16 @@ func (c *LinuxCollector) Collect(ctx context.Context) (HostSnapshot, error) {
 		}
 		seconds := now.Sub(previous.at).Seconds()
 		if seconds > 0 {
-			readRate = float64(counterDelta(diskRead, previous.diskRead)) / seconds
-			writeRate = float64(counterDelta(diskWrite, previous.diskWrite)) / seconds
+			for i := range disks {
+				read := diskRead[disks[i].Device]
+				write := diskWrite[disks[i].Device]
+				disks[i].ReadBytesPerSecond = float64(counterDelta(read, previous.diskRead[disks[i].Device])) / seconds
+				disks[i].WriteBytesPerSecond = float64(counterDelta(write, previous.diskWrite[disks[i].Device])) / seconds
+			}
 			rxRate = float64(counterDelta(rx, previous.networkRX)) / seconds
 			txRate = float64(counterDelta(tx, previous.networkTX)) / seconds
 		}
 	}
-	disk.ReadBytesPerSecond = readRate
-	disk.WriteBytesPerSecond = writeRate
 
 	hostname := firstLine(filepath.Join(c.options.RootPath, "etc", "hostname"))
 	if hostname == "" {
@@ -158,9 +220,111 @@ func (c *LinuxCollector) Collect(ctx context.Context) (HostSnapshot, error) {
 			},
 			Memory: memory,
 		},
-		Disks:   []model.DiskStats{disk},
+		Disks:   disks,
 		Network: model.NetworkStats{Interface: iface, RXBytesPerSecond: rxRate, TXBytesPerSecond: txRate},
 	}, nil
+}
+
+func (c *LinuxCollector) readDiskCounters(disks []model.DiskStats) (map[string]uint64, map[string]uint64) {
+	reads := map[string]uint64{}
+	writes := map[string]uint64{}
+	for _, disk := range disks {
+		r, w := readDiskCounters(filepath.Join(c.options.ProcPath, "diskstats"), disk.Device)
+		reads[disk.Device] = r
+		writes[disk.Device] = w
+	}
+	return reads, writes
+}
+
+func (c *LinuxCollector) readDisks(ctx context.Context, rootDevice string) ([]model.DiskStats, error) {
+	mounts := append([]string(nil), c.options.Mounts...)
+	if len(mounts) == 0 {
+		mounts = discoverMounts(c.options.ProcPath)
+		if len(mounts) == 0 {
+			mounts = []string{"/"}
+		}
+	}
+	result := make([]model.DiskStats, 0, len(mounts))
+	seen := map[string]struct{}{}
+	for _, mount := range mounts {
+		if mount == "" {
+			continue
+		}
+		if _, ok := seen[mount]; ok {
+			continue
+		}
+		seen[mount] = struct{}{}
+		device := rootDevice
+		if mount != "/" {
+			device = mountDevice(c.options.ProcPath, mount)
+		}
+		disk, err := readDisk(filepath.Join(c.options.RootPath, strings.TrimPrefix(mount, "/")), device)
+		if mount == "/" {
+			disk, err = readDisk(c.options.RootPath, device)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if c.options.SMART != nil && device != "unknown" {
+			info, _ := c.options.SMART.Check(ctx, device)
+			disk.SMART = &info
+		}
+		disk.MountPoint = mount
+		result = append(result, disk)
+	}
+	return result, nil
+}
+
+func discoverMounts(procPath string) []string {
+	path := filepath.Join(procPath, "1", "mounts")
+	file, err := os.Open(path)
+	if err != nil {
+		file, err = os.Open(filepath.Join(procPath, "mounts"))
+	}
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	result := []string{}
+	seen := map[string]struct{}{}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 3 {
+			continue
+		}
+		mount := strings.ReplaceAll(fields[1], `\040`, " ")
+		if mount != "/" && (strings.HasPrefix(mount, "/proc") || strings.HasPrefix(mount, "/sys") || strings.HasPrefix(mount, "/dev") || strings.HasPrefix(mount, "/run")) {
+			continue
+		}
+		switch fields[2] {
+		case "ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "f2fs", "overlay":
+		default:
+			continue
+		}
+		if _, ok := seen[mount]; ok {
+			continue
+		}
+		seen[mount] = struct{}{}
+		result = append(result, mount)
+	}
+	return result
+}
+
+func mountDevice(procPath, mount string) string {
+	file, err := os.Open(filepath.Join(procPath, "mounts"))
+	if err != nil {
+		return "unknown"
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 2 && fields[1] == mount {
+			return strings.ReplaceAll(fields[0], `\040`, " ")
+		}
+	}
+	return "unknown"
 }
 
 func readCPU(path string) (total, idle uint64, cores int, err error) {
