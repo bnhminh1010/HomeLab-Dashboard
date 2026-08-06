@@ -74,7 +74,7 @@ jobs:
       - name: Build Go packages for CodeQL
         run: go build ./...
       - name: Analyze CodeQL
-        uses: github/codeql-action/analyze@e0647621c2984b5ed2f768cb892365bf2a616ad1 # v4
+        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
         with:
           category: /language:go
       - name: Set up QEMU for multi-architecture builds
