@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090909">
+  <meta name="description" content="HomeLab Dashboard — a Tailscale-only operations console for 1–5 rootless Podman nodes. Observe services, SLOs, backup freshness and container health, then open the correct shell — no inbound ports, no metrics stack.">
+  <title>HomeLab Dashboard · Your homelab, one console</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%23101010'/%3E%3Crect x='6' y='6' width='6' height='6' rx='1' fill='%23d99a3d'/%3E%3Crect x='14' y='6' width='12' height='6' rx='1' fill='%2337332d'/%3E%3Crect x='6' y='14' width='12' height='6' rx='1' fill='%2337332d'/%3E%3Crect x='20' y='14' width='6' height='6' rx='1' fill='%2355bf78'/%3E%3Crect x='6' y='22' width='6' height='4' rx='1' fill='%2337332d'/%3E%3Crect x='14' y='22' width='12' height='4' rx='1' fill='%2337332d'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+</head>
+<body>
+
+<!-- ══════════════ NAV ══════════════ -->
+<nav class="nav" id="nav">
+  <a class="nav-brand" href="#top">
+    <svg class="nav-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="4" fill="none" stroke="#37332d"/><rect x="6" y="6" width="6" height="6" rx="1" fill="#d99a3d"/><rect x="14" y="6" width="12" height="6" rx="1" fill="#37332d"/><rect x="6" y="14" width="12" height="6" rx="1" fill="#37332d"/><rect x="20" y="14" width="6" height="6" rx="1" fill="#55bf78"/><rect x="6" y="22" width="6" height="4" rx="1" fill="#37332d"/><rect x="14" y="22" width="12" height="4" rx="1" fill="#37332d"/></svg>
+    <span class="nav-word">HOMELAB&nbsp;DASHBOARD</span>
+  </a>
+  <div class="nav-links">
+    <a href="#demo">Demo</a>
+    <a href="#screenshots">Screenshots</a>
+    <a href="#features">Features</a>
+    <a href="#security">Security</a>
+    <a href="#quickstart">Quick start</a>
+    <a class="nav-gh" href="https://github.com/bnhminh1010/homelab-dashboard" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</nav>
+
+<!-- ══════════════ HERO ══════════════ -->
+<header class="hero" id="top">
+  <canvas class="hero-wave" id="wave" aria-hidden="true"></canvas>
+  <div class="hero-inner">
+    <p class="hero-badge"><span class="pulse"></span> Tailscale-only · Zero inbound ports · No Node.js</p>
+    <h1 class="hero-title">Your homelab,<br><em>one console.</em></h1>
+    <p class="hero-sub">Observe services, SLOs, backup freshness and container health across up to five rootless Podman nodes — then open the correct container or host shell without exposing a single admin port.</p>
+    <div class="hero-term" aria-hidden="true"><span class="t-prompt">$</span> podman compose up -d<span class="t-cursor"></span></div>
+    <div class="hero-cta">
+      <a class="btn btn-solid" href="#demo">Try the live demo</a>
+      <a class="btn btn-ghost" href="#quickstart">Quick start</a>
+    </div>
+    <p class="hero-hint">Move your cursor — the grid responds.</p>
+  </div>
+  <div class="hero-shot reveal">
+    <img src="screenshots/overview.png" alt="HomeLab Dashboard overview — live health, host metrics and 24-hour trend" loading="eager" width="2880" height="1800">
+    <div class="shot-label"><span class="dot-ok"></span>LIVE · overview · admin@tailnet</div>
+  </div>
+  <a class="scroll-hint" href="#kpi" aria-label="Scroll down"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 5l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></a>
+</header>
+
+<!-- ══════════════ KPI STRIP ══════════════ -->
+<section class="kpi" id="kpi">
+  <div class="kpi-grid">
+    <div class="kpi-cell"><span class="kpi-num" data-count="8">0</span><span class="kpi-label">workspaces</span></div>
+    <div class="kpi-cell"><span class="kpi-num" data-count="3">0</span><span class="kpi-label">static binaries</span></div>
+    <div class="kpi-cell"><span class="kpi-num" data-count="0">0</span><span class="kpi-label">inbound ports</span></div>
+    <div class="kpi-cell"><span class="kpi-num" data-count="50" data-suffix=" MB">0</span><span class="kpi-label">RSS per node</span></div>
+  </div>
+</section>
+
+<!-- ══════════════ LIVE DEMO ══════════════ -->
+<section class="demo" id="demo">
+  <div class="section-head reveal">
+    <p class="section-eyebrow">Live demo</p>
+    <h2>Run it in your browser. No account, no install.</h2>
+    <p class="section-sub">The full operator workflow with deterministic mock data — try regex log search, open a container shell, toggle the light theme.</p>
+  </div>
+  <div class="demo-frame reveal">
+    <div class="demo-bar"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span><span class="demo-url">homelab-dashboard › demo</span><span class="demo-live">LIVE · no login</span></div>
+    <iframe src="app/?demo=1" title="HomeLab Dashboard interactive demo" loading="lazy"></iframe>
+  </div>
+</section>
+
+<!-- ══════════════ SCREENSHOTS ══════════════ -->
+<section class="shots" id="screenshots">
+  <div class="section-head reveal">
+    <p class="section-eyebrow">Workspaces</p>
+    <h2>Eight workspaces. One loop: see → understand → act.</h2>
+    <p class="section-sub">Everything an operator runs on a 1–5 node lab, in one interface — no tab sprawl between metrics, logs and shells.</p>
+  </div>
+  <div class="shots-grid">
+    <figure class="shot-card reveal"><img src="screenshots/services.png" alt="Services workspace with per-service SLO error budgets" loading="lazy"><figcaption><b>Services</b><span>SLO error budgets · 7/30/90-day</span></figcaption></figure>
+    <figure class="shot-card reveal"><img src="screenshots/containers.png" alt="Container inventory with logs and interactive shells" loading="lazy"><figcaption><b>Containers</b><span>Inventory · logs · shells</span></figcaption></figure>
+    <figure class="shot-card reveal"><img src="screenshots/history.png" alt="History workspace with 90-day charts" loading="lazy"><figcaption><b>History</b><span>90-day rollup · change timeline</span></figcaption></figure>
+    <figure class="shot-card reveal"><img src="screenshots/logs-regex.png" alt="Logs workspace with regex search" loading="lazy"><figcaption><b>Logs</b><span>Follow · pause · regex search</span></figcaption></figure>
+    <figure class="shot-card reveal"><img src="screenshots/topology.png" alt="Service topology showing curated dependencies" loading="lazy"><figcaption><b>Topology</b><span>Curated dependency map</span></figcaption></figure>
+    <figure class="shot-card reveal"><img src="screenshots/alerts.png" alt="Alert center with acknowledge and silence controls" loading="lazy"><figcaption><b>Alerts</b><span>Ack · silence · ntfy · webhook</span></figcaption></figure>
+    <figure class="shot-card reveal"><img src="screenshots/terminal.png" alt="Terminal workbench with an interactive host shell" loading="lazy"><figcaption><b>Terminal</b><span>Container shells · host Bash</span></figcaption></figure>
+    <figure class="shot-card reveal"><img src="screenshots/nodes.png" alt="Nodes workspace for remote fleet management" loading="lazy"><figcaption><b>Nodes</b><span>Remote fleet · enroll tokens</span></figcaption></figure>
+    <figure class="shot-card reveal"><img src="screenshots/overview-light.png" alt="The same graphite workspace in the optional light theme" loading="lazy"><figcaption><b>Light theme</b><span>Graphite or paper — your call</span></figcaption></figure>
+  </div>
+</section>
+
+<!-- ══════════════ FEATURES ══════════════ -->
+<section class="features" id="features">
+  <div class="section-head reveal">
+    <p class="section-eyebrow">Capabilities</p>
+    <h2>Observe. Act. Retain. Trust.</h2>
+    <p class="section-sub">The four commitments of an operations console — each one implemented in code, not slides.</p>
+  </div>
+  <div class="feat-grid">
+    <article class="feat-card feat-wide reveal">
+      <svg class="feat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+      <h3>Observe</h3>
+      <p>Host CPU, memory, disk, network, load and temperature; container health and resource usage; TLS certificate observations; service uptime and <b>backup freshness</b> — live and as 90-day history.</p>
+    </article>
+    <article class="feat-card reveal">
+      <svg class="feat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h3>Act</h3>
+      <p>Container logs with regex search, interactive container shells, and an explicitly confirmed host Bash — context-linked to the alert or log that sent you there.</p>
+    </article>
+    <article class="feat-card reveal">
+      <svg class="feat-icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+      <h3>Retain</h3>
+      <p>Tiered history in one SQLite file: 10-second samples for 48h, rolled up to 1-minute for 30 days and 15-minute for 90 days. Configurable quota, no TSDB.</p>
+    </article>
+    <article class="feat-card feat-wide reveal">
+      <svg class="feat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8.5 12l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h3>Trust</h3>
+      <p>Your Tailscale identity is the auth plane — no passwords, no exposed admin panel. Identity headers trusted only from loopback; sessions, mutations and shells carry CSRF and same-origin guards.</p>
+    </article>
+    <article class="feat-card reveal">
+      <svg class="feat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <h3>SLOs</h3>
+      <p>Per-service availability objectives with 7/30/90-day windows and explicit error budgets. Degraded states are flagged, not hidden.</p>
+    </article>
+    <article class="feat-card reveal">
+      <svg class="feat-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="17" r="2.5"/><path d="M8 6.5l7.5.5M7 8l4 7M14 9.5l-1 5.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+      <h3>Topology</h3>
+      <p>Curate service-to-service dependencies and see the blast radius of a failing service at a glance.</p>
+    </article>
+  </div>
+</section>
+
+<!-- ══════════════ SECURITY ══════════════ -->
+<section class="security" id="security">
+  <div class="section-head reveal">
+    <p class="section-eyebrow">Security boundary</p>
+    <h2>Small surface. Explicit actions. No inbound ports.</h2>
+    <p class="section-sub">The host shell is the most trusted feature, so it gets the most guards — and the whole system is designed so there is nothing to port-forward.</p>
+  </div>
+  <div class="sec-grid">
+    <article class="sec-card reveal">
+      <h3>Tailnet identity = auth</h3>
+      <p>No password database. Viewer vs admin comes from your Tailscale login; identity headers are only trusted when the request's peer is loopback.</p>
+    </article>
+    <article class="sec-card reveal">
+      <h3>Zero inbound ports</h3>
+      <p>Local host access goes through a Unix-socket agent; remote nodes dial out over Tailscale WSS. No SSH, no agent listener, no reverse proxy to secure.</p>
+    </article>
+    <article class="sec-card reveal">
+      <h3>Host shell is guarded</h3>
+      <p>An explicit <code>HOST_SHELL_USERS</code> allowlist plus an in-UI confirmation. Session audit records, 15-minute idle timeout, 1-hour hard cap — never auto-resumed.</p>
+    </article>
+    <article class="sec-card reveal">
+      <h3>Least privilege by build</h3>
+      <p>Dashboard runs read-only with dropped capabilities; host and node agents run as the unprivileged installing account. Three binaries, three privilege boundaries.</p>
+    </article>
+  </div>
+  <p class="sec-link reveal">Architecture rationale: <a href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/adr.md" target="_blank" rel="noopener">docs/adr.md</a> · Full boundary: <a href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/operations.md" target="_blank" rel="noopener">docs/operations.md</a></p>
+</section>
+
+<!-- ══════════════ QUICKSTART ══════════════ -->
+<section class="quickstart" id="quickstart">
+  <div class="section-head reveal">
+    <p class="section-eyebrow">Quick start</p>
+    <h2>From zero to your first shell in three commands.</h2>
+  </div>
+  <div class="qs-grid">
+    <ol class="qs-steps">
+      <li class="reveal"><b>01</b><div><h3>Install</h3><p>One command, unprivileged, APT/DNF/Pacman aware. It enables the rootless Podman socket, installs the host agent and starts Compose.</p></div></li>
+      <li class="reveal"><b>02</b><div><h3>Join the tailnet</h3><p>Tailscale Serve terminates HTTPS for the dashboard — no host port is ever published.</p></div></li>
+      <li class="reveal"><b>03</b><div><h3>Open the console</h3><p>Browse to your <code>*.ts.net</code> URL, log in with your tailnet identity, and start observing.</p></div></li>
+    </ol>
+    <div class="qs-term reveal">
+      <div class="term-bar"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span><span class="term-title">bash — homelab</span></div>
+      <pre id="typer" aria-hidden="true"></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ COMPARE / CTA ══════════════ -->
+<section class="cta">
+  <div class="section-head reveal">
+    <p class="section-eyebrow">Not another dashboard</p>
+    <h2>Your homelab, one console.</h2>
+    <p class="section-sub">Not a bookmark grid, not a Grafana stack, not a container manager — the loop between them. Compare feature-by-feature against Homepage, Uptime Kuma, Beszel, Portainer and more.</p>
+  </div>
+  <div class="cta-actions reveal">
+    <a class="btn btn-solid" href="#demo">Try the live demo</a>
+    <a class="btn btn-ghost" href="https://github.com/bnhminh1010/homelab-dashboard" target="_blank" rel="noopener">GitHub ↗</a>
+    <a class="btn btn-ghost" href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/comparison.md" target="_blank" rel="noopener">Compare with the field</a>
+  </div>
+</section>
+
+<!-- ══════════════ FOOTER ══════════════ -->
+<footer class="footer">
+  <div class="footer-inner">
+    <span class="footer-brand">HOMELAB&nbsp;DASHBOARD</span>
+    <span class="footer-links">
+      <a href="https://github.com/bnhminh1010/homelab-dashboard" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/operations.md" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/LICENSE" target="_blank" rel="noopener">Apache-2.0</a>
+    </span>
+    <span class="footer-note">Built with Go — no Node, no npm, no CDN.</span>
+  </div>
+</footer>
+
+<script src="js/wave.js"></script>
+<script src="js/reveal.js"></script>
+</body>
+</html>

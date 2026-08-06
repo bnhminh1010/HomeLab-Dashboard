@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "static/**"
+      - "site/**"
       - "deploy/pages/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -39,7 +40,7 @@ jobs:
           set -euo pipefail
           rm -rf _site
           mkdir -p _site/app
-          cp -R deploy/pages/. _site/
+          cp -R site/. _site/
           cp -R static/. _site/app/
           cp deploy/pages/app-manifest.webmanifest _site/app/manifest.webmanifest
           touch _site/.nojekyll
