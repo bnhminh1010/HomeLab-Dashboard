@@ -44,12 +44,13 @@ jobs:
           cp deploy/pages/app-manifest.webmanifest _site/app/manifest.webmanifest
           touch _site/.nojekyll
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: _site
+          include-hidden-files: true
       - name: Deploy Pages artifact
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         with:
           artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
