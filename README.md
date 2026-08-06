@@ -14,7 +14,7 @@
 <p align="center"><sub>Three static Go binaries. No Node.js. No npm. No CDN runtime dependencies.</sub></p>
 
 <p align="center">
-  <a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#packages">Packages</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#development-and-verification">Development</a> · <a href="docs/operations.md">Operations</a> · <a href="docs/adr.md">ADR</a> · <a href="docs/comparison.md">Comparison</a> · <a href="docs/migration.md">Migration</a>
+  <a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#packages">Packages</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#development-and-verification">Development</a> · <a href="docs/operations.md">Operations</a> · <a href="docs/adr.md">ADR</a> · <a href="docs/comparison.md">Comparison</a> · <a href="docs/migration.md">Migration</a> · <a href="docs/benchmarks.md">Benchmarks</a>
 </p>
 
 <p align="center"><a href="https://bnhminh1010.github.io/HomeLab-Dashboard/">Open the public demo</a> · <a href="https://github.com/bnhminh1010/HomeLab-Dashboard/releases">Download a release</a></p>
