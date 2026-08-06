@@ -92,7 +92,7 @@ function snapshot() {
     truncatedSources: edgeMode ? ["containers", "alerts"] : undefined,
     data: {
       system: {
-        hostname: "debian-server",
+        hostname: "homelab-01",
         os: "Debian GNU/Linux 13",
         kernel: "Linux 6.12.95",
         uptimeSeconds: 1_230_840 + sequence * 2,
@@ -145,7 +145,7 @@ export class DemoApi {
       };
     }
     return {
-      identity: { login: "binhminh@tailnet", name: "Binh Minh" },
+      identity: { login: "admin@tailnet", name: "Demo Admin" },
       role: "admin",
       authenticated: true,
       csrfToken: "demo",
@@ -185,8 +185,8 @@ export class DemoApi {
 
   async listOperationalEvents({ node = "local", limit = 100 } = {}) {
     const events = [
-      { id: 3, type: "container.restarted", source: "automatic", visibility: "normal", title: "Immich Redis restarted", summary: "Podman reported a successful restart", nodeId: node, containerId: "demo-immich-redis", actor: "binhminh@tailnet", occurredAt: new Date(Date.now() - 18 * 60_000).toISOString() },
-      { id: 2, type: "deploy", source: "manual", visibility: "normal", title: "fastCRW image updated", summary: "Rolled forward to the latest local image", nodeId: node, serviceId: "svc_crw", actor: "binhminh@tailnet", occurredAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString() },
+      { id: 3, type: "container.restarted", source: "automatic", visibility: "normal", title: "Immich Redis restarted", summary: "Podman reported a successful restart", nodeId: node, containerId: "demo-immich-redis", actor: "admin@tailnet", occurredAt: new Date(Date.now() - 18 * 60_000).toISOString() },
+      { id: 2, type: "deploy", source: "manual", visibility: "normal", title: "fastCRW image updated", summary: "Rolled forward to the latest local image", nodeId: node, serviceId: "svc_crw", actor: "admin@tailnet", occurredAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString() },
       { id: 1, type: "backup.reported", source: "automatic", visibility: "normal", title: "Nightly backup completed", summary: "Snapshot retention check passed", nodeId: node, occurredAt: new Date(Date.now() - 9 * 60 * 60_000).toISOString() },
     ];
     return { items: events.slice(0, Math.max(0, Math.min(Number(limit) || 100, 100))) };

@@ -545,7 +545,7 @@ export function createTerminalController({ api, demo = false, toast }) {
         if (demoLine.trim()) terminal.writeln(`demo: command execution is simulated (${cleanControlText(demoLine.trim())})`);
         demoLine = "";
         const prompt = active?.mode === "host"
-          ? "\x1b[32mbinhminh@debian-server\x1b[0m:\x1b[34m~\x1b[0m$ "
+          ? "\x1b[32madmin@homelab-01\x1b[0m:\x1b[34m~\x1b[0m$ "
           : "\x1b[32mdemo@homelab\x1b[0m:\x1b[34m/app\x1b[0m$ ";
         terminal.write(prompt);
       } else if (data === "\x7f") {
@@ -716,14 +716,14 @@ export function createTerminalController({ api, demo = false, toast }) {
         connecting: false,
         connectedOnce: true,
         ready: true,
-        hostname: "debian-server",
-        hostUser: "binhminh",
+        hostname: "homelab-01",
+        hostUser: "admin",
       };
       demoExec = true;
       demoLine = "";
       updateActiveState();
       terminal.writeln("\x1b[36mDemo host Bash session\x1b[0m");
-      terminal.write("\x1b[32mbinhminh@debian-server\x1b[0m:\x1b[34m~\x1b[0m$ ");
+      terminal.write("\x1b[32madmin@homelab-01\x1b[0m:\x1b[34m~\x1b[0m$ ");
       window.requestAnimationFrame(() => terminal.focus());
       if (demoHostAgentState === "disconnect") {
         window.setTimeout(() => {

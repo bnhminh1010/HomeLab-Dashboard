@@ -1335,7 +1335,7 @@ func TestDemoHostShellIsExplicitAndNeverSilentlyReopened(t *testing.T) {
 		chromedp.Evaluate(`(() => ({
           buttonVisible: !document.querySelector('#terminal-host-shell').hidden,
           initialLabel: document.querySelector('#terminal-session-label').textContent,
-          initialHostOutput: (document.querySelector('.xterm-rows')?.textContent || '').includes('binhminh@debian-server')
+          initialHostOutput: (document.querySelector('.xterm-rows')?.textContent || '').includes('admin@homelab-01')
         }))()`, &report),
 		chromedp.Click("#terminal-host-shell", chromedp.ByQuery),
 		chromedp.WaitVisible("#host-shell-dialog", chromedp.ByQuery),
@@ -1394,7 +1394,7 @@ func TestDemoHostShellIsExplicitAndNeverSilentlyReopened(t *testing.T) {
 	if report.CancelledLabel != "IDLE" {
 		t.Fatalf("declining confirmation changed the terminal session: %+v", report)
 	}
-	if !strings.Contains(report.ActiveLabel, "HOST") || !strings.Contains(report.ActiveLabel, "debian-server") || !strings.Contains(report.ActiveLabel, "binhminh") || !strings.Contains(report.ActiveOutput, "binhminh@debian-server") || !report.DisconnectVisible || !report.ActiveModeHost || !report.ActiveConnected || !report.ActiveExpanded {
+	if !strings.Contains(report.ActiveLabel, "HOST") || !strings.Contains(report.ActiveLabel, "homelab-01") || !strings.Contains(report.ActiveLabel, "admin") || !strings.Contains(report.ActiveOutput, "admin@homelab-01") || !report.DisconnectVisible || !report.ActiveModeHost || !report.ActiveConnected || !report.ActiveExpanded {
 		t.Fatalf("explicit host shell did not render the host identity: %+v", report)
 	}
 	if report.DisconnectedLabel != "IDLE" {
@@ -1959,4 +1959,115 @@ func near(left, right, tolerance float64) bool {
 		difference = -difference
 	}
 	return difference <= tolerance
+}
+
+func TestDemoStoragePools(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+
+	ctx, cancel := newBrowserContext(allocator)
+	defer cancel()
+	ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
+	defer timeout()
+
+	var reportNormal struct {
+		Summary        string   `json:"summary"`
+		Count          int      `json:"count"`
+		Statuses       []string `json:"statuses"`
+		Temperatures   []string `json:"temperatures"`
+		MobileOverflow bool     `json:"mobileOverflow"`
+	}
+
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(375, 812), // test mobile overflow
+		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+		chromedp.WaitReady("#overview-storage-pools-list .storage-pool-row", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+			const rows = [...document.querySelectorAll('#overview-storage-pools-list .storage-pool-row')];
+			const statuses = rows.map(r => r.querySelector('.storage-pool-smart')?.textContent);
+			const temperatures = rows.map(r => r.querySelector('.storage-pool-temperature')?.textContent || null).filter(Boolean);
+			
+			const list = document.querySelector('#overview-storage-pools-list');
+			const mobileOverflow = rows.some(r => r.scrollWidth > list.clientWidth + 1);
+			
+			return {
+				summary: document.querySelector('#overview-storage-smart-status')?.textContent || "",
+				count: rows.length,
+				statuses,
+				temperatures,
+				mobileOverflow
+			};
+		})()`, &reportNormal),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	if reportNormal.Count != 3 || reportNormal.MobileOverflow {
+		t.Fatalf("normal storage pools failed: %+v", reportNormal)
+	}
+	// Normal mode statuses: PASSED, STANDBY, UNAVAILABLE
+	if !strings.Contains(strings.Join(reportNormal.Statuses, " "), "PASSED") || !strings.Contains(strings.Join(reportNormal.Statuses, " "), "STANDBY") || !strings.Contains(strings.Join(reportNormal.Statuses, " "), "UNAVAILABLE") {
+		t.Fatalf("normal smart statuses missing expected values: %+v", reportNormal.Statuses)
+	}
+	if !strings.Contains(reportNormal.Summary, "1 PASSED") || !strings.Contains(reportNormal.Summary, "1 STANDBY") {
+		t.Fatalf("normal smart summary incorrect: %s", reportNormal.Summary)
+	}
+	
+	var reportEdge struct {
+		Summary        string   `json:"summary"`
+		Count          int      `json:"count"`
+		Statuses       []string `json:"statuses"`
+		Temperatures   []string `json:"temperatures"`
+	}
+
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(server.URL+"/?demo=1&edge=1"),
+		chromedp.WaitVisible("#workspace-overview", chromedp.ByQuery),
+		chromedp.WaitReady("#overview-storage-pools-list .storage-pool-row", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+			const rows = [...document.querySelectorAll('#overview-storage-pools-list .storage-pool-row')];
+			const statuses = rows.map(r => r.querySelector('.storage-pool-smart')?.textContent);
+			const temperatures = rows.map(r => r.querySelector('.storage-pool-temperature')?.textContent || null).filter(Boolean);
+			
+			return {
+				summary: document.querySelector('#overview-storage-smart-status')?.textContent || "",
+				count: rows.length,
+				statuses,
+				temperatures
+			};
+		})()`, &reportEdge),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	if reportEdge.Count != 3 {
+		t.Fatalf("edge storage pools failed: count=%d", reportEdge.Count)
+	}
+	// Edge mode statuses: TIMEOUT, STANDBY, FAILED
+	if !strings.Contains(strings.Join(reportEdge.Statuses, " "), "TIMEOUT") || !strings.Contains(strings.Join(reportEdge.Statuses, " "), "STANDBY") || !strings.Contains(strings.Join(reportEdge.Statuses, " "), "FAILED") {
+		t.Fatalf("edge smart statuses missing expected values: %+v", reportEdge.Statuses)
+	}
+	if !strings.Contains(reportEdge.Summary, "1 FAILED") || !strings.Contains(reportEdge.Summary, "1 STANDBY") || !strings.Contains(reportEdge.Summary, "1 TIMEOUT") {
+		t.Fatalf("edge smart summary incorrect: %s", reportEdge.Summary)
+	}
+	if len(reportEdge.Temperatures) == 0 {
+		t.Fatalf("edge mode should have temperatures")
+	}
 }
