@@ -42,7 +42,7 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+html { scroll-behavior: smooth; scroll-padding-top: 88px; }
 
 body {
   background: var(--bg-deep);
@@ -71,14 +71,24 @@ code, pre, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-
   html { scroll-behavior: auto; }
 }
 
-/* ─── NAV ─── */
+/* ─── NAV (floating pill) ─── */
 .nav {
-  position: fixed; inset: 0 0 auto 0; z-index: 50;
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+  z-index: 50;
   display: flex; align-items: center; justify-content: space-between;
-  height: 60px; padding: 0 28px;
-  background: color-mix(in srgb, var(--bg-deep) 82%, transparent);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--line-soft);
+  width: min(1060px, calc(100vw - 28px));
+  min-height: 52px; padding: 0 20px;
+  background: color-mix(in srgb, var(--bg-deep) 78%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .45);
+  transition: padding var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.nav.is-scrolled {
+  padding: 0 18px; min-height: 46px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .5);
+  background: color-mix(in srgb, var(--bg-deep) 92%, transparent);
 }
 .nav-brand { display: flex; align-items: center; gap: 10px; color: var(--text-primary); }
 .nav-mark { width: 22px; height: 22px; }
@@ -93,7 +103,7 @@ code, pre, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-
 .hero {
   position: relative; min-height: 100vh;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 96px 24px 40px; text-align: center;
+  padding: 110px 24px 40px; text-align: center;
   overflow: hidden;
 }
 .hero-wave { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .55; }

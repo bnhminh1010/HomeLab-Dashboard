@@ -5,6 +5,14 @@
   const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
   const reduced = mq.matches;
 
+  // ── nav shrink on scroll ──
+  const nav = document.getElementById("nav");
+  if (nav) {
+    const onScroll = () => nav.classList.toggle("is-scrolled", window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+  }
+
   // ── reveal ──
   const revealEls = document.querySelectorAll(".reveal");
   if (reduced || !("IntersectionObserver" in window)) {
