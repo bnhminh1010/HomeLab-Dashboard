@@ -1,9 +1,16 @@
-/* ─── Scroll reveal + KPI count-up + quickstart typing ───
-   One IntersectionObserver for everything; respects prefers-reduced-motion.
-   Count-up fires once per KPI cell; typing loop is slow, not eager. */
+/* ─── Landing micro-interactions ───
+   KPI count-up, quickstart typing loop, nav shrink on scroll.
+   No scroll-triggered reveal: sections render statically (anti-slop
+   rule — the page settles after the initial hero entrance, which is
+   a pure CSS animation in style.css). */
+
 (function () {
-  const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const reduced = mq.matches;
+  "use strict";
+  if (window.__landingInit) return;
+  window.__landingInit = true;
+
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const opts = { threshold: 0.4 };
 
   // ── nav shrink on scroll ──
   const nav = document.getElementById("nav");
@@ -13,129 +20,109 @@
     window.addEventListener("scroll", onScroll, { passive: true });
   }
 
-  // ── reveal ──
-  const revealEls = document.querySelectorAll(".reveal");
-  if (reduced || !("IntersectionObserver" in window)) {
-    revealEls.forEach((el) => el.classList.add("is-in"));
-  } else {
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const en of entries) {
-          if (en.isIntersecting) {
-            en.target.classList.add("is-in");
-            io.unobserve(en.target);
-          }
+  // ── KPI count-up (one-shot when visible) ──
+  const kpiCells = document.querySelectorAll(".kpi-num[data-count]");
+  if (kpiCells.length) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        const el = e.target;
+        io.unobserve(el);
+        const target = parseInt(el.dataset.count, 10);
+        const suffix = el.dataset.suffix || "";
+        if (reduced || target === 0) {
+          el.textContent = target + suffix;
+          continue;
         }
-      },
-      { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }
-    );
-    revealEls.forEach((el, i) => {
-      el.style.transitionDelay = Math.min(i % 6, 5) * 40 + "ms";
-      io.observe(el);
-    });
-  }
-
-  // ── KPI count-up (once) ──
-  const nums = document.querySelectorAll(".kpi-num[data-count]");
-  function countUp(el) {
-    const target = parseInt(el.dataset.count, 10);
-    const suffix = el.dataset.suffix || "";
-    const dur = 600;
-    const t0 = performance.now();
-    function tick(now) {
-      const p = Math.min(1, (now - t0) / dur);
-      const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
-      el.textContent = Math.round(target * eased) + suffix;
-      if (p < 1) requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  }
-  if (!reduced && "IntersectionObserver" in window) {
-    const ioN = new IntersectionObserver(
-      (entries) => {
-        for (const en of entries) {
-          if (en.isIntersecting) {
-            countUp(en.target);
-            ioN.unobserve(en.target);
-          }
-        }
-      },
-      { threshold: 0.6 }
-    );
-    nums.forEach((n) => ioN.observe(n));
-  } else {
-    nums.forEach((n) => { n.textContent = n.dataset.count + (n.dataset.suffix || ""); });
+        const t0 = performance.now();
+        const dur = 900;
+        const step = (now) => {
+          const p = Math.min(1, (now - t0) / dur);
+          const eased = 1 - Math.pow(1 - p, 3);
+          el.textContent = Math.round(target * eased) + suffix;
+          if (p < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      }
+    }, opts);
+    kpiCells.forEach((c) => io.observe(c));
   }
 
   // ── quickstart typing loop ──
-  const pre = document.getElementById("typer");
-  if (pre) {
+  const typer = document.getElementById("typer");
+  if (typer) {
     const lines = [
-      { prompt: "$", cmd: "curl -fsSL homelab-dash.dev/install | bash" },
-      { prompt: "$", cmd: "podman compose up -d" },
-      { prompt: "$", cmd: "tailscale serve 8082" },
-      { prompt: "", cmd: "→ open https://your-node.tailXXX.ts.net", out: true }
+      { p: "$", t: "curl -fsSL https://homelab.sh/install | sh" },
+      { p: "$", t: "sudo systemctl start homelab-dashboard" },
+      { p: "→", t: "https://homelab-01.tailnet.ts.net" },
     ];
-    let li = 0, ci = 0, deleting = false;
-    const CURSOR = '<span class="c-cursor"></span>';
+    let li = 0, ci = 0, phase = "type";
+    const typeIo = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          typeIo.disconnect();
+          tick();
+        }
+      }
+    }, { threshold: 0.3 });
+    typeIo.observe(typer);
+
+    function tick() {
+      if (phase === "type") {
+        const line = lines[li];
+        const cur = line.t.slice(0, ++ci);
+        typer.innerHTML =
+          '<span class="c-prompt">' + line.p + "</span> " +
+          '<span class="c-cmd">' + esc(cur) + "</span><span class=\"c-cursor\"></span>";
+        if (ci >= line.t.length) { phase = "pause"; setTimeout(tick, 650); }
+        else setTimeout(tick, 18 + Math.random() * 30);
+      } else if (phase === "pause") {
+        phase = "erase";
+        setTimeout(tick, 60);
+      } else if (phase === "erase") {
+        const line = lines[li];
+        ci = Math.max(0, ci - 3);
+        const cur = line.t.slice(0, ci);
+        typer.innerHTML =
+          '<span class="c-prompt">' + line.p + "</span> " +
+          '<span class="c-cmd">' + esc(cur) + "</span><span class=\"c-cursor\"></span>";
+        if (ci <= 0) {
+          li = (li + 1) % lines.length;
+          phase = "type";
+        }
+        setTimeout(tick, 16);
+      }
+    }
 
     function esc(s) {
       return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
-    function lineHtml(l) {
-      if (l.out) return '<span class="c-out">' + esc(l.cmd) + "</span>";
-      return '<span class="c-prompt">' + l.prompt + '</span> <span class="c-cmd">' + esc(l.cmd) + "</span>";
-    }
-    function render() {
-      const head = lines.slice(0, li).map(lineHtml).join("\n");
-      const line = lines[li];
-      let body;
-      if (line.out) {
-        body = lineHtml(line);
-      } else {
-        body = '<span class="c-prompt">' + line.prompt + '</span> <span class="c-cmd">' + esc(line.cmd.slice(0, ci)) + "</span>";
-      }
-      pre.innerHTML = head + (li > 0 ? "\n" : "") + body + CURSOR;
-    }
+  }
 
-    let started = false;
-    function step() {
-      const line = lines[li];
-      if (line.out) {
-        li = (li + 1) % lines.length;
-        ci = 0;
-        render();
-        return setTimeout(step, 1400);
-      }
-      if (!deleting) {
-        ci++;
-        if (ci > line.cmd.length) {
-          deleting = true;
-          render();
-          return setTimeout(step, 700); // pause on full line
-        }
-      } else {
-        ci--;
-        if (ci <= 0) { deleting = false; li = (li + 1) % lines.length; }
-      }
-      render();
-      setTimeout(step, deleting ? 14 : 55);
-    }
-
-    if (reduced) {
-      pre.innerHTML = lines.map(lineHtml).join("\n");
-    } else if ("IntersectionObserver" in window) {
-      const ioT = new IntersectionObserver(
-        (entries) => {
-          if (entries[0].isIntersecting && !started) {
-            started = true;
-            step();
-            ioT.disconnect();
-          }
-        },
-        { threshold: 0.4 }
-      );
-      ioT.observe(pre);
+  // ── demo iframe: hide the inner scrollbar (wheel scrolling still works) ──
+  // The dashboard grid is a scroll container by design; inside the embedded
+  // demo frame that shows a visible scrollbar which reads as sloppy. We
+  // inject a small style into the same-origin frame document instead of
+  // touching the app's own CSS.
+  const demoFrame = document.querySelector('.demo-frame iframe');
+  if (demoFrame) {
+    const hideScroller = () => {
+      try {
+        const doc = demoFrame.contentDocument;
+        // Lazy-loaded frames start as about:blank — only touch the real document.
+        if (!doc || doc.URL === "about:blank" || !doc.head) return;
+        const st = doc.createElement("style");
+        st.textContent =
+          ".dashboard-grid { scrollbar-width: none; -ms-overflow-style: none; }" +
+          ".dashboard-grid::-webkit-scrollbar { display: none; }";
+        doc.head.appendChild(st);
+      } catch (e) { /* cross-origin or not ready — harmless */ }
+    };
+    // Always hook the load event: with loading="lazy" the contentDocument is
+    // about:blank at init time and only becomes the real document on load.
+    demoFrame.addEventListener("load", hideScroller);
+    if (demoFrame.contentDocument && demoFrame.contentDocument.URL !== "about:blank") {
+      hideScroller();
     }
   }
 })();

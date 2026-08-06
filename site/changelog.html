@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090909">
+  <meta name="description" content="Denwatch changelog — every release since the first commit, in Keep a Changelog format.">
+  <title>Changelog · Denwatch</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%23101010'/%3E%3Crect x='6' y='6' width='6' height='6' rx='1' fill='%23d99a3d'/%3E%3Crect x='14' y='6' width='12' height='6' rx='1' fill='%2337332d'/%3E%3Crect x='6' y='14' width='12' height='6' rx='1' fill='%2337332d'/%3E%3Crect x='20' y='14' width='6' height='6' rx='1' fill='%2355bf78'/%3E%3Crect x='6' y='22' width='6' height='4' rx='1' fill='%2337332d'/%3E%3Crect x='14' y='22' width='12' height='4' rx='1' fill='%2337332d'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+</head>
+<body>
+
+<!-- ══════════════ NAV ══════════════ -->
+<nav class="nav" id="nav">
+  <a class="nav-brand" href="index.html">
+    <svg class="nav-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="4" fill="none" stroke="#37332d"/><rect x="6" y="6" width="6" height="6" rx="1" fill="#d99a3d"/><rect x="14" y="6" width="12" height="6" rx="1" fill="#37332d"/><rect x="6" y="14" width="12" height="6" rx="1" fill="#37332d"/><rect x="20" y="14" width="6" height="6" rx="1" fill="#55bf78"/><rect x="6" y="22" width="6" height="4" rx="1" fill="#37332d"/><rect x="14" y="22" width="12" height="4" rx="1" fill="#37332d"/></svg>
+    <span class="nav-word">DENWATCH</span>
+  </a>
+  <div class="nav-links">
+    <a href="index.html#features">Features</a>
+    <a href="index.html#quickstart">Quick start</a>
+    <a href="index.html#demo">Demo</a>
+    <a href="index.html#security">Security</a>
+    <a class="nav-active" href="docs.html" aria-current="page">Docs</a>
+    <a class="nav-gh" href="https://github.com/bnhminh1010/homelab-dashboard" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</nav>
+
+<!-- ══════════════ PAGE HERO ══════════════ -->
+<header class="page-hero">
+  <div class="page-hero-inner">
+    <h1>Changelog</h1>
+    <p class="section-sub">Every release since the first commit, newest first, in <a href="https://keepachangelog.com/en/1.1.0/" target="_blank" rel="noopener">Keep a Changelog</a> format. The canonical file is <a href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md</a> at the repository root.</p>
+  </div>
+</header>
+
+<!-- ══════════════ CHANGELOG ══════════════ -->
+<section class="cl">
+  <div class="cl-version">
+    <div class="cl-head">
+      <span class="cl-tag">Unreleased</span>
+      <span class="cl-date">Landing page work</span>
+    </div>
+    <ul class="cl-list">
+      <li><span class="cl-type">Added</span> Landing page: full marketing site at the GitHub Pages root — hero, live demo, screenshots, features, comparison matrix, security, quickstart, FAQ, docs index.</li>
+      <li><span class="cl-type">Added</span> Public demo installer and TCP probes so anonymous visitors can try the console without an account.</li>
+      <li><span class="cl-type">Added</span> Docs index block on the landing page linking to operations, ADRs, comparison, benchmarks and migration guide.</li>
+      <li><span class="cl-type">Changed</span> Landing: floating pill navigation, anti-slop pass (asymmetric bento feature grid, no decorative eyebrows, hero entrance animation only).</li>
+      <li><span class="cl-type">Changed</span> Landing: screenshots trimmed from 9 to 4 (Services, Topology, Logs-regex, Terminal); added "How it works" architecture section.</li>
+      <li><span class="cl-type">Fixed</span> Landing: responsive layout on 320–1440px viewports (feature grid mobile selector, demo bar wrap, comparison table scroll).</li>
+    </ul>
+  </div>
+
+  <div class="cl-version">
+    <div class="cl-head">
+      <span class="cl-tag">0.1.0</span>
+      <span class="cl-date">2026-07 · first public cut</span>
+    </div>
+    <ul class="cl-list">
+      <li><span class="cl-type">Added</span> Core console: Go-only homelab operations dashboard — no Node.js runtime, no npm, no CDN dependencies.</li>
+      <li><span class="cl-type">Added</span> Monitoring workbench: historical multi-node monitoring with 3-tier SQLite rollups (10s × 48h, 1m × 30d, 15m × 90d) and configurable quota.</li>
+      <li><span class="cl-type">Added</span> Actionable overview: production operations brief with health overview and widget customization.</li>
+      <li><span class="cl-type">Added</span> Interactive shells: container exec shell and confirmed host Bash, both gated by Tailscale identity.</li>
+      <li><span class="cl-type">Added</span> Logs: optional Loki + Vector search, regex search with result navigation.</li>
+      <li><span class="cl-type">Added</span> Alerts: configurable alerts with HMAC webhook delivery provider.</li>
+      <li><span class="cl-type">Added</span> Containers: multi-mount collector and SMART disk polling host-helper (Phase B).</li>
+      <li><span class="cl-type">Added</span> Workspaces: multi-workspace customization and light theme.</li>
+      <li><span class="cl-type">Added</span> Platform: multi-arch container images published to GHCR and Docker Hub.</li>
+      <li><span class="cl-type">Added</span> Adoption: public demo mode (<code>?demo=1</code>) with neutralized identity, demo installer, TCP probes.</li>
+      <li><span class="cl-type">Added</span> Docs: operations guide, architecture decision records, comparison matrix, migration guide, measured benchmarks.</li>
+      <li><span class="cl-type">Changed</span> Repositioned as a Tailscale-only operations console; corrected claims in docs.</li>
+      <li><span class="cl-type">Changed</span> Redesigned UI as a graphite workspace; replaced SYSTEM STATS eyebrow with a semantic accessibility title.</li>
+      <li><span class="cl-type">Changed</span> Neutralized demo identity before public screenshots (<code>admin@tailnet</code>, <code>home-n-01</code>).</li>
+      <li><span class="cl-type">Changed</span> Stopped tracking local design documentation in the repository.</li>
+      <li><span class="cl-type">Fixed</span> UI: backdrop blur reduced 12px → 4px, cyan-glow spread 20px → 8px, double-glow on brand mark removed, layout root max-width 100vw → 100%, gap-based spacing in container lists.</li>
+      <li><span class="cl-type">Fixed</span> Browser: recent-change click race eliminated; viewer widget controls and settings cancel restored.</li>
+      <li><span class="cl-type">Fixed</span> CI: Go toolchain and x/ deps patched to clear govulncheck; Loki query bounds refreshed during retries; Vector fixture discovery made deterministic; Pages artifacts isolated across reruns; checks gated after browser regressions.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ══════════════ FOOTER ══════════════ -->
+<footer class="footer">
+  <div class="footer-inner">
+    <span class="footer-brand">DENWATCH</span>
+    <span class="footer-links">
+      <a href="index.html">Home</a>
+      <a href="docs.html">Docs</a>
+      <a href="https://github.com/bnhminh1010/homelab-dashboard" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/LICENSE" target="_blank" rel="noopener">Apache-2.0</a>
+    </span>
+    <span class="footer-note">Built with Go — no Node, no npm, no CDN.</span>
+  </div>
+</footer>
+
+<script src="js/reveal.js"></script>
+</body>
+</html>

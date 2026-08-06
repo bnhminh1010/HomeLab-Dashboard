@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090909">
+  <meta name="description" content="Denwatch documentation — operations guide, architecture decision records, comparison matrix, migration guide and measured benchmarks for a Tailscale-only homelab console.">
+  <title>Documentation · Denwatch</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%23101010'/%3E%3Crect x='6' y='6' width='6' height='6' rx='1' fill='%23d99a3d'/%3E%3Crect x='14' y='6' width='12' height='6' rx='1' fill='%2337332d'/%3E%3Crect x='6' y='14' width='12' height='6' rx='1' fill='%2337332d'/%3E%3Crect x='20' y='14' width='6' height='6' rx='1' fill='%2355bf78'/%3E%3Crect x='6' y='22' width='6' height='4' rx='1' fill='%2337332d'/%3E%3Crect x='14' y='22' width='12' height='4' rx='1' fill='%2337332d'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+</head>
+<body>
+
+<!-- ══════════════ NAV ══════════════ -->
+<nav class="nav" id="nav">
+  <a class="nav-brand" href="index.html">
+    <svg class="nav-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="4" fill="none" stroke="#37332d"/><rect x="6" y="6" width="6" height="6" rx="1" fill="#d99a3d"/><rect x="14" y="6" width="12" height="6" rx="1" fill="#37332d"/><rect x="6" y="14" width="12" height="6" rx="1" fill="#37332d"/><rect x="20" y="14" width="6" height="6" rx="1" fill="#55bf78"/><rect x="6" y="22" width="6" height="4" rx="1" fill="#37332d"/><rect x="14" y="22" width="12" height="4" rx="1" fill="#37332d"/></svg>
+    <span class="nav-word">DENWATCH</span>
+  </a>
+  <div class="nav-links">
+    <a href="index.html#features">Features</a>
+    <a href="index.html#quickstart">Quick start</a>
+    <a href="index.html#demo">Demo</a>
+    <a href="index.html#security">Security</a>
+    <a class="nav-active" href="docs.html" aria-current="page">Docs</a>
+    <a class="nav-gh" href="https://github.com/bnhminh1010/homelab-dashboard" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</nav>
+
+<!-- ══════════════ PAGE HERO ══════════════ -->
+<header class="page-hero">
+  <div class="page-hero-inner">
+    <h1>Documentation</h1>
+    <p class="section-sub">Every decision, number and procedure behind the console — written for a human operator, not for marketing. All documents live in <code>docs/</code> in the repository.</p>
+  </div>
+</header>
+
+<!-- ══════════════ DOCS GRID ══════════════ -->
+<section class="docs">
+  <div class="docs-grid">
+    <a class="doc-link" href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/operations.md" target="_blank" rel="noopener">
+      <span class="doc-title">Operations guide</span>
+      <span class="doc-desc">Quick start with a release image, one-command installer, configuration reference, backups and troubleshooting. The file the README links to.</span>
+      <span class="doc-arrow">→</span>
+    </a>
+    <a class="doc-link" href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/adr.md" target="_blank" rel="noopener">
+      <span class="doc-title">Architecture decision records</span>
+      <span class="doc-desc">Six accepted ADRs: Tailscale as sole auth, SQLite 3-tier rollup over Prometheus, go:embed over npm, outbound-only agents, no public REST API, three binaries over a monolith.</span>
+      <span class="doc-arrow">→</span>
+    </a>
+    <a class="doc-link" href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/comparison.md" target="_blank" rel="noopener">
+      <span class="doc-title">Comparison matrix</span>
+      <span class="doc-desc">Feature-by-feature against Homepage, Uptime Kuma, Beszel, Netdata, Grafana and Portainer — including the honest "we don't do this" notes.</span>
+      <span class="doc-arrow">→</span>
+    </a>
+    <a class="doc-link" href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/benchmarks.md" target="_blank" rel="noopener">
+      <span class="doc-title">Benchmarks</span>
+      <span class="doc-desc">Measured on a real deployment (Debian 13, 9 containers, 13 h uptime): memory, CPU and storage footprint with conditions and timestamps included.</span>
+      <span class="doc-arrow">→</span>
+    </a>
+    <a class="doc-link" href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/migration.md" target="_blank" rel="noopener">
+      <span class="doc-title">Migration guide</span>
+      <span class="doc-desc">Re-onboarding from a start page, an availability monitor or a Prometheus + Grafana stack. Honest about what does not transfer. ~15 minutes for a fresh lab.</span>
+      <span class="doc-arrow">→</span>
+    </a>
+    <a class="doc-link" href="changelog.html">
+      <span class="doc-title">Changelog</span>
+      <span class="doc-desc">Every release since the first commit, in Keep a Changelog format. Also at the repository root as CHANGELOG.md.</span>
+      <span class="doc-arrow">→</span>
+    </a>
+  </div>
+</section>
+
+<!-- ══════════════ KEY FACTS ══════════════ -->
+<section class="facts">
+  <div class="section-head">
+    <h2>Key facts, measured not promised.</h2>
+  </div>
+  <div class="facts-grid">
+    <div class="fact-cell"><span class="fact-num">≈50 MB</span><span class="fact-label">Total steady-state RSS — dashboard + host agent</span></div>
+    <div class="fact-cell"><span class="fact-num">2.4%</span><span class="fact-label">Dashboard CPU average over a 13 h window</span></div>
+    <div class="fact-cell"><span class="fact-num">29.7 MB</span><span class="fact-label">SQLite file after 13 h, 2 GiB quota default</span></div>
+    <div class="fact-cell"><span class="fact-num">10s / 1m / 15m</span><span class="fact-label">3-tier rollup — 48 h raw, 30 d, 90 d retention</span></div>
+    <div class="fact-cell"><span class="fact-num">0</span><span class="fact-label">Inbound ports, inbound connections, password DB</span></div>
+    <div class="fact-cell"><span class="fact-num">3</span><span class="fact-label">Static Go binaries — dashboard, host agent, node agent</span></div>
+  </div>
+  <p class="facts-note">Full measurement conditions in <a href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/benchmarks.md" target="_blank" rel="noopener">docs/benchmarks.md</a>.</p>
+</section>
+
+<!-- ══════════════ FOOTER ══════════════ -->
+<footer class="footer">
+  <div class="footer-inner">
+    <span class="footer-brand">DENWATCH</span>
+    <span class="footer-links">
+      <a href="index.html">Home</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/bnhminh1010/homelab-dashboard" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/LICENSE" target="_blank" rel="noopener">Apache-2.0</a>
+    </span>
+    <span class="footer-note">Built with Go — no Node, no npm, no CDN.</span>
+  </div>
+</footer>
+
+<script src="js/reveal.js"></script>
+</body>
+</html>
