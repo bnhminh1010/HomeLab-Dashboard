@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#090909">
-  <meta name="description" content="Denwatch — a Tailscale-only operations console for 1–5 rootless Podman nodes. Observe services, SLOs, backup freshness and container health, then open the correct shell — no inbound ports, no metrics stack.">
-  <title>Denwatch · Your homelab, one console</title>
+  <meta name="description" content="HostDeck — a Tailscale-only operations console for 1–5 rootless Podman nodes. Observe services, SLOs, backup freshness and container health, then open the correct shell — no inbound ports, no metrics stack.">
+  <title>HostDeck · Your homelab, one console</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%23101010'/%3E%3Crect x='6' y='6' width='6' height='6' rx='1' fill='%23d99a3d'/%3E%3Crect x='14' y='6' width='12' height='6' rx='1' fill='%2337332d'/%3E%3Crect x='6' y='14' width='12' height='6' rx='1' fill='%2337332d'/%3E%3Crect x='20' y='14' width='6' height='6' rx='1' fill='%2355bf78'/%3E%3Crect x='6' y='22' width='6' height='4' rx='1' fill='%2337332d'/%3E%3Crect x='14' y='22' width='12' height='4' rx='1' fill='%2337332d'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/style.css">
   <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -17,7 +17,7 @@
 <nav class="nav" id="nav">
   <a class="nav-brand" href="#top">
     <svg class="nav-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="4" fill="none" stroke="#37332d"/><rect x="6" y="6" width="6" height="6" rx="1" fill="#d99a3d"/><rect x="14" y="6" width="12" height="6" rx="1" fill="#37332d"/><rect x="6" y="14" width="12" height="6" rx="1" fill="#37332d"/><rect x="20" y="14" width="6" height="6" rx="1" fill="#55bf78"/><rect x="6" y="22" width="6" height="4" rx="1" fill="#37332d"/><rect x="14" y="22" width="12" height="4" rx="1" fill="#37332d"/></svg>
-    <span class="nav-word">DENWATCH</span>
+    <span class="nav-word">HOSTDECK</span>
   </a>
   <div class="nav-links">
     <a href="#features">Features</a>
@@ -45,7 +45,7 @@
       <p class="hero-hint">Move your cursor — the grid responds.</p>
     </div>
     <div class="hero-shot">
-      <img src="screenshots/overview.png" alt="Denwatch overview — live health, host metrics and 24-hour trend" loading="eager" width="2880" height="1800">
+      <img src="screenshots/overview.png" alt="HostDeck overview — live health, host metrics and 24-hour trend" loading="eager" width="2880" height="1800">
       <div class="shot-label"><span class="dot-ok"></span>LIVE · overview · admin@tailnet</div>
     </div>
   </div>
@@ -152,8 +152,8 @@
     <p class="section-sub">The full operator workflow with deterministic mock data — try regex log search, open a container shell, toggle the light theme.</p>
   </div>
   <div class="demo-frame">
-    <div class="demo-bar"><span class="demo-live"><span class="dot-ok"></span>LIVE · no login</span><span class="demo-url">denwatch › demo</span></div>
-    <iframe src="app/?demo=1" title="Denwatch interactive demo" loading="lazy"></iframe>
+    <div class="demo-bar"><span class="demo-live"><span class="dot-ok"></span>LIVE · no login</span><span class="demo-url">hostdeck › demo</span></div>
+    <iframe src="app/?demo=1" title="HostDeck interactive demo" loading="lazy"></iframe>
   </div>
 </section>
 
@@ -180,7 +180,7 @@
   <div class="cmp-wrap">
     <table class="cmp-table">
       <thead>
-        <tr><th>Feature</th><th class="cmp-own">Denwatch</th><th>Start pages</th><th>Uptime Kuma</th><th>Beszel / Netdata</th><th>Grafana stack</th></tr>
+        <tr><th>Feature</th><th class="cmp-own">HostDeck</th><th>Start pages</th><th>Uptime Kuma</th><th>Beszel / Netdata</th><th>Grafana stack</th></tr>
       </thead>
       <tbody>
         <tr><td>Zero inbound ports</td><td class="cmp-own">Native</td><td>—</td><td>—</td><td>Partial · outbound WS</td><td>—</td></tr>
@@ -310,7 +310,7 @@
 <!-- ══════════════ FOOTER ══════════════ -->
 <footer class="footer">
   <div class="footer-inner">
-    <span class="footer-brand">DENWATCH</span>
+    <span class="footer-brand">HOSTDECK</span>
     <span class="footer-links">
       <a href="https://github.com/bnhminh1010/homelab-dashboard" target="_blank" rel="noopener">GitHub</a>
       <a href="https://github.com/bnhminh1010/homelab-dashboard/blob/main/docs/operations.md" target="_blank" rel="noopener">Docs</a>
