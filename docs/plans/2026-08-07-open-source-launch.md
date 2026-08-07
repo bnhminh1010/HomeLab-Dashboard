@@ -81,9 +81,11 @@
 - "Show HN: HostDeck — zero-dependency Tailscale-only homelab console in Go"
 - Wed morning PT nếu có thể
 
-**Task 3.4 — awesome-selfhosted PR** (sau khi có stable release)
-- Điều kiện tiên quyết: LICENSE ✅ (có), steady commits ✅, **cần release tag stable + không dead link**
-- PR `software/hostdeck.yml` (SPDX: Apache-2.0)
+**Task 3.4 — awesome-selfhosted PR** (BLOCKED — chờ release đủ 4 tháng)
+- ✅ PASS toàn bộ điều kiện loại trừ (không cloud provider, không PaaS, không fork — Tailscale = VPN mesh tương đương WireGuard tự host)
+- ⛔ **Chặn: rule "first released more than 4 months ago"** — v0.1.0 tạo 2026-08-07, release đầu beta.1 2026-07-29. PR bây giờ sẽ bị đóng ngay với canned reply, gây ấn tượng xấu
+- **Resubmit lịch: 2026-12-07** (4 tháng sau v0.1.0) — `software/hostdeck.yml` (SPDX: Apache-2.0), mô tả ngắn, tag đầu tiên trong danh sách = Monitoring
+- Reminder đã đặt cron 2026-12-07
 
 ## Constraints
 
