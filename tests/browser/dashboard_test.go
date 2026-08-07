@@ -824,7 +824,7 @@ func TestDemoOverviewTriageActionsAndTrend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Brand != "HOMELAB DASHBOARD" || report.HasRocket || report.AttentionTotal < 50 || report.AttentionVisible == 0 || report.AttentionVisible > 5 || !report.FirstIsCritical || !report.HasLogsAction || report.PulseRows == 0 || report.TrendPoints == 0 || report.TrendSeries != 3 || !report.AttentionIsQuiet || !report.SourceCompacted || !report.AlertWorkspaceOpen || !report.HealthMatchesTriage || !report.NestedServiceHealth {
+	if report.Brand != "HOSTDECK" || report.HasRocket || report.AttentionTotal < 50 || report.AttentionVisible == 0 || report.AttentionVisible > 5 || !report.FirstIsCritical || !report.HasLogsAction || report.PulseRows == 0 || report.TrendPoints == 0 || report.TrendSeries != 3 || !report.AttentionIsQuiet || !report.SourceCompacted || !report.AlertWorkspaceOpen || !report.HealthMatchesTriage || !report.NestedServiceHealth {
 		t.Fatalf("overview triage/trend regression: %+v", report)
 	}
 
@@ -890,8 +890,8 @@ func TestGraphiteAmberThemeDoesNotRestoreCyanGlass(t *testing.T) {
 				t.Fatalf("%s still contains removed cyan/glass token %q", path, forbidden)
 			}
 		}
-		if path == "/" && (!strings.Contains(string(body), "HOMELAB DASHBOARD") || strings.Contains(content, "brand-mark")) {
-			t.Fatalf("%s does not expose the text-only Homelab brand", path)
+		if path == "/" && (!strings.Contains(string(body), "HOSTDECK") || strings.Contains(content, "brand-mark")) {
+			t.Fatalf("%s does not expose the text-only HostDeck brand", path)
 		}
 	}
 }
