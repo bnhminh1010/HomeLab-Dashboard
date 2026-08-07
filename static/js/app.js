@@ -4,6 +4,7 @@ import { createContainersController } from "./containers.js";
 import { DemoApi, startDemoFeed } from "./demo.js";
 import { bytes, clamp, number, percent, rate, setProgress, setText, timeAgo, uptime } from "./format.js";
 import { createHistoryController } from "./history.js";
+import { initHelp } from "./help.js";
 import { createLogsController } from "./logs.js";
 import { createMetricCharts } from "./metrics.js";
 import { createNodesController } from "./nodes.js";
@@ -1232,6 +1233,7 @@ for (const id of ["terminal-size-compact", "terminal-size-default"]) {
   document.getElementById(id)?.addEventListener("click", () => window.setTimeout(() => savePreferences({ terminalHeight: Math.round(document.getElementById("terminal-body").getBoundingClientRect().height), terminalCollapsed: false }), 0));
 }
 const sessionKeepalive = window.setInterval(() => scheduleSessionRenewal(0), 5 * 60_000);
+initHelp();
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch((error) => {
