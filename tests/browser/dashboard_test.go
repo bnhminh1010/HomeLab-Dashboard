@@ -2071,3 +2071,91 @@ func TestDemoStoragePools(t *testing.T) {
 		t.Fatalf("edge mode should have temperatures")
 	}
 }
+
+func TestDemoHelpDialogContextSync(t *testing.T) {
+	chrome := chromePath(t)
+	assets, err := homelab.Static()
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := httpapi.NewStaticHandler(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(static)
+	defer server.Close()
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome), chromedp.Flag("no-sandbox", true), chromedp.Flag("disable-gpu", true))
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+	defer cancelAllocator()
+
+	ctx, cancel := newBrowserContext(allocator)
+	defer cancel()
+	ctx, timeout := context.WithTimeout(ctx, 30*time.Second)
+	defer timeout()
+
+	var report struct {
+		Open             bool   `json:"open"`
+		VisibleSections  int    `json:"visibleSections"`
+		ActiveNav        string `json:"activeNav"`
+		GuideCount       int    `json:"guideCount"`
+		ServicesAfterNav bool   `json:"servicesAfterNav"`
+		DataAfterNav     bool   `json:"dataAfterNav"`
+	}
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(1440, 900),
+		chromedp.Navigate(server.URL+"/?demo=1"),
+		chromedp.WaitVisible("#dashboard", chromedp.ByQuery),
+		chromedp.WaitVisible("#help-open", chromedp.ByQuery),
+		chromedp.Click("#help-open", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => ({
+			open: document.getElementById('help-dialog').open,
+			visibleSections: [...document.querySelectorAll('[data-help-workspace]')].filter((s) => !s.hidden).length,
+			activeNav: document.querySelector('.help-nav-item.is-active')?.dataset.helpTarget || '',
+			guideCount: document.querySelectorAll('[data-help-workspace]').length
+		}))()`, &report),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Open || report.VisibleSections != 1 || report.ActiveNav != "overview" || report.GuideCount != 9 {
+		t.Fatalf("help dialog did not open on the active workspace: %+v", report)
+	}
+
+	err = chromedp.Run(ctx,
+		chromedp.Click("[data-help-close]", chromedp.ByQuery),
+		chromedp.Click(`[data-workspace="services"]`, chromedp.ByQuery),
+		chromedp.Click("#help-open", chromedp.ByQuery),
+		chromedp.Poll(`!document.querySelector('[data-help-workspace="services"]').hidden
+			&& document.querySelector('.help-nav-item.is-active')?.dataset.helpTarget === 'services'`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Click(`[data-help-target="data"]`, chromedp.ByQuery),
+		chromedp.Poll(`!document.querySelector('[data-help-workspace="data"]').hidden`, nil, chromedp.WithPollingTimeout(2*time.Second)),
+		chromedp.Evaluate(`(() => ({
+			servicesAfterNav: document.querySelector('[data-help-workspace="services"]').hidden,
+			dataAfterNav: !document.querySelector('[data-help-workspace="data"]').hidden
+		}))()`, &report),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.ServicesAfterNav || !report.DataAfterNav {
+		t.Fatalf("help nav did not switch guides: %+v", report)
+	}
+
+	var closed bool
+	err = chromedp.Run(ctx,
+		chromedp.Evaluate(`(() => {
+			const dialog = document.getElementById('help-dialog');
+			dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+			dialog.dispatchEvent(new Event('cancel', { bubbles: true, cancelable: true }));
+			return !dialog.open;
+		})()`, &closed),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !closed {
+		t.Fatalf("help dialog did not close on Escape/cancel")
+	}
+}
