@@ -18,7 +18,7 @@ RUN test ! -e package.json \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
        -ldflags="-s -w -buildid=" -o /out/homelab-host-agent ./cmd/host-agent \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
-       -ldflags="-s -w -buildid=" -o /out/homelab-node-agent ./cmd/node-agent
+       -ldflags="-s -w -buildid=" -o /out/homelab-node-agent ./cmd/node-agent \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
        -ldflags="-s -w -buildid=" -o /out/homelab-smart-agent ./cmd/smart-agent
 
