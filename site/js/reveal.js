@@ -134,6 +134,34 @@
     }
   }
 
+  // ── quickstart copy button (copies the real installer command) ──
+  const copyBtn = document.getElementById("qs-copy");
+  if (copyBtn) {
+    const INSTALL_CMD =
+      "curl -fsSL https://github.com/bnhminh1010/homelab-dashboard/releases/latest/download/install.sh | bash";
+    const copy = async () => {
+      try {
+        await navigator.clipboard.writeText(INSTALL_CMD);
+      } catch (e) {
+        const ta = document.createElement("textarea");
+        ta.value = INSTALL_CMD;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      copyBtn.classList.add("is-copied");
+      copyBtn.textContent = "Copied ✓";
+      setTimeout(() => {
+        copyBtn.classList.remove("is-copied");
+        copyBtn.textContent = "Copy";
+      }, 1800);
+    };
+    copyBtn.addEventListener("click", copy);
+  }
+
   // ── demo iframe: hide the inner scrollbar (wheel scrolling still works) ──
   // The dashboard grid is a scroll container by design; inside the embedded
   // demo frame that shows a visible scrollbar which reads as sloppy. We
