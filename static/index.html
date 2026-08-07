@@ -63,6 +63,9 @@
         <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
       </button>
+      <button id="help-open" class="icon-button" type="button" title="How to use HostDeck" aria-label="How to use HostDeck" aria-haspopup="dialog" aria-controls="help-dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.4c-.6.25-1.4.6-1.4 1.6v.5"/><path d="M12 17h.01"/></svg>
+      </button>
       <div id="session-identity" class="user-chip" role="group" aria-label="Authenticated Tailscale user" title="Authenticated Tailscale user">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
         <span class="user-copy"><span id="session-user">—</span><span id="session-role">VIEWER</span></span>
@@ -779,6 +782,82 @@
         <div><dt><kbd>Esc</kbd></dt><dd>Close the current dialog or menu</dd></div>
       </dl>
       <footer><button id="keyboard-shortcuts-dismiss" class="button button-ghost" type="button">CLOSE</button></footer>
+    </div>
+  </dialog>
+
+  <dialog id="help-dialog" class="modal help-dialog" aria-labelledby="help-title">
+    <div class="modal-form help-layout">
+      <header class="help-header">
+        <div><h2 id="help-title">How to use HostDeck</h2><p class="help-sub">What you're looking at and what it needs from you.</p></div>
+        <button class="icon-button" type="button" data-help-close aria-label="Close help">×</button>
+      </header>
+      <nav class="help-nav" aria-label="Help topics">
+        <button type="button" class="help-nav-item" data-help-target="overview">Overview</button>
+        <button type="button" class="help-nav-item" data-help-target="services">Services</button>
+        <button type="button" class="help-nav-item" data-help-target="containers">Containers</button>
+        <button type="button" class="help-nav-item" data-help-target="nodes">Nodes</button>
+        <button type="button" class="help-nav-item" data-help-target="history">History</button>
+        <button type="button" class="help-nav-item" data-help-target="logs">Logs</button>
+        <button type="button" class="help-nav-item" data-help-target="alerts">Alerts</button>
+        <button type="button" class="help-nav-item" data-help-target="topology">Topology</button>
+        <button type="button" class="help-nav-item" data-help-target="data">How data gets in</button>
+      </nav>
+      <div class="help-body">
+        <section class="help-guide" data-help-workspace="overview" hidden>
+          <h3>Overview</h3>
+          <p>The first screen you land on. It shows health status, resource trends, recent changes, service pulse, launchpad shortcuts, top containers, and storage pools in one place.</p>
+          <p>Everything here is read-only. Use the workspace tabs on the left to take action: register services, open terminals, configure alerts.</p>
+        </section>
+        <section class="help-guide" data-help-workspace="services" hidden>
+          <h3>Services</h3>
+          <p>Services are endpoints you register so HostDeck can watch their health. They are not containers; containers appear automatically.</p>
+          <p>To add one, click <b>+ ADD SERVICE</b> in the panel header. Pick a probe type:</p>
+          <ul class="help-list">
+            <li><b>HTTP / HTTPS</b> - checks a URL responds</li>
+            <li><b>TCP</b> - checks a port accepts connections</li>
+            <li><b>DNS</b> - checks a name resolves</li>
+          </ul>
+          <p>Each service gets an uptime history and feeds the Overview service pulse.</p>
+        </section>
+        <section class="help-guide" data-help-workspace="containers" hidden>
+          <h3>Containers</h3>
+          <p>Containers are discovered automatically from the host's Podman daemon. No registration is needed.</p>
+          <p>From the actions on a container row you can open its <b>Logs</b> or a <b>Container Shell</b>. The shell drops you inside the running container, where you can run commands against the container's filesystem and databases.</p>
+        </section>
+        <section class="help-guide" data-help-workspace="nodes" hidden>
+          <h3>Nodes</h3>
+          <p>If more than one host runs a node agent, switch the monitored node from the selector in the header.</p>
+          <p>Administrators manage enrolled nodes from the node icon in the header.</p>
+        </section>
+        <section class="help-guide" data-help-workspace="history" hidden>
+          <h3>History</h3>
+          <p>Long-term metrics for the selected node: host CPU, RAM, disk, and container stats.</p>
+          <p>Data is stored locally in the dashboard's own SQLite database and rolled up over time. You never query or edit that file.</p>
+        </section>
+        <section class="help-guide" data-help-workspace="logs" hidden>
+          <h3>Logs</h3>
+          <p>The Logs workspace searches retained central logs. It is an <b>opt-in overlay</b>: it needs a Loki backend (<code>LOGS_BACKEND=loki</code> with <code>LOKI_URL</code>) fed by a shipper such as Vector.</p>
+          <p>Without it, the workspace stays disabled. The dashboard keeps its zero-dependency default: no external services required.</p>
+          <p>For live per-container logs with no setup at all, use the terminal's <b>Log Viewer</b> instead.</p>
+        </section>
+        <section class="help-guide" data-help-workspace="alerts" hidden>
+          <h3>Alerts</h3>
+          <p>Alert rules watch service probes and metrics, then notify when a condition fires. Open the alert center from the bell icon in the header.</p>
+          <p>Maintenance windows pause rules during planned work.</p>
+        </section>
+        <section class="help-guide" data-help-workspace="topology" hidden>
+          <h3>Topology</h3>
+          <p>Shows how your services depend on each other and on containers, based on recorded dependency data.</p>
+          <p>Useful for understanding blast radius before changing a service.</p>
+        </section>
+        <section class="help-guide" data-help-workspace="data" hidden>
+          <h3>How data gets in</h3>
+          <p>Containers and their live logs are pulled automatically from the Podman socket by the node agent. No configuration needed.</p>
+          <p>Services are the only thing you register by hand, through <b>+ ADD SERVICE</b>.</p>
+          <p>Historical metrics, alert state, and service probes are kept in the dashboard's own SQLite file; you never query or edit it.</p>
+          <p>Central log search is an optional Loki + Vector overlay. Everything else runs from the dashboard binary alone.</p>
+        </section>
+      </div>
     </div>
   </dialog>
 
