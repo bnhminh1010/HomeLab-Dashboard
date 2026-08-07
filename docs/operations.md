@@ -1,6 +1,6 @@
 # Operations Guide
 
-> Detailed setup, configuration and troubleshooting for HomeLab Dashboard.
+> Detailed setup, configuration and troubleshooting for HostDeck.
 > The README links here so it can stay a concise storefront; this file is the
 > full operations reference.
 

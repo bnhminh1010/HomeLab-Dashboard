@@ -1,4 +1,4 @@
-# HomeLab Dashboard vs. the field
+# HostDeck vs. the field
 
 > Honest, feature-by-feature comparison against the tools people actually run
 > in a homelab. Every checkmark is backed by code in `internal/` — see
@@ -20,7 +20,7 @@ plainly when you should pick something else.
 
 ## Positioning
 
-| | **HomeLab Dashboard** | Homepage / Homarr (start pages) | Uptime Kuma / Gatus (availability) | Beszel / Netdata (monitoring) | Portainer / Cockpit (admin) | Grafana + Prometheus (stack) |
+| | **HostDeck** | Homepage / Homarr (start pages) | Uptime Kuma / Gatus (availability) | Beszel / Netdata (monitoring) | Portainer / Cockpit (admin) | Grafana + Prometheus (stack) |
 |---|---|---|---|---|---|---|
 | Core loop | see → understand → **act** | bookmarks | is it up? | is it healthy? | manage it | visualize everything |
 | Scale target | 1–5 nodes | 1 box | many endpoints | many hosts | many hosts | fleets |
@@ -33,7 +33,7 @@ plainly when you should pick something else.
 Rows are features implemented in this codebase; cells describe the
 closest competitor capability, not marketing claims.
 
-| Feature | HomeLab Dashboard | Start pages | Uptime Kuma | Beszel/Netdata | Portainer/Cockpit | Grafana stack |
+| Feature | HostDeck | Start pages | Uptime Kuma | Beszel/Netdata | Portainer/Cockpit | Grafana stack |
 |---|---|---|---|---|---|---|
 | Live host metrics (CPU/mem/disk/net/load/temp) | ✅ native | — | — | ✅ | ⚠️ (Cockpit) | ✅ via exporters |
 | Container health + resource usage | ✅ native (Podman) | — | — | ⚠️ container-level weak | ✅ (Docker-first) | ✅ via cAdvisor |
@@ -54,7 +54,7 @@ closest competitor capability, not marketing claims.
 
 ## When to use what
 
-Pick **HomeLab Dashboard** when: your lab is 1–5 nodes, you're already on
+Pick **HostDeck** when: your lab is 1–5 nodes, you're already on
 Tailscale, you want observe→act in one place, and you'd rather not run a
 metrics stack for what SQLite can hold.
 

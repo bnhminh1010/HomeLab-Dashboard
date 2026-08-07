@@ -1,7 +1,7 @@
 # Migration guide
 
 > Coming from another homelab tool? Here is the honest version: this is not a
-> data migration, it is a **re-onboarding**. HomeLab Dashboard does not import
+> data migration, it is a **re-onboarding**. HostDeck does not import
 > Homepage bookmarks, Uptime Kuma status pages or Portainer stacks — those
 > store different kinds of state. What you re-create is small, and what you
 > import is your existing configuration document (see step 5).

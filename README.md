@@ -1,4 +1,4 @@
-<h1 align="center">HomeLab Dashboard</h1>
+<h1 align="center">HostDeck</h1>
 
 <p align="center"><strong>A Tailscale-only operations console for 1–5 rootless Podman homelab nodes: observe services and backup freshness, then open the correct container or host shell — no inbound ports, no monitoring stack.</strong></p>
 
@@ -17,9 +17,9 @@
   <a href="#quick-start-with-podman-compose">Quick start</a> · <a href="#packages">Packages</a> · <a href="#architecture-and-data-lifecycle">Architecture</a> · <a href="#security-boundary">Security</a> · <a href="#development-and-verification">Development</a> · <a href="docs/operations.md">Operations</a> · <a href="docs/adr.md">ADR</a> · <a href="docs/comparison.md">Comparison</a> · <a href="docs/migration.md">Migration</a> · <a href="docs/benchmarks.md">Benchmarks</a>
 </p>
 
-<p align="center"><a href="https://bnhminh1010.github.io/HomeLab-Dashboard/">Open the public demo</a> · <a href="https://github.com/bnhminh1010/HomeLab-Dashboard/releases">Download a release</a></p>
+<p align="center"><a href="https://hostdeck.thinkai.id.vn/app/?demo=1">Open the public demo</a> · <a href="https://github.com/bnhminh1010/HomeLab-Dashboard/releases">Download a release</a></p>
 
-<p align="center"><img alt="HomeLab Dashboard live demo" src="assets/screenshots/demo.gif" width="820"></p>
+<p align="center"><img alt="HostDeck live demo" src="assets/screenshots/demo.gif" width="820"></p>
 
 > [!NOTE]
 > This is an intentionally small operations console for 1–5 nodes—not a
@@ -32,7 +32,7 @@
 
 ## Screenshots
 
-![HomeLab Dashboard overview — live health, host metrics and 24-hour trend](assets/screenshots/overview.png)
+![HostDeck overview — live health, host metrics and 24-hour trend](assets/screenshots/overview.png)
 
 | Services with SLO error budgets | Container inventory with logs & shells |
 |---|---|
