@@ -1,6 +1,6 @@
 {
-  "name": "Homelab Dashboard",
-  "short_name": "Homelab",
+  "name": "HostDeck",
+  "short_name": "HostDeck",
   "description": "A small operations console for rootless Podman homelabs.",
   "start_url": "./",
   "scope": "./",

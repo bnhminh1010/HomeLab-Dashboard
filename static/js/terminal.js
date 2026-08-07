@@ -1083,7 +1083,7 @@ export function createTerminalController({ api, demo = false, toast }) {
   requestAnimationFrame(() => {
     syncWorkbenchClass();
     fit();
-    terminal.writeln("\x1b[36mHomelab terminal\x1b[0m");
+    terminal.writeln("\x1b[36mHostDeck terminal\x1b[0m");
     terminal.writeln("Select container \x1b[1mLogs\x1b[0m / \x1b[1mContainer Shell\x1b[0m, or open an authorized \x1b[1mHost Shell\x1b[0m.");
   });
 
