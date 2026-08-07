@@ -61,7 +61,7 @@
       </button>
       <button id="theme-toggle" class="icon-button" type="button" title="Switch to light theme" aria-label="Switch to light theme" aria-pressed="false">
         <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-        <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 15.7A8.5 8.5 0 0 1 8.3 4 8.5 8.5 0 1 0 20 15.7Z"/></svg>
+        <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
       </button>
       <div id="session-identity" class="user-chip" role="group" aria-label="Authenticated Tailscale user" title="Authenticated Tailscale user">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
@@ -589,7 +589,7 @@
         <label><span>CATEGORY</span><input name="category" type="text" maxlength="40" placeholder="Uncategorized"></label>
         <label><span>TAGS <small>(comma separated)</small></span><input name="tags" type="text" maxlength="160" placeholder="ops, internal"></label>
         <label class="full"><span>DISPLAY URL OR PORT</span><input name="displayUrl" type="text" maxlength="300" placeholder="8080 or https://service.tailnet.ts.net" required></label>
-        <label><span>PROBE TYPE</span><select name="probeType"><option value="none">NONE</option><option value="http">HTTP / HTTPS</option><option value="tcp">TCP</option></select></label>
+        <label><span>PROBE TYPE</span><select name="probeType"><option value="none">NONE</option><option value="http">HTTP / HTTPS</option><option value="tcp">TCP</option><option value="dns">DNS</option></select></label>
         <label><span>PROBE ENDPOINT <small>(optional)</small></span><input name="probeUrl" type="text" maxlength="300" placeholder="https://service.tailnet.ts.net/health" autocapitalize="off" spellcheck="false"></label>
       </div>
       <p id="service-form-error" class="form-error" role="alert" hidden></p>

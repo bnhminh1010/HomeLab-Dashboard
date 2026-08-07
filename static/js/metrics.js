@@ -21,7 +21,7 @@ function chartOptions() {
       y: { display: false, min: 0, max: 100 },
     },
     plugins: { legend: { display: false }, tooltip: { enabled: false } },
-    elements: { point: { radius: 0 }, line: { borderWidth: 1.5, tension: 0.25 } },
+    elements: { point: { radius: 0 }, line: { borderWidth: 2, tension: 0.25 } },
   };
 }
 

@@ -92,14 +92,14 @@ function createChart(canvas) {
       normalized: true,
       interaction: { intersect: false, mode: "index" },
       scales: {
-        x: { grid: { display: false }, ticks: { color: colors.dim, maxTicksLimit: 8, maxRotation: 0, font: { family: "monospace", size: 9 } } },
-        y: { min: 0, max: 100, grid: { color: colors.grid }, ticks: { color: colors.dim, callback: (value) => `${value}%`, font: { family: "monospace", size: 9 } } },
+        x: { grid: { display: false }, ticks: { color: colors.dim, maxTicksLimit: 8, maxRotation: 0, font: { family: "monospace", size: 10.5 } } },
+        y: { min: 0, max: 100, grid: { display: false }, ticks: { color: colors.dim, callback: (value) => `${value}%`, font: { family: "monospace", size: 10.5 } } },
       },
       plugins: {
-        legend: { display: true, align: "end", labels: { color: colors.secondary, usePointStyle: true, boxWidth: 7, font: { family: "monospace", size: 9 } } },
+        legend: { display: true, align: "end", labels: { color: colors.secondary, usePointStyle: true, boxWidth: 7, font: { family: "monospace", size: 10.5 } } },
         tooltip: { backgroundColor: colors.overlay, borderColor: colors.tooltipBorder, borderWidth: 1, titleColor: colors.primary, bodyColor: colors.secondary, callbacks: { label: (context) => `${context.dataset.label}: ${Number(context.raw).toFixed(1)}%` } },
       },
-      elements: { point: { radius: 0, hoverRadius: 3 }, line: { borderWidth: 1.5, tension: 0.18 } },
+      elements: { point: { radius: 0, hoverRadius: 3 }, line: { borderWidth: 3, tension: 0.18 } },
     },
   });
 }

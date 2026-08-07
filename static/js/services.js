@@ -58,10 +58,22 @@ function safeProbeUrl(value) {
   if (httpUrl) return httpUrl;
   try {
     const url = new URL(String(value));
-    const port = Number(url.port);
-    if (url.protocol !== "tcp:" || !url.hostname || !url.port || !Number.isInteger(port) || port < 1 || port > 65535) return null;
-    if (url.username || url.password || url.pathname !== "" || url.search || url.hash) return null;
-    return url;
+    if (url.protocol === "tcp:") {
+      const port = Number(url.port);
+      if (!url.hostname || !url.port || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+      if (url.username || url.password || url.pathname !== "" || url.search || url.hash) return null;
+      return url;
+    }
+    if (url.protocol === "dns:") {
+      if (!url.hostname) return null;
+      if (url.username || url.password || url.hash) return null;
+      if (url.port) {
+        const port = Number(url.port);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+      }
+      return url;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -104,16 +116,17 @@ export function createServicesController({ api, toast, onChanged }) {
       displayValue = `http://${window.location.hostname}:${port}`;
     }
     const displayUrl = safeHttpUrl(displayValue);
-    const probeType = ["none", "http", "tcp"].includes(payload.probeType) ? payload.probeType : "none";
+    const probeType = ["none", "http", "tcp", "dns"].includes(payload.probeType) ? payload.probeType : "none";
     const rawProbeUrl = probeType === "none" ? "" : payload.probeUrl.trim();
     const probeUrl = rawProbeUrl ? safeProbeUrl(rawProbeUrl) : null;
     if (!payload.name.trim()) throw new Error("Service name is required.");
     const category = payload.category.trim() || "Uncategorized";
     if (category.length > 40) throw new Error("Category must be 40 characters or fewer.");
     if (!displayUrl) throw new Error("Display URL must be an absolute HTTP or HTTPS URL without credentials.");
-    if (rawProbeUrl && !probeUrl) throw new Error("Probe endpoint must be HTTP/HTTPS or tcp://host:port without credentials or paths.");
+    if (rawProbeUrl && !probeUrl) throw new Error("Probe endpoint must be HTTP/HTTPS, tcp://host:port, or dns://host/domain without credentials.");
     if (probeType === "http" && probeUrl && !["http:", "https:"].includes(probeUrl.protocol)) throw new Error("HTTP probe type requires an HTTP or HTTPS URL.");
     if (probeType === "tcp" && probeUrl?.protocol !== "tcp:") throw new Error("TCP probe type requires tcp://host:port.");
+    if (probeType === "dns" && probeUrl?.protocol !== "dns:") throw new Error("DNS probe type requires dns://server/domain.");
     return {
       name: payload.name.trim(),
       category,
@@ -372,10 +385,10 @@ export function createServicesController({ api, toast, onChanged }) {
     serviceForm.elements.category.value = service.category;
     serviceForm.elements.tags.value = service.tags.join(", ");
     serviceForm.elements.displayUrl.value = service.displayUrl;
-    const probeType = service.probeUrl.toLowerCase().startsWith("tcp:") ? "tcp" : service.probeUrl ? "http" : "none";
+    const probeType = service.probeUrl.toLowerCase().startsWith("tcp:") ? "tcp" : service.probeUrl.toLowerCase().startsWith("dns:") ? "dns" : service.probeUrl ? "http" : "none";
     serviceForm.elements.probeType.value = probeType;
     serviceForm.elements.probeUrl.value = service.probeUrl;
-    serviceForm.elements.probeUrl.placeholder = probeType === "tcp" ? "tcp://redis:6379" : "https://service.tailnet.ts.net/health";
+    serviceForm.elements.probeUrl.placeholder = probeType === "tcp" ? "tcp://redis:6379" : probeType === "dns" ? "dns://100.64.0.10/google.com" : "https://service.tailnet.ts.net/health";
     serviceTitle.textContent = "Edit service";
     serviceSubmit.textContent = "SAVE CHANGES";
     showServiceDialog(invoker);
@@ -457,6 +470,8 @@ export function createServicesController({ api, toast, onChanged }) {
   serviceForm.elements.probeType.addEventListener("change", () => {
     serviceForm.elements.probeUrl.placeholder = serviceForm.elements.probeType.value === "tcp"
       ? "tcp://redis:6379"
+      : serviceForm.elements.probeType.value === "dns"
+      ? "dns://100.64.0.10/google.com"
       : "https://service.tailnet.ts.net/health";
     if (serviceForm.elements.probeType.value === "none") serviceForm.elements.probeUrl.value = "";
   });

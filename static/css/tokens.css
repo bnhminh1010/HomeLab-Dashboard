@@ -1,3 +1,12 @@
+/* Self-hosted fonts (OFL). Zero CDN — bundled at build time via go:embed. */
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/inter-400.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 500; font-display: swap; src: url("../fonts/inter-500.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 600; font-display: swap; src: url("../fonts/inter-600.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 700; font-display: swap; src: url("../fonts/inter-700.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/jetbrains-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("../fonts/jetbrains-mono-500.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("../fonts/jetbrains-mono-600.woff2") format("woff2"); }
+
 :root,
 .theme-dark {
   /* Graphite / amber operational palette. All colour decisions live here. */
@@ -16,7 +25,7 @@
   --border-strong: #4a4a4a;
   --text-primary: #e5e1d9;
   --text-secondary: #b3afa7;
-  --text-dim: #7e7a73;
+  --text-dim: #8a867e;
   --text-inverse: #15120d;
   --text-danger: #ffb4aa;
   --text-warning: #f1d5a1;
@@ -69,17 +78,17 @@
   --bg-recess: #e8e5de;
   --surface-muted: #eeece7;
   --surface-selected: #f5e9d8;
-  --border: #d5d0c7;
+  --border: #c9c3b8;
   --border-subtle: #e2ded7;
   --border-hover: #b2874c;
   --border-strong: #aca69c;
   --text-primary: #292724;
   --text-secondary: #5e5a54;
-  --text-dim: #7d786f;
+  --text-dim: #6b675f;
   --text-inverse: #fffdf8;
   --text-danger: #9d332d;
   --text-warning: #765719;
-  --accent: #a96814;
+  --accent: #93570d;
   --accent-hover: #87510d;
   --accent-muted: #c59a60;
   --accent-soft: #f5e5cd;
