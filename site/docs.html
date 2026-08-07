@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#090909">
+  <meta name="view-transition" content="same-origin">
   <meta name="description" content="HostDeck documentation — operations guide, architecture decision records, comparison matrix, migration guide and measured benchmarks for a Tailscale-only homelab console.">
   <title>Documentation · HostDeck</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%23101010'/%3E%3Crect x='6' y='6' width='6' height='6' rx='1' fill='%23d99a3d'/%3E%3Crect x='14' y='6' width='12' height='6' rx='1' fill='%2337332d'/%3E%3Crect x='6' y='14' width='12' height='6' rx='1' fill='%2337332d'/%3E%3Crect x='20' y='14' width='6' height='6' rx='1' fill='%2355bf78'/%3E%3Crect x='6' y='22' width='6' height='4' rx='1' fill='%2337332d'/%3E%3Crect x='14' y='22' width='12' height='4' rx='1' fill='%2337332d'/%3E%3C/svg%3E">
@@ -27,7 +28,22 @@
     <a class="nav-active" href="docs.html" aria-current="page">Docs</a>
     <a class="nav-gh" href="https://github.com/bnhminh1010/homelab-dashboard" target="_blank" rel="noopener">GitHub ↗</a>
   </div>
+  <button class="nav-burger" id="nav-burger" aria-label="Open menu" aria-expanded="false" aria-controls="nav-drawer">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+  </button>
 </nav>
+
+<div class="nav-drawer" id="nav-drawer" aria-hidden="true">
+  <div class="nav-drawer-backdrop" data-drawer-close></div>
+  <div class="nav-drawer-panel" role="dialog" aria-modal="true" aria-label="Site menu">
+    <a href="index.html#features">Features</a>
+    <a href="index.html#quickstart">Quick start</a>
+    <a href="index.html#demo">Demo</a>
+    <a href="index.html#security">Security</a>
+    <a class="nav-active" href="docs.html" aria-current="page">Docs</a>
+    <a class="nav-gh" href="https://github.com/bnhminh1010/homelab-dashboard" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</div>
 
 <!-- ══════════════ PAGE HERO ══════════════ -->
 <header class="page-hero">

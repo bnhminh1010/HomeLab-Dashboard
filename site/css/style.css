@@ -91,6 +91,50 @@ code, pre, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-
 .nav-links .nav-gh { color: var(--accent); }
 .nav-links .nav-gh:hover { color: var(--accent-hover); }
 
+/* Mobile nav burger + slide-in drawer (visible ≤900px) */
+.nav-burger {
+  display: none; align-items: center; justify-content: center;
+  width: 38px; height: 38px; padding: 0;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: transparent; color: var(--text-secondary);
+  cursor: pointer; transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.nav-burger:hover { color: var(--text-primary); border-color: var(--line-strong); }
+.nav-drawer {
+  position: fixed; inset: 0; z-index: 1000;
+  visibility: hidden; pointer-events: none;
+}
+.nav-drawer.is-open { visibility: visible; pointer-events: auto; }
+.nav-drawer-backdrop {
+  position: absolute; inset: 0;
+  background: transparent;
+  opacity: 1; transition: none;
+}
+.nav-drawer-panel {
+  position: absolute; top: 72px; right: 14px;
+  width: min(72vw, 264px);
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px;
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .5);
+  opacity: 0; transform: translateY(-8px);
+  transition: opacity 180ms var(--ease), transform 180ms var(--ease);
+}
+.nav-drawer.is-open .nav-drawer-panel { opacity: 1; transform: translateY(0); }
+.nav-drawer-panel a {
+  color: var(--text-secondary); font-size: 15px;
+  padding: 12px 10px; border-radius: 8px;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.nav-drawer-panel a:hover { color: var(--text-primary); background: var(--bg-raise); }
+.nav-drawer-panel .nav-active { color: var(--text-primary); }
+.nav-drawer-panel .nav-gh { color: var(--accent); }
+.nav-burger:focus-visible, .nav-drawer-panel a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
 /* ─── HERO (left-biased, two columns) ─── */
 .hero {
   position: relative; min-height: 100dvh;
@@ -262,6 +306,30 @@ code, pre, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-
 @media (prefers-reduced-motion: reduce) {
   .hero-inner, .hero-shot { animation: none; }
   html { scroll-behavior: auto; }
+  .nav-drawer-backdrop, .nav-drawer-panel { transition: none; }
+}
+
+/* ─── Cross-document view transitions (progressive enhancement) ───
+   Meta tag in each page head: <meta name="view-transition" content="same-origin">.
+   Unsupported browsers: normal navigation, no visual difference. */
+@supports (view-transition-name: root) {
+  ::view-transition-old(root) {
+    animation: vt-out 300ms var(--ease) both;
+  }
+  ::view-transition-new(root) {
+    animation: vt-in 320ms var(--ease) both;
+  }
+}
+@keyframes vt-out {
+  to { opacity: 0; transform: translateY(-24px); }
+}
+@keyframes vt-in {
+  from { opacity: 0; transform: translateY(24px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root) {
+    animation-duration: 0.01ms !important;
+  }
 }
 
 /* ─── HOW IT WORKS ─── */
@@ -357,7 +425,8 @@ code, pre, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-
   .facts-grid { grid-template-columns: 1fr; gap: 20px; }
   .sec-grid { grid-template-columns: 1fr; }
   .qs-grid { grid-template-columns: 1fr; }
-  .nav-links a:not(.nav-gh) { display: none; }
+  .nav-links { display: none; }
+  .nav-burger { display: flex; }
 }
 @media (max-width: 480px) {
   section, .demo, .shots, .features, .security, .quickstart { padding: 72px 16px; }

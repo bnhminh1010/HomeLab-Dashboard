@@ -20,6 +20,41 @@
     window.addEventListener("scroll", onScroll, { passive: true });
   }
 
+  // ── mobile nav drawer (hamburger → slide-in) ──
+  const burger = document.getElementById("nav-burger");
+  const drawer = document.getElementById("nav-drawer");
+  if (burger && drawer) {
+    const panel = drawer.querySelector(".nav-drawer-panel");
+    const focusables = () => [...panel.querySelectorAll("a, button")].filter((el) => el.offsetParent !== null);
+    const setOpen = (open) => {
+      drawer.classList.toggle("is-open", open);
+      drawer.setAttribute("aria-hidden", String(!open));
+      burger.setAttribute("aria-expanded", String(open));
+      burger.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+      if (open) {
+        const first = focusables()[0];
+        if (first) first.focus();
+      } else {
+        burger.focus();
+      }
+    };
+    burger.addEventListener("click", () => setOpen(!drawer.classList.contains("is-open")));
+    drawer.addEventListener("click", (e) => {
+      if (e.target.closest("[data-drawer-close]")) setOpen(false);
+    });
+    drawer.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => setOpen(false)));
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && drawer.classList.contains("is-open")) setOpen(false);
+      if (e.key === "Tab" && drawer.classList.contains("is-open")) {
+        const f = focusables();
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
+  }
+
   // ── KPI count-up (one-shot when visible) ──
   const kpiCells = document.querySelectorAll(".kpi-num[data-count]");
   if (kpiCells.length) {
@@ -52,9 +87,9 @@
   const typer = document.getElementById("typer");
   if (typer) {
     const lines = [
-      { p: "$", t: "curl -fsSL https://homelab.sh/install | sh" },
-      { p: "$", t: "sudo systemctl start homelab-dashboard" },
-      { p: "→", t: "https://homelab-01.tailnet.ts.net" },
+      { p: "$", t: "curl -fsSL https://github.com/bnhminh1010/homelab-dashboard/releases/latest/download/install.sh | bash" },
+      { p: "$", t: "podman compose up -d" },
+      { p: "→", t: "https://homelab-dashboard.tailnet.ts.net" },
     ];
     let li = 0, ci = 0, phase = "type";
     const typeIo = new IntersectionObserver((entries) => {
