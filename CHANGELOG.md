@@ -6,21 +6,9 @@ All notable changes to this project are documented in this file, following [Keep
 
 ### Added
 
-- Landing page: full marketing site at the GitHub Pages root (`site/`) — hero, live demo, screenshots, features, comparison matrix, security, quickstart, FAQ, docs index
-- Public demo installer and TCP probes so anonymous visitors can try the console without an account
-- Docs index block on the landing page linking to operations, ADRs, comparison, benchmarks and migration guide
+- *(nothing yet)*
 
-### Changed
-
-- Landing: floating pill navigation, anti-slop pass (asymmetric bento feature grid, no decorative eyebrows, hero entrance animation only)
-- Landing: screenshots trimmed from 9 to 4 (Services, Topology, Logs-regex, Terminal)
-- Landing: added "How it works" architecture section (dashboard / Unix-socket agent / outbound-only WSS nodes)
-
-### Fixed
-
-- Landing: responsive layout on 320–1440px viewports (feature grid mobile selector, demo bar wrap, comparison table scroll)
-
-## [0.1.0] - 2026-07
+## [0.1.0] - 2026-08-07
 
 First public cut: Tailscale-only operations console in Go, with no inbound ports.
 
@@ -37,6 +25,7 @@ First public cut: Tailscale-only operations console in Go, with no inbound ports
 - **Platform**: multi-arch container images published to GHCR and Docker Hub
 - **Adoption**: public demo mode (`?demo=1`) with neutralized identity, demo installer, TCP probes
 - **Docs**: operations guide, architecture decision records, comparison matrix, migration guide, measured benchmarks
+- **Storefront**: HostDeck landing page with live demo, comparison matrix, security, quickstart with copyable installer command, docs index; custom domain `hostdeck.thinkai.id.vn`
 
 ### Changed
 
