@@ -11,3 +11,5 @@ bin/
 .omc/
 Docs/
 secrets/
+.hermes/
+assets/

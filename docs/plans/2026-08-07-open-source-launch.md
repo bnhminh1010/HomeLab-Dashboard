@@ -22,7 +22,7 @@
 | **G3** | **README demo link trỏ Pages cũ** | dòng 20: `bnhminh1010.github.io/HomeLab-Dashboard/` — giờ có custom domain | P1 |
 | **G4** | **Số liệu Wedge 2 sai benchmark** | GTM strategy nói "30MB RAM" + "6 containers 2GB" — benchmark thật: dashboard 40.9MB + agent 8.6MB ≈ 50MB RSS; "6 containers 2GB" không nguồn | P1 — anti-slop, dùng số đo được |
 | **G5** | **GitHub Discussions chưa bật** | API: `has_discussions: False` — strategy yêu cầu community hub | P1 |
-| **G6** | **Demo GIF chưa verify IP leak** | `assets/screenshots/demo.gif` (411KB) — chưa extract frame kiểm tra theo 4f skill | P1 |
+| **G6** | **Demo GIF chưa verify IP leak** | `site/screenshots/demo.gif` (411KB) — chưa extract frame kiểm tra theo 4f skill (đã verify Task 2.1: 3 frame sạch IP) | ✅ xong |
 | **G7** | Landing chưa link thẳng install (chỉ copy button) | Quickstart có nút Copy nhưng hero/CTA không có `curl | bash` inline | P2 |
 
 ## Plan

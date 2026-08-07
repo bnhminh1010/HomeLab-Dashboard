@@ -19,7 +19,7 @@
 
 <p align="center"><a href="https://hostdeck.thinkai.id.vn/app/?demo=1">Open the public demo</a> · <a href="https://github.com/bnhminh1010/HomeLab-Dashboard/releases">Download a release</a></p>
 
-<p align="center"><img alt="HostDeck live demo" src="assets/screenshots/demo.gif" width="820"></p>
+<p align="center"><img alt="HostDeck live demo" src="site/screenshots/demo.gif" width="820"></p>
 
 > [!NOTE]
 > This is an intentionally small operations console for 1–5 nodes—not a
@@ -32,23 +32,23 @@
 
 ## Screenshots
 
-![HostDeck overview — live health, host metrics and 24-hour trend](assets/screenshots/overview.png)
+![HostDeck overview — live health, host metrics and 24-hour trend](site/screenshots/overview.png)
 
 | Services with SLO error budgets | Container inventory with logs & shells |
 |---|---|
-| ![Services workspace with per-service SLO error budgets](assets/screenshots/services.png) | ![Container inventory with logs and interactive shells](assets/screenshots/containers.png) |
+| ![Services workspace with per-service SLO error budgets](site/screenshots/services.png) | ![Container inventory with logs and interactive shells](site/screenshots/containers.png) |
 
 | 90-day history and operations timeline | Regex log search with result navigation |
 |---|---|
-| ![History workspace with 90-day charts and operations timeline](assets/screenshots/history.png) | ![Logs workspace with regular-expression search and result navigation](assets/screenshots/logs-regex.png) |
+| ![History workspace with 90-day charts and operations timeline](site/screenshots/history.png) | ![Logs workspace with regular-expression search and result navigation](site/screenshots/logs-regex.png) |
 
 | Service dependency topology | Host shell inside the console |
 |---|---|
-| ![Service topology workspace showing curated dependencies](assets/screenshots/topology.png) | ![Terminal workbench with an interactive host shell](assets/screenshots/terminal.png) |
+| ![Service topology workspace showing curated dependencies](site/screenshots/topology.png) | ![Terminal workbench with an interactive host shell](site/screenshots/terminal.png) |
 
 | Alert center with ack/silence | Light theme |
 |---|---|
-| ![Alert center with incidents, acknowledge and silence controls](assets/screenshots/alerts.png) | ![The same graphite workspace in the optional light theme](assets/screenshots/overview-light.png) |
+| ![Alert center with incidents, acknowledge and silence controls](site/screenshots/alerts.png) | ![The same graphite workspace in the optional light theme](site/screenshots/overview-light.png) |
 
 ## Why this is different
 
